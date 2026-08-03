@@ -51,7 +51,7 @@ env:
 
 jobs:
   stage-evidence:
-    if: github.repository == 'jwoodbury11/Herd'
+    if: github.repository == 'jwoodbury11/Herd' || github.repository == 'jwoodbury11/herd-privacy-source'
     environment: privacy-release
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -234,7 +234,7 @@ jobs:
           compression-level: 0
 
   production-artifact-preflight:
-    if: github.repository == 'jwoodbury11/Herd' && inputs.release_stage == 'production'
+    if: (github.repository == 'jwoodbury11/Herd' || github.repository == 'jwoodbury11/herd-privacy-source') && inputs.release_stage == 'production'
     needs: stage-evidence
     runs-on: macos-26
     timeout-minutes: 30
