@@ -7,11 +7,49 @@ import {
   assertReleaseContinuity,
   ReleaseMonitorCoordinator,
   runChecks,
+  sitesAuthorizedFetch,
 } from "../src/worker.mjs";
 
 const LOG_ID = "herd-response-log-v1";
 const LOG_HEAD_DOMAIN = "HERD-TRANSPARENCY-LOG-HEAD-SIGNATURE-V1";
 const GENESIS_HASH = Buffer.alloc(32).toString("base64url");
+
+test("Sites bypass authorization is confined to the exact configured web origin", async () => {
+  const calls = [];
+  const token = "s".repeat(48);
+  const wrapped = sitesAuthorizedFetch(
+    { SITES_BYPASS_BEARER_TOKEN: token },
+    { expectedWebOrigin: "https://app.herdprivacy.com" },
+    async (input, init) => {
+      calls.push({ url: String(input), headers: new Headers(init?.headers) });
+      return new Response("ok");
+    },
+  );
+
+  await wrapped("https://app.herdprivacy.com/.well-known/herd-release.json", {
+    headers: { accept: "application/json" },
+  });
+  await wrapped("https://storage.googleapis.com/herd-release-evidence/release.json", {
+    headers: { accept: "application/json" },
+  });
+
+  assert.equal(calls[0].headers.get("OAI-Sites-Authorization"), `Bearer ${token}`);
+  assert.equal(calls[0].headers.get("accept"), "application/json");
+  assert.equal(calls[1].headers.get("OAI-Sites-Authorization"), null);
+  assert.throws(
+    () => sitesAuthorizedFetch(
+      { SITES_BYPASS_BEARER_TOKEN: "short" },
+      { expectedWebOrigin: "https://app.herdprivacy.com" },
+    ),
+    /at least 32 characters/u,
+  );
+  assert.throws(
+    () => wrapped("https://app.herdprivacy.com/assets/manifest.json", {
+      headers: { "OAI-Sites-Authorization": "Bearer caller-controlled" },
+    }),
+    /reserved/u,
+  );
+});
 
 function logEntry(index, previousEntryHash, entryHash, keyPair) {
   const unsignedHead = {

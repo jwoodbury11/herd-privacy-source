@@ -27,7 +27,11 @@ evaluator-key epoch fingerprint. It rejects a skipped predecessor, a changed
 image/key tuple under an existing epoch ID, an incomplete three-key epoch
 rotation, and any change to the lifetime-global response-transparency key.
 
-Configure `TARGETS_JSON` as a Worker secret. Both `responseTransparency` and
+Configure `TARGETS_JSON` as a Worker secret. For a Sites origin protected by
+Sign in with ChatGPT, also configure `SITES_BYPASS_BEARER_TOKEN` as a Worker
+secret. The monitor sends it only to the target's exact `expectedWebOrigin`;
+evidence, Rekor, and evaluator requests never receive the Sites credential.
+Both `responseTransparency` and
 `evaluatorAttestation` are mandatory when `requireProduction` is true:
 
 ```json

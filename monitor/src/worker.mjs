@@ -45,6 +45,25 @@ function authorized(request, env) {
   return difference === 0;
 }
 
+export function sitesAuthorizedFetch(env, target, fetchImpl = fetch) {
+  const token = env.SITES_BYPASS_BEARER_TOKEN;
+  if (token === undefined || token === "") return fetchImpl;
+  if (typeof token !== "string" || token.length < 32) {
+    throw new TypeError("SITES_BYPASS_BEARER_TOKEN must be at least 32 characters when configured.");
+  }
+  const authorizedOrigin = new URL(target.expectedWebOrigin).origin;
+  return (input, init = {}) => {
+    const requestUrl = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+    if (requestUrl.origin !== authorizedOrigin) return fetchImpl(input, init);
+    const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
+    if (headers.has("OAI-Sites-Authorization")) {
+      throw new TypeError("OAI-Sites-Authorization is reserved for the monitor's origin-scoped Sites credential.");
+    }
+    headers.set("OAI-Sites-Authorization", `Bearer ${token}`);
+    return fetchImpl(input, { ...init, headers });
+  };
+}
+
 function json(value, status = 200) {
   return new Response(canonicalJson(value), {
     status,
@@ -273,6 +292,7 @@ export async function runChecks(env, store) {
       try {
         const prior = validatePriorWitness(await store.getWitness(targetName), targetName);
         const result = await verifyTarget(target, {
+          fetchImpl: sitesAuthorizedFetch(env, target),
           previousResponseTransparency: prior?.responseTransparency ?? null,
         });
         if (prior) {
