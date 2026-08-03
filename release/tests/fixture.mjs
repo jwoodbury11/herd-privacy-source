@@ -186,6 +186,13 @@ export function makeReleaseFixture({
           logIndex: "1234",
           integratedTime: String(sourceDateEpoch),
           inclusionPromise: { signedEntryTimestamp: Buffer.alloc(64, 6).toString("base64") },
+          inclusionProof: {
+            logIndex: "34",
+            treeSize: "35",
+            rootHash: Buffer.alloc(32, 7).toString("base64"),
+            hashes: [Buffer.alloc(32, 8).toString("base64")],
+            checkpoint: { envelope: "rekor.example - 1\n35\ncheckpoint\n" },
+          },
           canonicalizedBody: Buffer.from(
             JSON.stringify({ statementSha256: provenanceStatementArtifact.sha256 }),
           ).toString("base64"),

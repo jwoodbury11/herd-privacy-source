@@ -114,7 +114,7 @@ function canonicalBase64(value, label, { minimumBytes = 1, exactBytes } = {}) {
   return bytes;
 }
 
-function validateInclusionMaterial(entry, logIndex) {
+function validateInclusionMaterial(entry) {
   const signedEntryTimestamp = entry.inclusionPromise?.signedEntryTimestamp;
   const inclusionProof = entry.inclusionProof;
   if (signedEntryTimestamp !== undefined) {
@@ -135,9 +135,9 @@ function validateInclusionMaterial(entry, logIndex) {
         : inclusionProof?.treeSize;
     if (
       !Number.isSafeInteger(proofIndex) ||
-      proofIndex !== logIndex ||
+      proofIndex < 0 ||
       !Number.isSafeInteger(treeSize) ||
-      treeSize <= logIndex ||
+      treeSize <= proofIndex ||
       !Array.isArray(inclusionProof.hashes) ||
       typeof inclusionProof.checkpoint?.envelope !== "string" ||
       inclusionProof.checkpoint.envelope.length === 0
@@ -228,7 +228,7 @@ function validateBundle(bundle, bundleBytes, statementSha256, transparency) {
   canonicalBase64(bundle.messageSignature.signature, "Sigstore message signature", {
     minimumBytes: 32,
   });
-  validateInclusionMaterial(entry, logIndex);
+  validateInclusionMaterial(entry);
   const canonicalBody = canonicalBase64(entry.canonicalizedBody, "Sigstore Rekor body");
   if (
     !canonicalBody.toString("utf8").includes(statementSha256)
