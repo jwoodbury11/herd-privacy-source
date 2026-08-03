@@ -752,6 +752,12 @@ test("production config generation and artifact preflight bind web and iOS build
   const webArchive = Buffer.concat([
     tarEntry("web-deployment/config.js", webBundle, 0o644, manifestInput.sourceDateEpoch),
     tarEntry(
+      "web-deployment/url-parser.js",
+      Buffer.from('const relativeUrlBase = "https://localhost";\n'),
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
+    tarEntry(
       "web-deployment/HERD-RELEASE-CONFIG-SHA256",
       Buffer.from(`${generated.configurationSha256}\n`),
       0o644,

@@ -300,7 +300,9 @@ export function buildProductionConfig(
     CFBundleShortVersionString: iosVersion,
     CFBundleVersion: iosBuild,
     ...Object.fromEntries(
-      Object.entries(iosBuildSettings).filter(([name]) => name.startsWith("HERD_")),
+      Object.entries(iosBuildSettings).filter(
+        ([name]) => name.startsWith("HERD_") && name !== "HERD_ASSOCIATED_DOMAIN",
+      ),
     ),
   };
   const schedulerRuntimeVariables = {

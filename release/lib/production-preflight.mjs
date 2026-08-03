@@ -15,7 +15,7 @@ const FORBIDDEN_BUILD_PATTERNS = [
   { pattern: /jimmy4\.chatgpt\.site/iu, label: "preview deployment URL" },
   {
     pattern:
-      /https:\/\/(?:[^\s"'`/]+\.)?(?:localhost|[^\s"'`/]*(?:preview|staging|testing|sandbox)[^\s"'`/]*)/iu,
+      /https:\/\/(?:[^\s"'`/]+\.)?[^\s"'`/]*(?:preview|staging|testing|sandbox)[^\s"'`/]*/iu,
     label: "non-production URL",
   },
 ];
@@ -132,7 +132,16 @@ function requiredWebValues(result) {
   return [
     result.configurationSha256,
     ...Object.values(result.webPublicEnvironment),
-  ].map((value) => String(value).replaceAll("\n", "\\n"));
+  ].map((value) => {
+    const text = String(value);
+    const jsonStringContents = JSON.stringify(text).slice(1, -1);
+    return [...new Set([
+      text,
+      text.replaceAll("\n", "\\n"),
+      jsonStringContents,
+      JSON.stringify(jsonStringContents).slice(1, -1),
+    ])];
+  });
 }
 
 function verifyWebArchive(archive, result) {
@@ -163,8 +172,8 @@ function verifyWebArchive(archive, result) {
   for (const { pattern, label } of FORBIDDEN_BUILD_PATTERNS) {
     if (pattern.test(searchable)) throw new TypeError(`Web archive contains a ${label}.`);
   }
-  for (const required of requiredWebValues(result)) {
-    if (!searchable.includes(required)) {
+  for (const representations of requiredWebValues(result)) {
+    if (!representations.some((required) => searchable.includes(required))) {
       throw new TypeError("Web archive does not contain every public value derived from the signed manifest.");
     }
   }
