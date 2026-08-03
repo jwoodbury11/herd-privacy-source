@@ -84,9 +84,6 @@ jobs:
             -o "$response"
           node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const exact=value.workflow_runs?.filter((run)=>run.head_sha===process.env.GITHUB_SHA&&run.head_branch==="main"&&run.event==="push"&&run.conclusion==="success"&&run.path===".github/workflows/privacy-ci.yml"); if (!exact?.length) throw new Error("The exact main commit has no successful hosted Privacy boundary CI push run.");' "$response"
 
-      - name: Install the locked monitor dependencies without lifecycle scripts
-        run: npm ci --prefix monitor --ignore-scripts
-
       - name: Require and decode protected release inputs
         env:
           RELEASE_INPUT_B64: ${{ secrets.HERD_RELEASE_INPUT_JSON_B64 }}
@@ -114,13 +111,6 @@ jobs:
           node -e 'const fs=require("node:fs"); const input=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/herd-release-secrets/release-input.json`,"utf8")); if (input.releaseId !== process.env.AUTHORIZED_RELEASE_ID || input.releaseStage !== process.env.AUTHORIZED_RELEASE_STAGE || String(input.sourceDateEpoch) !== process.env.AUTHORIZED_SOURCE_DATE_EPOCH || input.source?.revision !== process.env.GITHUB_SHA) throw new Error("Protected release input does not match the authorized workflow revision and inputs.");'
           echo "SOURCE_DATE_EPOCH=$AUTHORIZED_SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
 
-      - name: Verify pinned release tools
-        run: |
-          node release/verify-toolchains.mjs --spec release/toolchains.json
-          npm --prefix monitor run check
-          node --test release/tests/*.test.mjs public-source/tests/*.test.mjs monitor/tests/*.test.mjs security/tests/*.test.mjs
-          node scripts/verify-data-contract.mjs
-
       - name: Prove evaluator epoch reuse or a zero-unresolved-policy rotation
         if: inputs.release_stage == 'production'
         env:
@@ -147,6 +137,19 @@ jobs:
           cmp "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.manifest.json"
           node public-source/verify-export.mjs --archive "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --policy public-source/export-policy.json
           rm "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.tar" "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.manifest.json"
+
+      # The public archive intentionally excludes repository metadata such as
+      # .gitignore. Reproduce it before npm creates ignored dependency trees so
+      # --require-clean observes the authorized checkout exactly as committed.
+      - name: Install the locked monitor dependencies without lifecycle scripts
+        run: npm ci --prefix monitor --ignore-scripts
+
+      - name: Verify pinned release tools
+        run: |
+          node release/verify-toolchains.mjs --spec release/toolchains.json
+          npm --prefix monitor run check
+          node --test release/tests/*.test.mjs public-source/tests/*.test.mjs monitor/tests/*.test.mjs security/tests/*.test.mjs
+          node scripts/verify-data-contract.mjs
 
       - name: Generate the SPDX source and dependency SBOM
         run: node release/generate-sbom.mjs --source-manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --source-root . --output "$RUNNER_TEMP/herd-release-stage/herd.spdx.json" --name "Herd ${{ inputs.release_id }}" invitee-web/package-lock.json herd-legal/package-lock.json evaluator-service/package-lock.json scheduler-service/package-lock.json monitor/package-lock.json
