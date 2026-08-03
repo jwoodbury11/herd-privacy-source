@@ -299,6 +299,32 @@ test("authenticated test-only QA reset is atomic, exhaustive, repeatable, and re
     1,
   );
 
+  await database.prepare(
+    `CREATE TRIGGER qa_reset_forced_failure
+     BEFORE DELETE ON challenges
+     BEGIN
+       SELECT RAISE(ABORT, 'qa_reset_forced_failure');
+     END`,
+  ).run();
+  const failed = await resetRequest(miniflare);
+  assert.equal(failed.status, 500);
+  assert.equal((await failed.json()).error.code, "internal_error");
+  for (const table of QA_TABLES) {
+    const row = await database
+      .prepare(`SELECT COUNT(*) AS count FROM ${table}`)
+      .first();
+    assert.equal(row.count, 1, `${table} deletion must roll back`);
+  }
+  await assert.rejects(
+    database.prepare("DELETE FROM evaluator_epoch_state").run(),
+    /evaluator_epoch_state_is_immutable/u,
+  );
+  await assert.rejects(
+    database.prepare("DELETE FROM evaluator_epoch_transitions").run(),
+    /evaluator_epoch_transition_is_immutable/u,
+  );
+  await database.exec("DROP TRIGGER qa_reset_forced_failure");
+
   const response = await resetRequest(miniflare);
   assert.equal(response.status, 204);
   await assertQaTablesEmpty(database);
@@ -335,16 +361,19 @@ test("authenticated test-only QA reset is atomic, exhaustive, repeatable, and re
 });
 
 test("QA reset endpoint is absent outside the exact test safety profile", async (t) => {
-  const { miniflare, database } = await createHarness({
-    HERD_DEPLOYMENT_PROFILE: "production",
-  });
-  t.after(() => miniflare.dispose());
-  await seedAllQaTables(database);
-  const response = await resetRequest(miniflare);
-  assert.equal(response.status, 404);
-  assert.equal((await response.json()).error.code, "not_found");
-  assert.equal(
-    (await database.prepare("SELECT COUNT(*) AS count FROM users").first()).count,
-    1,
-  );
+  for (const deploymentProfile of ["production", ""]) {
+    const { miniflare, database } = await createHarness({
+      HERD_DEPLOYMENT_PROFILE: deploymentProfile,
+      HERD_SCHEDULER_TOKEN: "",
+    });
+    t.after(() => miniflare.dispose());
+    await seedAllQaTables(database);
+    const response = await resetRequest(miniflare);
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, "not_found");
+    assert.equal(
+      (await database.prepare("SELECT COUNT(*) AS count FROM users").first()).count,
+      1,
+    );
+  }
 });

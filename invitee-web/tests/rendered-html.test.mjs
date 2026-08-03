@@ -50,6 +50,68 @@ test("production universal links fail closed without the signed app identifier",
   assert.equal((await response.json()).error?.code, "server_misconfigured");
 });
 
+test("publishes the exact bounded release pointer from durable evidence", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const releaseId = "2026.08.03.2";
+  const pointer = JSON.stringify({ schemaVersion: 1, releaseId, manifest: {} });
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === "storage.googleapis.com") {
+      assert.equal(options?.redirect, "error");
+      return new Response(pointer, { headers: { "content-type": "application/json" } });
+    }
+    return originalFetch(input, options);
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const response = await render("/.well-known/herd-release.json", {
+    HERD_DEPLOYMENT_PROFILE: "production",
+    HERD_ARTIFACT_RELEASE_ID: releaseId,
+    HERD_RELEASE_POINTER_URL:
+      "https://storage.googleapis.com/herd-release-evidence/releases/2026.08.03.2/herd-release.json",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(await response.text(), pointer);
+  assert.match(response.headers.get("content-type") ?? "", /^application\/json\b/iu);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+});
+
+test("release discovery fails closed in production and stays absent from QA", async () => {
+  const production = await render("/.well-known/herd-release.json", {
+    HERD_DEPLOYMENT_PROFILE: "production",
+    HERD_ARTIFACT_RELEASE_ID: "2026.08.03.2",
+  });
+  assert.equal(production.status, 503);
+  const qa = await render("/.well-known/herd-release.json", {
+    HERD_DEPLOYMENT_PROFILE: "test",
+  });
+  assert.equal(qa.status, 404);
+});
+
+test("publishes the exact client asset manifest for independent monitoring", async () => {
+  const [privateManifest, publicManifest] = await Promise.all([
+    readFile(new URL("../dist/client/.vite/manifest.json", import.meta.url)),
+    readFile(new URL("../dist/client/assets/manifest.json", import.meta.url)),
+  ]);
+  assert.deepEqual(publicManifest, privateManifest);
+});
+
+test("publishes a canonical static entry document for independent monitoring", async () => {
+  const [source, deployed] = await Promise.all([
+    readFile(new URL("../public/assets/herd-entry.json", import.meta.url)),
+    readFile(new URL("../dist/client/assets/herd-entry.json", import.meta.url)),
+  ]);
+
+  assert.deepEqual(deployed, source);
+  assert.deepEqual(JSON.parse(deployed.toString("utf8")), {
+    applicationPath: "/",
+    name: "Herd private invitations",
+    publicOrigin: "https://app.herdprivacy.com",
+    schemaVersion: 1,
+  });
+});
+
 test("publishes the messaging terms, privacy policy, and carrier proof", async () => {
   const responses = await Promise.all([
     render("/terms"),
@@ -109,6 +171,26 @@ test("root is the normal Herd phone sign-in", async () => {
   assert.doesNotMatch(html, /Poker night|Prototype preview|functional engineering prototype|test sandbox|testing code|sample data/i);
   assert.match(html, /https:\/\/app\.herd\.test\/og\.png/);
   assert.match(html, /href="\/site\.webmanifest"/);
+});
+
+test("software-evaluator QA builds carry an unavoidable non-production banner", async () => {
+  const [page, css, verifier] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(
+      new URL("../lib/privacy/evaluator-attestation.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  assert.match(page, /softwareQaEvaluatorModeEnabled/u);
+  assert.match(page, /QA · SOFTWARE EVALUATOR · NOT PRODUCTION/u);
+  assert.match(page, /softwareQaEvaluator \? " software-qa-mode"/u);
+  assert.match(css, /\.software-qa-banner\s*\{/u);
+  assert.match(css, /\.app-shell\.software-qa-mode \.screen-stack/u);
+  assert.match(
+    verifier,
+    /NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE === "test"[\s\S]*NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR === "true"/u,
+  );
 });
 
 test("the web and iPhone shared screens consume one experience contract", async () => {
@@ -255,14 +337,14 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(page, /PRIVACY_EXPERIENCE\.builtTitle/);
   assert.match(page, /PRIVACY_EXPERIENCE\.sections\.map/);
   assert.match(experience.privacy.navigationTitle, /Prove it to me/);
-  assert.match(experience.privacy.builtTitle, /private-response system is complete/i);
+  assert.match(experience.privacy.builtTitle, /Encrypted before upload/i);
   assert.match(experience.privacy.sections[1].paragraphs[0], /account-linked, not anonymous to Herd/i);
   assert.match(experience.privacy.sections[3].paragraphs[0], /A delivered client can change its code and this explanation together/i);
-  assert.match(experience.privacy.statusTitle, /Technically complete/);
-  assert.match(experience.privacy.pendingTitle, /External proof is not active yet/);
-  assert.match(experience.privacy.pendingBody, /approved release.*signed manifest.*hardware-backed evaluator/i);
-  assert.match(experience.privacy.sections[2].paragraphs[1], /complete separate-key, hardware-attested Confidential Space deployment/i);
-  assert.match(experience.privacy.sections[2].paragraphs[1], /not called production until a published release proves/i);
+  assert.match(experience.privacy.statusTitle, /Launch controls complete/);
+  assert.match(experience.privacy.pendingTitle, /Self-operated and publicly verifiable/);
+  assert.match(experience.privacy.pendingBody, /disclosed self-custody, not independent governance/i);
+  assert.match(experience.privacy.sections[2].paragraphs[1], /hardware-attested Confidential Space image/i);
+  assert.match(experience.privacy.sections[3].paragraphs[1], /not an independent audit/i);
   assert.match(experience.privacy.sections[0].paragraphs[1], /Values displayed by the app are not independent proof/i);
   assert.doesNotMatch(JSON.stringify(experience.privacy), /evaluator .* not deployed yet/i);
   assert.doesNotMatch(page, /anonymous submission|impossible to determine|this website proves|independently verified today/i);

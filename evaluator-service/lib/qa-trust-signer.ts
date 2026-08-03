@@ -1,4 +1,5 @@
 import {
+  EvaluatorHttpError,
   loadConfig as loadEvaluatorConfig,
   validateCanonicalPolicyDocumentForSigning,
   type EvaluatorBindings,
@@ -19,8 +20,6 @@ const HASH_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const encoder = new TextEncoder();
-
-type Purpose = "policy" | "transparency";
 
 type SignerConfig = {
   token: string;
@@ -55,7 +54,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function failure(error: unknown): Response {
-  if (error instanceof SignerError) {
+  if (error instanceof SignerError || error instanceof EvaluatorHttpError) {
     return json({ error: { code: error.code } }, error.status);
   }
   return json({ error: { code: "service_unavailable" } }, 503);
@@ -365,29 +364,58 @@ async function sign(
   return encodeBase64Url(signature);
 }
 
-function canonicalPolicyPayload(value: unknown): string {
-  if (typeof value !== "string" || value.length < 2 || value.length > 60 * 1024) {
-    invalidRequest();
-  }
-  let parsed: unknown;
+async function responseAuthorizationIsValid(receipt: {
+  protocolVersion: number;
+  eventId: string;
+  inviteeId: string;
+  policyHash: string;
+  accountKeyEpochId: string;
+  revision: number;
+  envelopeId: string;
+  ciphertextHash: string;
+  responseSigningPublicKey: string;
+  responseSignature: string;
+}): Promise<boolean> {
+  const canonicalDocument = JSON.stringify({
+    protocolVersion: receipt.protocolVersion,
+    eventId: receipt.eventId,
+    inviteeId: receipt.inviteeId,
+    policyHash: receipt.policyHash,
+    accountKeyEpochId: receipt.accountKeyEpochId,
+    revision: receipt.revision,
+    envelopeId: receipt.envelopeId,
+    ciphertextHash: receipt.ciphertextHash,
+    responseSigningPublicKey: receipt.responseSigningPublicKey,
+  });
   try {
-    parsed = JSON.parse(value);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      ownedArrayBuffer(decodeBase64Url(receipt.responseSigningPublicKey)),
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
+    return crypto.subtle.verify(
+      { name: "Ed25519" },
+      key,
+      ownedArrayBuffer(decodeBase64Url(receipt.responseSignature)),
+      ownedArrayBuffer(
+        encoder.encode(
+          `${RESPONSE_AUTHORIZATION_DOMAIN}\0${canonicalDocument}`,
+        ),
+      ),
+    );
   } catch {
-    invalidRequest();
+    return false;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    invalidRequest();
-  }
-  if (JSON.stringify(parsed) !== value) invalidRequest();
-  return value;
 }
 
-function canonicalReceipt(value: unknown, signingKeyId: string): {
+async function canonicalReceipt(value: unknown, signingKeyId: string): Promise<{
   canonicalPayload: string;
   logIndex: number;
   entryHash: string;
   generatedAt: string;
-} {
+}> {
   if (typeof value !== "string" || value.length < 2 || value.length > 60 * 1024) {
     invalidRequest();
   }
@@ -415,7 +443,7 @@ function canonicalReceipt(value: unknown, signingKeyId: string): {
     "committedAt",
     "signingKeyId",
   ]);
-  const logIndex = canonicalPositiveInteger(receipt.logIndex);
+  const logIndex = canonicalPositiveInteger(receipt.logIndex, MAXIMUM_LOG_INDEX);
   const normalized = {
     protocolVersion: 1,
     logId: LOG_ID,
@@ -427,18 +455,46 @@ function canonicalReceipt(value: unknown, signingKeyId: string): {
     inviteeId: canonicalUuid(receipt.inviteeId),
     policyHash: canonicalHash(receipt.policyHash),
     accountKeyEpochId: canonicalUuid(receipt.accountKeyEpochId),
-    revision: canonicalPositiveInteger(receipt.revision),
+    revision: canonicalPositiveInteger(
+      receipt.revision,
+      MAXIMUM_RESPONSE_REVISION,
+    ),
     ciphertextHash: canonicalHash(receipt.ciphertextHash),
     responseSigningPublicKey: canonicalBytes(receipt.responseSigningPublicKey, 32),
     responseSignature: canonicalBytes(receipt.responseSignature, 64),
     committedAt: canonicalTimestamp(receipt.committedAt),
     signingKeyId,
   };
+  const genesisHash = encodeBase64Url(new Uint8Array(32));
   if (
     receipt.protocolVersion !== 1 ||
     receipt.logId !== LOG_ID ||
     receipt.signingKeyId !== signingKeyId ||
-    JSON.stringify(normalized) !== value
+    (logIndex === 1) !== (normalized.previousEntryHash === genesisHash)
+  ) {
+    invalidRequest();
+  }
+  const canonicalEntryCore = JSON.stringify({
+    protocolVersion: normalized.protocolVersion,
+    logId: normalized.logId,
+    logIndex: normalized.logIndex,
+    previousEntryHash: normalized.previousEntryHash,
+    envelopeId: normalized.envelopeId,
+    eventId: normalized.eventId,
+    inviteeId: normalized.inviteeId,
+    policyHash: normalized.policyHash,
+    accountKeyEpochId: normalized.accountKeyEpochId,
+    revision: normalized.revision,
+    ciphertextHash: normalized.ciphertextHash,
+    responseSigningPublicKey: normalized.responseSigningPublicKey,
+    responseSignature: normalized.responseSignature,
+    committedAt: normalized.committedAt,
+  });
+  if (
+    normalized.entryHash !==
+      (await sha256(`${LOG_ENTRY_HASH_DOMAIN}\0${canonicalEntryCore}`)) ||
+    JSON.stringify(normalized) !== value ||
+    !(await responseAuthorizationIsValid(normalized))
   ) {
     invalidRequest();
   }
@@ -464,7 +520,10 @@ export async function handleQaPolicySigningRequest(
       "canonicalDocument",
     ]);
     if (body.protocolVersion !== 1) invalidRequest();
-    const canonicalDocument = canonicalPolicyPayload(body.canonicalDocument);
+    const canonicalDocument = validateCanonicalPolicyDocumentForSigning(
+      body.canonicalDocument,
+      config.evaluator,
+    );
     return json({
       protocolVersion: 1,
       domain: POLICY_DOMAIN,
@@ -492,7 +551,7 @@ export async function handleQaTransparencySigningRequest(
       "canonicalReceiptPayload",
     ]);
     if (body.protocolVersion !== 1 || body.kind !== "append") invalidRequest();
-    const receipt = canonicalReceipt(
+    const receipt = await canonicalReceipt(
       body.canonicalReceiptPayload,
       config.transparency.keyId,
     );

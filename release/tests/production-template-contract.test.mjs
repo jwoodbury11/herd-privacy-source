@@ -176,6 +176,12 @@ test("protected workflow verifies predecessor continuity before provenance", asy
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/u);
   assert.match(workflow, /head_sha=\$GITHUB_SHA&status=completed/u);
   assert.match(workflow, /run\.event==="push"&&run\.conclusion==="success"/u);
+  assert.match(workflow, /cosign-release: v2\.6\.2/u);
+  assert.equal(
+    workflow.match(/cosign sign-blob --yes --new-bundle-format=true/gu)?.length,
+    2,
+    "both keyless signatures must use the modern Sigstore bundle format",
+  );
   assert.match(
     workflow,
     /generate-provenance\.mjs[^\n]+--evaluator-epoch-transition[^\n]+continuity_args/u,

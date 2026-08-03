@@ -37,6 +37,18 @@ export function sites(): Plugin {
         distributionDirectory,
         "HERD-ARTIFACT-RELEASE-ID",
       );
+      const privateAssetManifest = resolve(
+        distributionDirectory,
+        "client",
+        ".vite",
+        "manifest.json",
+      );
+      const publicAssetManifest = resolve(
+        distributionDirectory,
+        "client",
+        "assets",
+        "manifest.json",
+      );
 
       await rm(outputDirectory, { recursive: true, force: true });
       await mkdir(outputDirectory, { recursive: true });
@@ -49,7 +61,12 @@ export function sites(): Plugin {
           recursive: true,
         });
       }
-
+      // vinext runs this hook once for each build environment. The client
+      // manifest does not exist during the early analysis environments, but
+      // it is present before the final server close. Publish it only then.
+      if (await exists(privateAssetManifest)) {
+        await cp(privateAssetManifest, publicAssetManifest);
+      }
       // The signed production preflight requires this marker inside the exact
       // deployment archive. Remove any stale marker on ordinary QA builds.
       await rm(releaseMarker, { force: true });

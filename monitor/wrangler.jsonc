@@ -14,8 +14,8 @@
   "kv_namespaces": [
     {
       "binding": "STATUS_KV",
-      "id": "REPLACE_WITH_PRODUCTION_KV_NAMESPACE_ID",
-      "preview_id": "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
+      "id": "1f059a858fc0407a807b16ad0a523081",
+      "preview_id": "186f0a7e14ff4ff8a25af322557897de"
     }
   ],
   "durable_objects": {

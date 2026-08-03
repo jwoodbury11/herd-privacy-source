@@ -235,6 +235,11 @@ test("configuration examples require an exact .env.example path and pinned diges
 test("repository policy includes the executable privacy contracts and QA dependencies", async () => {
   const policyPath = path.join(repositoryRoot, "public-source", "export-policy.json");
   const repositoryPolicy = normalizeExportPolicy(JSON.parse(await readFile(policyPath, "utf8")));
+  assert.equal(
+    repositoryPolicy.prohibitedPathFragments.includes("release/generated"),
+    true,
+    "generated release configuration must not enter a public-source archive",
+  );
   const files = await collectExportFiles(repositoryRoot, repositoryPolicy);
   const included = new Set(files.map(({ path: filePath }) => filePath));
   for (const requiredPath of [
@@ -250,9 +255,11 @@ test("repository policy includes the executable privacy contracts and QA depende
     "invitee-web/app/api/internal/qa-reset/route.ts",
     "invitee-web/tests/qa-reset.test.mjs",
     "invitee-web/lib/backend/accounts.ts",
+    "invitee-web/legal-content/index.tsx",
     "invitee-web/tests/account-deletion.test.mjs",
     "invitee-web/app/page.tsx",
     "herd-legal/app/privacy/page.tsx",
+    "herd-legal/legal-content/index.tsx",
     "herd-legal/tests/rendered-html.test.mjs",
     "confidential-evaluator/src/transparency-authority.mjs",
     "confidential-evaluator/src/transparency-store.mjs",
@@ -281,10 +288,11 @@ test("repository policy includes the executable privacy contracts and QA depende
   }
 });
 
-test("hosted service gates execute the unpacked public export from a clean checkout", async () => {
-  const [workflow, rootReadme, ...viteConfigs] = await Promise.all([
+test("hosted and local gates execute the unpacked public export from a clean checkout", async () => {
+  const [workflow, rootReadme, localGate, ...viteConfigs] = await Promise.all([
     readFile(path.join(repositoryRoot, ".github", "workflows", "privacy-ci.yml"), "utf8"),
     readFile(path.join(repositoryRoot, "README.md"), "utf8"),
+    readFile(path.join(repositoryRoot, "scripts", "test-all"), "utf8"),
     ...[
       "invitee-web/vite.config.ts",
       "herd-legal/vite.config.ts",
@@ -307,4 +315,7 @@ test("hosted service gates execute the unpacked public export from a clean check
   assert.match(rootReadme, /Apache License 2\.0/u);
   assert.match(rootReadme, /npm ci --prefix invitee-web --ignore-scripts/u);
   assert.match(rootReadme, /same commands work from the root of the extracted\npublic archive/u);
+  assert.match(localGate, /PUBLIC-SOURCE-MANIFEST\.json/u);
+  assert.match(localGate, /manifest\.sourceDateEpoch/u);
+  assert.match(localGate, /\[ -e "\$repository_root\/\.git" \]/u);
 });

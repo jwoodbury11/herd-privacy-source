@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import {
   SmsConsentDocument,
   smsConsentMetadata,
-} from "../../../legal-content";
+} from "../../legal-content";
 import { LegalPage, LegalSection } from "../legal-page";
 
 export const metadata: Metadata = smsConsentMetadata;

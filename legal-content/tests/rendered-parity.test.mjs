@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 
 const execFileAsync = promisify(execFile);
 const renderer = fileURLToPath(new URL("./render-worker.mjs", import.meta.url));
+
+test("deployable legal modules exactly mirror the repository canonical source", async () => {
+  const [canonical, invitee, standalone] = await Promise.all([
+    readFile(new URL("../index.tsx", import.meta.url)),
+    readFile(new URL("../../invitee-web/legal-content/index.tsx", import.meta.url)),
+    readFile(new URL("../../herd-legal/legal-content/index.tsx", import.meta.url)),
+  ]);
+  assert.deepEqual(invitee, canonical);
+  assert.deepEqual(standalone, canonical);
+});
 
 const targets = [
   {

@@ -16,12 +16,14 @@ function exactKeys(value, expected) {
 test("key ceremonies create separate exclusive mode-0600 epoch and global bundles", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "herd-key-ceremony-"));
   const epochFile = resolve(directory, "epoch.json");
+  const tokenFile = resolve(directory, "request-token.txt");
   const transparencyFile = resolve(directory, "transparency.json");
   try {
     await execute(process.execPath, [
       resolve(scripts, "generate-key-bundle.mjs"),
       "epoch-test-v1",
       epochFile,
+      tokenFile,
     ]);
     await execute(process.execPath, [
       resolve(scripts, "generate-transparency-key-bundle.mjs"),
@@ -30,6 +32,7 @@ test("key ceremonies create separate exclusive mode-0600 epoch and global bundle
     ]);
 
     assert.equal((await stat(epochFile)).mode & 0o777, 0o600);
+    assert.equal((await stat(tokenFile)).mode & 0o777, 0o600);
     assert.equal((await stat(transparencyFile)).mode & 0o777, 0o600);
     const epoch = JSON.parse(await readFile(epochFile, "utf8"));
     const transparency = JSON.parse(
@@ -52,6 +55,17 @@ test("key ceremonies create separate exclusive mode-0600 epoch and global bundle
     assert.equal(transparency.logId, "herd-response-log-v1");
     assert.equal("transparencySigningKey" in epoch, false);
     assert.equal("requestAuthenticationToken" in transparency, false);
+    assert.equal((await readFile(tokenFile, "utf8")).trim(), epoch.requestAuthenticationToken);
+    assert.ok(epoch.requestAuthenticationToken.length >= 32);
+
+    await assert.rejects(
+      execute(process.execPath, [
+        resolve(scripts, "generate-key-bundle.mjs"),
+        "epoch-test-v1",
+        epochFile,
+        resolve(directory, "replacement-token.txt"),
+      ]),
+    );
 
     await assert.rejects(
       execute(process.execPath, [

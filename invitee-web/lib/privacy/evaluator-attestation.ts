@@ -138,35 +138,7 @@ function p256Key(
   return { keyId: normalizedKeyId, algorithm, publicKey: normalizedPublicKey };
 }
 
-function loadAttestationConfig(): AttestationConfig {
-  const maxAgeSeconds = Number(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_MAX_AGE_SECONDS ?? "300",
-  );
-  if (!Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 30 || maxAgeSeconds > 900) {
-    throw new EvaluatorAttestationError(
-      "This Herd release has an invalid attestation freshness policy.",
-    );
-  }
-  const allowedSwVersions = requiredBuildValue(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_SWVERSIONS,
-    "Confidential Space OS version",
-  )
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (
-    allowedSwVersions.length < 1 ||
-    new Set(allowedSwVersions).size !== allowedSwVersions.length ||
-    allowedSwVersions.some((value) => !/^[0-9]{6}$/u.test(value))
-  ) {
-    throw new EvaluatorAttestationError(
-      "This Herd release has an invalid Confidential Space OS allowlist.",
-    );
-  }
-  const releaseId = releaseIdentifier(
-    process.env.NEXT_PUBLIC_HERD_RELEASE_ID,
-    "release ID",
-  );
+function evaluatorKeyBinding(releaseId: string): EvaluatorKeyBinding {
   const keyBinding: EvaluatorKeyBinding = {
     protocolVersion: 1,
     releaseId,
@@ -204,6 +176,39 @@ function loadAttestationConfig(): AttestationConfig {
       "This Herd release reuses an evaluator key across trust purposes.",
     );
   }
+  return keyBinding;
+}
+
+function loadAttestationConfig(): AttestationConfig {
+  const maxAgeSeconds = Number(
+    process.env.NEXT_PUBLIC_HERD_ATTESTATION_MAX_AGE_SECONDS ?? "300",
+  );
+  if (!Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 30 || maxAgeSeconds > 900) {
+    throw new EvaluatorAttestationError(
+      "This Herd release has an invalid attestation freshness policy.",
+    );
+  }
+  const allowedSwVersions = requiredBuildValue(
+    process.env.NEXT_PUBLIC_HERD_ATTESTATION_SWVERSIONS,
+    "Confidential Space OS version",
+  )
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (
+    allowedSwVersions.length < 1 ||
+    new Set(allowedSwVersions).size !== allowedSwVersions.length ||
+    allowedSwVersions.some((value) => !/^[0-9]{6}$/u.test(value))
+  ) {
+    throw new EvaluatorAttestationError(
+      "This Herd release has an invalid Confidential Space OS allowlist.",
+    );
+  }
+  const releaseId = releaseIdentifier(
+    process.env.NEXT_PUBLIC_HERD_RELEASE_ID,
+    "release ID",
+  );
+  const keyBinding = evaluatorKeyBinding(releaseId);
   const imageDigest = requiredBuildValue(
     process.env.NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST,
     "evaluator image digest",
@@ -245,9 +250,21 @@ function loadAttestationConfig(): AttestationConfig {
   };
 }
 
+export function softwareQaEvaluatorModeEnabled(): boolean {
+  return (
+    process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE === "test" &&
+    process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR === "true"
+  );
+}
+
 function softwareQaEvaluatorAccepted(policy: PrivateResponsePolicyV1): boolean {
   const enabled = process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR;
-  if (enabled !== "true") {
+  if (!softwareQaEvaluatorModeEnabled()) {
+    if (enabled === "true") {
+      throw new EvaluatorAttestationError(
+        "Software evaluator verification is permitted only in an isolated test release.",
+      );
+    }
     if (enabled && enabled !== "false") {
       throw new EvaluatorAttestationError(
         "This Herd release has an invalid software-QA evaluator setting.",
@@ -255,21 +272,11 @@ function softwareQaEvaluatorAccepted(policy: PrivateResponsePolicyV1): boolean {
     }
     return false;
   }
-  if (process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE !== "test") {
-    throw new EvaluatorAttestationError(
-      "Software evaluator verification is permitted only in an isolated test release.",
-    );
-  }
   const releaseId = releaseIdentifier(
     process.env.NEXT_PUBLIC_HERD_RELEASE_ID,
     "release ID",
   );
-  const evaluator = p256Key(
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID,
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY,
-    "ECDH_P256",
-    "response-decryption",
-  );
+  const evaluator = evaluatorKeyBinding(releaseId).keys.responseDecryption;
   const measurement = requiredBuildValue(
     process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT,
     "software-QA evaluator measurement",

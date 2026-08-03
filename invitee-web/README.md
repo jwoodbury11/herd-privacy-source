@@ -54,7 +54,10 @@ backfill path exists: create and migrate a fresh database instead.
 - `app/api/` exposes phone auth, profile, event, account-key, and encrypted-response endpoints used by web and iPhone
 - `db/schema.ts` and `drizzle/` define the shared D1 data model and migrations
 - `lib/privacy/` defines the shared protocol and browser cryptography/key vault
-- `.openai/hosting.json` declares the Sites D1 binding
+- `.openai/hosting.json` declares the production Sites project and D1 binding
+- `.openai/hosting.qa.json` preserves the isolated preview project and must be
+  copied to `.openai/hosting.json` only in a dedicated QA checkout before a QA
+  build; production and QA project IDs must never be interchanged
 
 ## Private responses
 
@@ -119,9 +122,12 @@ That isolated deployment may compile the browser with
 `NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR=true`. This permits the reference
 software evaluator only when the signed policy exactly matches the build's
 release ID, response-decryption key ID/public key, and evaluator measurement.
-The signed policy is still verified. Production configuration generation sets
-the exception to `false`; production uses fresh Confidential Space hardware
-attestation.
+All four evaluator key-purpose pins must also be present and mutually distinct.
+The signed policy is still verified. Every such browser shows the persistent
+`QA · SOFTWARE EVALUATOR · NOT PRODUCTION` banner; the exception authorizes the
+exact software identity and never fabricates hardware-attestation evidence.
+Production configuration generation sets the exception to `false`; production
+uses fresh Confidential Space hardware attestation.
 
 Verification challenges expire, enforce resend and attempt limits, and create revocable server sessions. Browsers receive a secure HTTP-only cookie. The iPhone app uses the returned bearer token and stores it in Keychain.
 

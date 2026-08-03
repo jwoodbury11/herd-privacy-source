@@ -31,10 +31,11 @@ archives, and unallowlisted binary media. The small set of first-party PNG
 assets required by the exported builds is admitted only by exact path and
 SHA-256 in the reviewed policy; PNG structure and the pinned digest are both
 verified during collection. Placeholder-only `.env.example` files required by
-the exported web and software-evaluator tests are admitted by exact path and SHA-256; no unpinned or
-runtime environment file is exportable. A path outside the allowlist is absent even if it
-is not named on the denylist. A prohibited item reached by an allowlisted
-recursive path causes a hard failure.
+the exported web and software-evaluator tests are admitted by exact path and
+SHA-256, and secret-bearing assignments must remain explicit placeholders even
+when commented out; no unpinned or runtime environment file is exportable. A path outside
+the allowlist is absent even if it is not named on the denylist. A prohibited
+item reached by an allowlisted recursive path causes a hard failure.
 
 The repository's private visual references and third-party assets are not
 relicensed. The archive manifest records `Apache-2.0` for the exported Herd

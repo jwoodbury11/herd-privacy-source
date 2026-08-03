@@ -3,6 +3,7 @@ import type { HerdBindings } from "@/db";
 import { appleAppSiteAssociationResponse } from "@/lib/backend/apple-app-site-association";
 import { runDataRetentionSweep } from "@/lib/backend/data-retention";
 import { ApiError, jsonResponse } from "@/lib/backend/http";
+import { releasePointerResponse } from "@/lib/backend/release-pointer";
 import { runScheduledResolutionSweep } from "@/lib/backend/scheduled-resolutions";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
@@ -42,6 +43,20 @@ const worker = {
     if (url.pathname === "/.well-known/apple-app-site-association") {
       try {
         return appleAppSiteAssociationResponse(env);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          return jsonResponse(
+            { error: { code: error.code, message: error.message } },
+            { status: error.status },
+          );
+        }
+        throw error;
+      }
+    }
+
+    if (url.pathname === "/.well-known/herd-release.json") {
+      try {
+        return await releasePointerResponse(env);
       } catch (error) {
         if (error instanceof ApiError) {
           return jsonResponse(

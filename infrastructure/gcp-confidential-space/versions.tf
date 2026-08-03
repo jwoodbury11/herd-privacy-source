@@ -1,6 +1,10 @@
 terraform {
   required_version = ">= 1.9.0"
 
+  # Production initialization must supply a protected bucket and prefix with
+  # -backend-config. Validation uses -backend=false and never writes state.
+  backend "gcs" {}
+
   required_providers {
     google = {
       source  = "hashicorp/google"

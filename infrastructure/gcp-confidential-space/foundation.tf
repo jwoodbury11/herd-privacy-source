@@ -150,7 +150,7 @@ resource "google_project_iam_custom_role" "transparency_appender" {
   description = "Exact-document reads plus create/update for attested policy, response-log, member-latest, and evaluation-consumption authority state; deliberately excludes delete, list, database administration, import, export, clone, and restore."
   stage       = "GA"
   permissions = [
-    "datastore.databases.get",
+    "datastore.databases.getMetadata",
     "datastore.entities.create",
     "datastore.entities.get",
     "datastore.entities.update",

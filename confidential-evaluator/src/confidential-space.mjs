@@ -50,6 +50,44 @@ function record(value) {
   return value;
 }
 
+function hasNoCommandOverride(value) {
+  return value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
+function hasNoEnvironmentOverride(value) {
+  return (
+    value === undefined ||
+    (value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 0)
+  );
+}
+
+function hasExpectedRuntime(container) {
+  if (
+    !Array.isArray(container.args) ||
+    container.args.length !== 3 ||
+    container.args[0] !== "docker-entrypoint.sh" ||
+    container.args[1] !== "node" ||
+    container.args[2] !== "src/server.mjs"
+  ) {
+    return false;
+  }
+  const environment = record(container.env);
+  return (
+    Object.keys(environment).length === 6 &&
+    environment.HERD_DEPLOYMENT_CONFIG_FILE === "/app/config/deployment.json" &&
+    environment.NODE_ENV === "production" &&
+    environment.NODE_VERSION === "22.13.0" &&
+    environment.YARN_VERSION === "1.22.22" &&
+    environment.PATH ===
+      "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" &&
+    typeof environment.HOSTNAME === "string" &&
+    /^herd-evaluator-tdx-[a-z0-9]{4}$/u.test(environment.HOSTNAME)
+  );
+}
+
 export function attestedImageDigestFromOidcToken(token) {
   const normalized = assertJwt(token);
   const payloadSegment = normalized.split(".")[1];
@@ -92,9 +130,9 @@ export function attestedImageDigestFromOidcToken(token) {
     claims.attester_tcb[0] !== "INTEL" ||
     !Array.isArray(confidentialSpace.support_attributes) ||
     !confidentialSpace.support_attributes.includes("STABLE") ||
-    !Array.isArray(container.cmd_override) ||
-    container.cmd_override.length !== 0 ||
-    Object.keys(record(container.env_override)).length !== 0 ||
+    !hasNoCommandOverride(container.cmd_override) ||
+    !hasNoEnvironmentOverride(container.env_override) ||
+    !hasExpectedRuntime(container) ||
     container.restart_policy !== "Always" ||
     monitoring.memory !== false ||
     Object.keys(monitoring).length !== 1

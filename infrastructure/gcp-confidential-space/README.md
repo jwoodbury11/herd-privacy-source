@@ -32,6 +32,7 @@ image_digest              = "sha256:<64 lowercase hex>"
 confidential_space_image  = "<exact production image self-link, not a family>"
 confidential_space_swversions = ["<signed six-digit swversion, for example 260600>"]
 evaluator_domain          = "evaluator.example.com"
+public_domain             = "example.com"
 ```
 
 The runtime phase then creates:
@@ -45,9 +46,13 @@ The runtime phase then creates:
   administer/import/export/clone/restore the database;
 - production `c3-standard-4` Intel TDX VMs across three supported
   `us-central1` zones, with secure boot and no external IPs;
-- no external IP or Cloud NAT, a deny-all outbound firewall, and one HTTPS
-  route to `restricted.googleapis.com` for Artifact Registry, STS, KMS,
-  Firestore, and attestation;
+- no external IP or Cloud NAT, a deny-all outbound firewall, and one restricted
+  Google API route for Artifact Registry, STS, KMS, Firestore, and attestation;
+- a DNSSEC-enabled public Cloud DNS zone and an evaluator A record bound to the
+  Terraform-managed load-balancer address;
+- a versioned public release-evidence bucket with a one-year retention policy;
+  only scanner-approved public artifacts belong there, and signed hashes remain
+  the integrity authority;
 - a regional MIG with autohealing and replacement-only updates; and
 - a no-CDN HTTPS load balancer with Cloud Armor throttling.
 
@@ -72,8 +77,10 @@ Private Cloud DNS zones force every `*.googleapis.com` call and every
 `*.pkg.dev` image pull to `199.36.153.4/30`. A network-bound Cloud DNS response
 policy bypasses only the apex and wildcard forms of those two namespaces so
 the private zones can answer; its less-specific `*.` rule returns `0.0.0.0` for
-every other A-name lookup. A higher-priority firewall rule allows only TCP 443
-to that restricted VIP; the next rule denies every other IPv4 destination. The
+every other A-name lookup. A higher-priority firewall rule allows only TCP 80
+and 443 to that restricted VIP. Port 80 is required by the Confidential Space
+launcher to retrieve Google's public attestation certificate chain; workload
+API calls remain HTTPS. The next rule denies every other IPv4 destination. The
 network is created without a default route. Its only tagged default-gateway
 route covers that `/30`. Google Cloud's metadata server remains reachable
 outside VPC firewall enforcement for DHCP, DNS, NTP, instance metadata, and the
@@ -119,7 +126,9 @@ terraform init -backend=false -input=false -lockfile=readonly
 terraform validate
 ```
 
-Use a protected remote backend for real environments. Terraform state contains
+Production must initialize the declared GCS backend with a protected bucket;
+for example, `terraform init -backend-config="bucket=<state-bucket>" -backend-config="prefix=confidential-evaluator/production"`.
+Terraform state contains
 resource identifiers and policy but must never contain either plaintext bundle,
 the bearer token, or any private JWK. The global transparency identity must be
 reused across every evaluator epoch for `herd-response-log-v1`; replacing it

@@ -311,6 +311,29 @@ struct HomeView: View {
 
             Spacer()
 
+            Button {
+                Task {
+                    await store.refresh()
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(
+                        width: CGFloat(experience.layout.profileAvatarDiameter),
+                        height: CGFloat(experience.layout.profileAvatarDiameter)
+                    )
+                    .background(HerdTheme.raisedSurface, in: .circle)
+                    .overlay {
+                        Circle()
+                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    }
+            }
+            .buttonStyle(PlainPressButtonStyle())
+            .disabled(store.isRefreshing)
+            .accessibilityLabel("Refresh events")
+            .accessibilityIdentifier("events-refresh")
+
             NavigationLink {
                 ProfileView()
             } label: {

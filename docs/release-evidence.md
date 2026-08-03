@@ -164,6 +164,12 @@ production safety switches. Its canonical JSON SHA-256 must equal the signed
 or build-number change therefore requires regenerating that digest and signing a
 new manifest.
 
+For the pre-build production template, `--prepare` computes that digest without
+accepting the placeholder as verified; after inserting the result,
+`--verify-template` re-normalizes the exact production template and requires a
+match. Omitting both flags remains the stricter final-manifest mode and requires
+the complete assembled production evidence graph.
+
 The generator emits five byte-deterministic files: `release-config.json`,
 `web-public.env`, `web-runtime-vars.json`, `scheduler-runtime-vars.json`, and
 `HerdRelease.generated.xcconfig`. The scheduler file binds its production

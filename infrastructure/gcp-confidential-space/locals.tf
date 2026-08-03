@@ -18,6 +18,7 @@ locals {
     "confidentialcomputing.googleapis.com",
     "dns.googleapis.com",
     "iam.googleapis.com",
+    "storage.googleapis.com",
   ])
   key_services = toset([
     "cloudkms.googleapis.com",

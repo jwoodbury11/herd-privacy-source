@@ -38,6 +38,12 @@ or an incomplete production evidence set. A successful tool run proves that the
 inputs are internally consistent; it does not by itself prove that a deployment,
 audit, public source mirror, or hardware attestation exists.
 
+Production configuration has three deliberate phases: `--prepare` computes the
+draft template digest, `--verify-template` requires that digest against the
+strict production-template contract before client builds, and the no-flag mode
+accepts only a fully assembled final production manifest. Template verification
+does not weaken or replace final-manifest evidence validation.
+
 Start with [the release process](../docs/release-process.md) and [the evidence
 format](../docs/release-evidence.md). Run the local tests with:
 

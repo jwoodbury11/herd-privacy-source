@@ -1,5 +1,7 @@
 # The evaluator has no external IP and no Cloud NAT. Its only routable egress is
-# HTTPS to Google's restricted API VIP. The metadata server remains reachable
+# HTTP and HTTPS to Google's restricted API VIP. Confidential Space retrieves
+# Google's public attestation certificate chain over HTTP during launch; every
+# other workload API call uses HTTPS. The metadata server remains reachable
 # because Google excludes it from VPC firewall enforcement; it supplies DHCP,
 # DNS, NTP, instance metadata, and the Confidential Space launcher interface.
 resource "google_compute_route" "restricted_google_apis" {
@@ -31,7 +33,7 @@ resource "google_compute_firewall" "evaluator_allow_restricted_google_apis" {
 
   allow {
     protocol = "tcp"
-    ports    = ["443"]
+    ports    = ["80", "443"]
   }
 
   depends_on = [terraform_data.runtime_guard]

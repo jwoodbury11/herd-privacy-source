@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { LEGAL_EFFECTIVE_DATE } from "../../legal-content";
+import { LEGAL_EFFECTIVE_DATE } from "../legal-content";
 
 type LegalPageProps = {
   eyebrow: string;

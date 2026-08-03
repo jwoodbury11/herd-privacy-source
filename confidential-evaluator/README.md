@@ -130,7 +130,9 @@ The independently decrypted transparency bundle has exactly this shape:
 }
 ```
 
-`scripts/generate-key-bundle.mjs` creates a new evaluator-epoch plaintext.
+`scripts/generate-key-bundle.mjs` creates a new evaluator-epoch plaintext and a
+separate mode-0600 copy of its request-authentication token for immediate
+placement in the ordinary application's protected secret store.
 `scripts/generate-transparency-key-bundle.mjs` creates the global log plaintext
 only for the initial log ceremony; it must not run for routine releases or
 epoch rotations. Both use mode `0600` and exclusive creation and refuse to

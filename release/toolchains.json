@@ -21,7 +21,7 @@
     "terraform": "1.15.8"
   },
   "releaseEvidence": {
-    "cosign": "v2.5.3",
+    "cosign": "v2.6.2",
     "rekorRecordBaseUrl": "https://rekor.sigstore.dev/api/v1/log/entries",
     "oidcIssuer": "https://token.actions.githubusercontent.com"
   },

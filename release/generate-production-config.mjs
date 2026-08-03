@@ -16,7 +16,12 @@ async function atomicWrite(filePath, contents) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2), { boolean: ["prepare"] });
+  const args = parseArgs(process.argv.slice(2), {
+    boolean: ["prepare", "verify-template"],
+  });
+  if (args.prepare && args["verify-template"]) {
+    throw new TypeError("--prepare and --verify-template are mutually exclusive.");
+  }
   const manifestPath = requireArg(args, "manifest");
   const outputDirectory = requireArg(args, "output-directory");
   const evaluatorUrl = requireArg(args, "evaluator-url");
@@ -24,7 +29,7 @@ async function main() {
   const result = buildProductionConfig(await readJson(manifestPath), {
     evaluatorUrl,
     rootCertificate: await readFile(rootCertificatePath),
-    releaseTemplate: Boolean(args.prepare),
+    releaseTemplate: Boolean(args.prepare || args["verify-template"]),
   });
   assertProductionConfigurationDigest(result, { prepare: Boolean(args.prepare) });
   await mkdir(outputDirectory, { recursive: true });

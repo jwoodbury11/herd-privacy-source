@@ -15,7 +15,7 @@ import {
 const run = promisify(execFile);
 const PRIVATE_KEY_BLOCK = /(?:^|\n)-----BEGIN (?:EC |RSA |OPENSSH )?PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{16,}\r?\n/u;
 const SECRET_ENVIRONMENT_NAME = /(?:^|_)(?:AUTH|BYPASS|CREDENTIAL|PASSWORD|PEPPER|PRIVATE_KEY|SECRET|TOKEN)(?:_|$)|API_KEY/u;
-const SAFE_EXAMPLE_SECRET_VALUE = /(?:replace|x{4,}|\.example(?:\.com)?(?:[/:]|$)|^false$)/iu;
+const SAFE_EXAMPLE_SECRET_VALUE = /(?:replace|x{4,}|^false$)/iu;
 
 function posixRelative(value, label) {
   requireString(value, label, { maximum: 500 });

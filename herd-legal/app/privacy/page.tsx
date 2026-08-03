@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PrivacyDocument, privacyMetadata } from "../../../legal-content";
+import { PrivacyDocument, privacyMetadata } from "../../legal-content";
 import { LegalPage, LegalSection } from "../legal-page";
 
 export const metadata: Metadata = privacyMetadata;

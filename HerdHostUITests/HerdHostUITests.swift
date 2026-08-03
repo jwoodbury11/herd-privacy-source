@@ -48,13 +48,10 @@ final class HerdHostUITests: XCTestCase {
         app.buttons["Back to Herd events"].tap()
         XCTAssertTrue(eventTitle.waitForExistence(timeout: 5))
         let confirmed = app.staticTexts["Confirmed"]
-        for _ in 0..<2 where !confirmed.exists {
-            pullToRefresh(app)
-            if confirmed.waitForExistence(timeout: 5) {
-                break
-            }
-        }
-        XCTAssertTrue(confirmed.exists)
+        let refresh = app.buttons["events-refresh"]
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        refresh.tap()
+        XCTAssertTrue(confirmed.waitForExistence(timeout: 15))
 
         eventTitle.tap()
         XCTAssertTrue(app.staticTexts["Event confirmed"].waitForExistence(timeout: 5))
@@ -128,10 +125,24 @@ final class HerdHostUITests: XCTestCase {
         let phone = app.textFields["authentication-phone"]
         XCTAssertTrue(phone.waitForExistence(timeout: 5))
         phone.tap()
-        phone.typeText(phoneNumber)
+        // Let SwiftUI finish its per-keystroke formatting before sending the
+        // next digit. A single batched typeText can race the formatted state
+        // update on slower hosted simulators and drop input.
+        for digit in phoneNumber {
+            phone.typeText(String(digit))
+        }
+        XCTAssertEqual(
+            (phone.value as? String)?.filter(\.isWholeNumber),
+            phoneNumber
+        )
 
         let requestCode = app.buttons["authentication-request-code"]
-        XCTAssertTrue(requestCode.isEnabled)
+        XCTAssertTrue(requestCode.waitForExistence(timeout: 5))
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isEnabled == true"),
+            object: requestCode
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
         requestCode.tap()
     }
 
@@ -154,14 +165,5 @@ final class HerdHostUITests: XCTestCase {
         }
         XCTAssertTrue(element.exists)
         XCTAssertTrue(element.isHittable)
-    }
-
-    private func pullToRefresh(_ app: XCUIApplication) {
-        // A first downward swipe guarantees a retained ScrollView offset is
-        // back at its top; the longer drag then crosses the refresh threshold.
-        app.swipeDown()
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.82))
-        start.press(forDuration: 0.15, thenDragTo: end)
     }
 }

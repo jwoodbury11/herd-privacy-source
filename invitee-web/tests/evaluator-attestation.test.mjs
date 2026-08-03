@@ -236,6 +236,7 @@ test("software evaluator exception is isolated to an exactly pinned QA build", a
   process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "test";
   process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR = "true";
   process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT = imageDigest;
+  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), true);
   let fetchCalled = false;
   globalThis.fetch = async () => {
     fetchCalled = true;
@@ -244,14 +245,47 @@ test("software evaluator exception is isolated to an exactly pinned QA build", a
   await assert.doesNotReject(attestationModule.attestEvaluatorForPolicy(policy));
   assert.equal(fetchCalled, false);
 
+  for (const mismatch of [
+    { releaseId: "another-release" },
+    { evaluatorKeyId: "another-evaluator-key" },
+    { evaluatorPublicKey: keyBinding.keys.evaluationResultSigning.publicKey },
+    { evaluatorMeasurement: `sha256:${"c".repeat(64)}` },
+  ]) {
+    await assert.rejects(
+      attestationModule.attestEvaluatorForPolicy({ ...policy, ...mismatch }),
+      attestationModule.EvaluatorAttestationError,
+    );
+  }
+  const policySigningKeyId =
+    process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID;
+  const policySigningPublicKey =
+    process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY;
+  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID =
+    keyBinding.keys.responseDecryption.keyId;
+  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY =
+    keyBinding.keys.responseDecryption.publicKey;
   await assert.rejects(
-    attestationModule.attestEvaluatorForPolicy({
-      ...policy,
-      evaluatorMeasurement: `sha256:${"c".repeat(64)}`,
-    }),
+    attestationModule.attestEvaluatorForPolicy(policy),
     attestationModule.EvaluatorAttestationError,
   );
+  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID =
+    policySigningKeyId;
+  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY =
+    policySigningPublicKey;
   process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "production";
+  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), false);
+  await assert.rejects(
+    attestationModule.attestEvaluatorForPolicy(policy),
+    attestationModule.EvaluatorAttestationError,
+  );
+  delete process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE;
+  await assert.rejects(
+    attestationModule.attestEvaluatorForPolicy(policy),
+    attestationModule.EvaluatorAttestationError,
+  );
+  process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "test";
+  process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR = "TRUE";
+  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), false);
   await assert.rejects(
     attestationModule.attestEvaluatorForPolicy(policy),
     attestationModule.EvaluatorAttestationError,

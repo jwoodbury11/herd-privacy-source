@@ -1252,8 +1252,8 @@ test("relay enforces short-lived capabilities and strict browser origins", async
 
   await context.test("issued too far in the future", async () => {
     const fixture = await makeRelayFixture({
-      issuedAt: new Date(now + 31_000).toISOString(),
-      expiresAt: new Date(now + 60_000).toISOString(),
+      issuedAt: new Date(now + 60_000).toISOString(),
+      expiresAt: new Date(now + 90_000).toISOString(),
     });
     const response = await serviceFetch({
       path: "/api/v1/relay",

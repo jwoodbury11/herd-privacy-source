@@ -139,7 +139,8 @@ directory:
 ```sh
 node confidential-evaluator/scripts/generate-key-bundle.mjs \
   herd-evaluator-epoch-YYYY-MM-DD \
-  /approved/encrypted/release/key-bundle.plaintext.json
+  /approved/encrypted/release/key-bundle.plaintext.json \
+  /approved/encrypted/release/request-authentication-token.txt
 ```
 
 This produces three epoch-scoped P-256 keys and a high-entropy bearer token. Do
@@ -149,6 +150,13 @@ epoch rotation creates a new one only after the application proves no
 unresolved policy still depends on the old response-decryption key. Record only
 public keys/IDs after the attested service exposes them; do not extract private
 JWKs into application configuration.
+
+The separate mode-0600 token file contains only the bearer shared with the
+ordinary API. Move that token into the production application's protected
+secret store before deleting the file. Never discard the only backend copy:
+the browser relay capability, policy signing, transparency signing, and backend
+attestation verification all require the same token sealed into the evaluator
+bundle. The ordinary application receives no evaluator private JWK.
 
 Encrypt the plaintext with the foundation KMS key. Substitute the exact IDs
 from the Terraform output:

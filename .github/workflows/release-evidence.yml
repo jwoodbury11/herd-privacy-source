@@ -173,13 +173,13 @@ jobs:
         if: inputs.release_stage == 'production'
         uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
         with:
-          cosign-release: v2.5.3
+          cosign-release: v2.6.2
 
       - name: Sign provenance and record its Rekor inclusion before constructing the manifest
         if: inputs.release_stage == 'production'
         run: |
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_REF}"
-          cosign sign-blob --yes --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json"
+          cosign sign-blob --yes --new-bundle-format=true --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json"
           cosign verify-blob --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json"
           node release/record-transparency.mjs --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" --rekor-record-base-url "https://rekor.sigstore.dev/api/v1/log/entries" --output "$RUNNER_TEMP/herd-release-stage/build-provenance.rekor.json"
 
@@ -221,7 +221,7 @@ jobs:
         if: inputs.release_stage == 'production'
         run: |
           identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_REF}"
-          cosign sign-blob --yes --bundle "$RUNNER_TEMP/herd-release-stage/release-manifest.sigstore.json" "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
+          cosign sign-blob --yes --new-bundle-format=true --bundle "$RUNNER_TEMP/herd-release-stage/release-manifest.sigstore.json" "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
           cosign verify-blob --bundle "$RUNNER_TEMP/herd-release-stage/release-manifest.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
 
       - name: Upload staged evidence without publishing a release or deploying
@@ -260,7 +260,7 @@ jobs:
       - name: Install the pinned Cosign verifier
         uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
         with:
-          cosign-release: v2.5.3
+          cosign-release: v2.6.2
 
       - name: Download the signed evidence produced by this workflow run
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0

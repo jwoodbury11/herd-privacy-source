@@ -48,8 +48,14 @@ resource "google_iam_workload_identity_pool_provider" "google_attestation" {
     assertion.submods.gce.project_id == "${var.workload_project_id}" &&
     size(assertion.google_service_accounts) == 1 &&
     assertion.google_service_accounts[0] == "${google_service_account.workload.email}" &&
-    size(assertion.submods.container.cmd_override) == 0 &&
-    size(assertion.submods.container.env_override) == 0 &&
+    assertion.submods.container.args == ["docker-entrypoint.sh", "node", "src/server.mjs"] &&
+    size(assertion.submods.container.env) == 6 &&
+    assertion.submods.container.env.HERD_DEPLOYMENT_CONFIG_FILE == "/app/config/deployment.json" &&
+    assertion.submods.container.env.NODE_ENV == "production" &&
+    assertion.submods.container.env.NODE_VERSION == "22.13.0" &&
+    assertion.submods.container.env.YARN_VERSION == "1.22.22" &&
+    assertion.submods.container.env.PATH == "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" &&
+    assertion.submods.container.env.HOSTNAME.startsWith("herd-evaluator-tdx-") &&
     assertion.submods.container.restart_policy == "Always" &&
     size(assertion.submods.confidential_space.monitoring_enabled) == 1 &&
     assertion.submods.confidential_space.monitoring_enabled.memory == false

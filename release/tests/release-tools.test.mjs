@@ -554,6 +554,66 @@ test("pinned toolchain facts, SLSA provenance, and Rekor bundle extraction are f
   assert.equal(transparency.entryId, "rekor-log-key:42");
 });
 
+test("production config CLI verifies a prepared template without accepting it as a final manifest", async () => {
+  const fixture = makeReleaseFixture();
+  const template = structuredClone(fixture.manifest);
+  template.artifacts.web.publicOrigin = "https://app.herdprivacy.com";
+  template.trust.workload.attestationClaimPolicy.audience =
+    "https://evaluator.herdprivacy.com/attestation";
+  template.trust.workload.attestationRootFingerprint.value = sha256Hex(
+    new X509Certificate(TEST_ROOT_CERTIFICATE).raw,
+  );
+  template.evidence.provenance = [];
+  template.evidence.transparency = [];
+  template.evidence.transitions = [];
+  template.evidence.deployments = [];
+  normalizeProductionReleaseTemplate(template);
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "herd-template-config-test-"));
+  const templatePath = path.join(root, "release-template.json");
+  const rootCertificatePath = path.join(root, "attestation-root.pem");
+  const outputDirectory = path.join(root, "generated");
+  await Promise.all([
+    writeFile(templatePath, canonicalJson(template)),
+    writeFile(rootCertificatePath, TEST_ROOT_CERTIFICATE),
+  ]);
+  const baseArguments = [
+    "release/generate-production-config.mjs",
+    "--manifest", templatePath,
+    "--evaluator-url", "https://evaluator.herdprivacy.com/api/v1/relay/",
+    "--attestation-root-certificate", rootCertificatePath,
+    "--output-directory", outputDirectory,
+  ];
+
+  const prepared = JSON.parse((await command([...baseArguments, "--prepare"])).stdout);
+  assert.equal(prepared.verified, false);
+  assert.match(prepared.configurationSha256, /^[0-9a-f]{64}$/u);
+
+  template.productionPolicy.configurationSha256 = prepared.configurationSha256;
+  await writeFile(templatePath, canonicalJson(template));
+  const verified = JSON.parse(
+    (await command([...baseArguments, "--verify-template"])).stdout,
+  );
+  assert.equal(verified.verified, true);
+  assert.equal(verified.configurationSha256, prepared.configurationSha256);
+
+  await assert.rejects(
+    command(baseArguments),
+    /production manifest requires provenance/u,
+  );
+  const wrongDigest = structuredClone(template);
+  wrongDigest.productionPolicy.configurationSha256 = "00".repeat(32);
+  await writeFile(templatePath, canonicalJson(wrongDigest));
+  await assert.rejects(
+    command([...baseArguments, "--verify-template"]),
+    /configurationSha256/u,
+  );
+  await assert.rejects(
+    command([...baseArguments, "--prepare", "--verify-template"]),
+    /mutually exclusive/u,
+  );
+});
+
 test("production config generation and artifact preflight bind web and iOS builds to the signed manifest", async () => {
   const fixture = makeReleaseFixture();
   assert.throws(

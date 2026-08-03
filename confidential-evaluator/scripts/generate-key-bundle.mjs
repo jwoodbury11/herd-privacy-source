@@ -3,16 +3,18 @@ import { open } from "node:fs/promises";
 
 function usage() {
   process.stderr.write(
-    "usage: node scripts/generate-key-bundle.mjs <release-id> <output-file>\n",
+    "usage: node scripts/generate-key-bundle.mjs <release-id> <bundle-output-file> <request-token-output-file>\n",
   );
   process.exitCode = 2;
 }
 
-const [, , releaseId, outputFile] = process.argv;
+const [, , releaseId, outputFile, tokenOutputFile] = process.argv;
 if (
   !releaseId ||
   !/^[A-Za-z0-9._-]{1,80}$/u.test(releaseId) ||
-  !outputFile
+  !outputFile ||
+  !tokenOutputFile ||
+  tokenOutputFile === outputFile
 ) {
   usage();
 } else {
@@ -56,12 +58,21 @@ if (
     ),
   };
   try {
-    const handle = await open(outputFile, "wx", 0o600);
+    const bundleHandle = await open(outputFile, "wx", 0o600);
     try {
-      await handle.writeFile(`${JSON.stringify(bundle)}\n`, { encoding: "utf8" });
-      await handle.sync();
+      const tokenHandle = await open(tokenOutputFile, "wx", 0o600);
+      try {
+        await bundleHandle.writeFile(`${JSON.stringify(bundle)}\n`, { encoding: "utf8" });
+        await bundleHandle.sync();
+        await tokenHandle.writeFile(`${bundle.requestAuthenticationToken}\n`, {
+          encoding: "utf8",
+        });
+        await tokenHandle.sync();
+      } finally {
+        await tokenHandle.close();
+      }
     } finally {
-      await handle.close();
+      await bundleHandle.close();
     }
   } finally {
     bundle.requestAuthenticationToken = "";
@@ -76,6 +87,6 @@ if (
     }
   }
   process.stdout.write(
-    `wrote mode-0600 evaluator-epoch bundle to ${outputFile}; the global transparency identity is provisioned separately\n`,
+    `wrote mode-0600 evaluator-epoch bundle to ${outputFile} and backend token to ${tokenOutputFile}; the global transparency identity is provisioned separately\n`,
   );
 }

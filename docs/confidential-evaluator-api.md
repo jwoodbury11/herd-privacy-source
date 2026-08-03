@@ -499,6 +499,30 @@ they can alter Firestore IAM or data. Public publication and independent
 witness/gossip comparison remain required to expose custodian compromise,
 operational rollback, or suppression.
 
+### Reference software-QA signer boundary
+
+The lightweight `evaluator-service` implements the same two signing route
+shapes solely for an isolated end-to-end QA deployment. Those routes are absent
+unless both `HERD_DEPLOYMENT_PROFILE=test` and
+`HERD_SOFTWARE_QA_TRUST_SIGNER_ENABLED=true` are exact, require the evaluator
+bearer token, reject browser `Origin`, and require distinct public identities
+and identifiers for all four evaluator key purposes.
+
+Its policy route validates the exact frozen-policy schema and configured
+release, response-decryption key, and measurement pins. Its transparency route
+validates the canonical receipt order and sizes, index/revision bounds, genesis
+relationship, entry hash, and Ed25519 response authorization. It derives the
+head from that validated receipt instead of accepting a caller-selected head.
+
+That QA implementation is intentionally stateless: it cannot prove the prior
+head, reserve a globally unique next index, register policy/member state,
+enforce a deadline or revision sequence, serialize concurrent appenders,
+return byte-identical durable retries, consume evaluation state, or issue the
+production reconciliation disposition. Its signatures are useful only for
+testing the real client/backend verification path in an unmistakably labeled
+non-production release. They are not hardware-attestation evidence and are not
+a substitute for the Firestore-backed production authority described above.
+
 ## Canonical evaluation consumption
 
 The production direct `POST /api/v1/evaluate` route is disabled and returns

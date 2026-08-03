@@ -6,7 +6,24 @@ cd "$repository_root"
 
 TZ=UTC
 LC_ALL=C.UTF-8
-SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+if [ -e "$repository_root/.git" ]; then
+  SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+elif [ -f "$repository_root/PUBLIC-SOURCE-MANIFEST.json" ]; then
+  SOURCE_DATE_EPOCH=$(node -e '
+    const fs = require("node:fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (
+      !Number.isSafeInteger(manifest.sourceDateEpoch) ||
+      manifest.sourceDateEpoch < 0
+    ) {
+      throw new Error("PUBLIC-SOURCE-MANIFEST.json has an invalid sourceDateEpoch");
+    }
+    process.stdout.write(String(manifest.sourceDateEpoch));
+  ' "$repository_root/PUBLIC-SOURCE-MANIFEST.json")
+else
+  echo "Cannot derive SOURCE_DATE_EPOCH: this is neither a Git checkout nor an extracted Herd public-source archive." >&2
+  exit 1
+fi
 export TZ LC_ALL SOURCE_DATE_EPOCH
 
 node_version=$(node -p 'process.versions.node.split(".").slice(0, 2).join(" ")')
@@ -75,8 +92,12 @@ terraform version -json | node -e '
 ' "$terraform_required"
 echo "Validating the production Confidential Space infrastructure"
 terraform -chdir=infrastructure/gcp-confidential-space fmt -check -recursive
-terraform -chdir=infrastructure/gcp-confidential-space init -backend=false -input=false -lockfile=readonly
-terraform -chdir=infrastructure/gcp-confidential-space validate -no-color
+terraform_test_data_dir=$(mktemp -d "${TMPDIR:-/tmp}/herd-terraform-validate.XXXXXX")
+trap 'rm -rf -- "$terraform_test_data_dir"' EXIT HUP INT TERM
+TF_DATA_DIR=$terraform_test_data_dir terraform -chdir=infrastructure/gcp-confidential-space init -backend=false -input=false -lockfile=readonly
+TF_DATA_DIR=$terraform_test_data_dir terraform -chdir=infrastructure/gcp-confidential-space validate -no-color
+rm -rf -- "$terraform_test_data_dir"
+trap - EXIT HUP INT TERM
 
 echo "Testing iOS source-contract checks"
 node --test HerdHostTests/*.test.mjs

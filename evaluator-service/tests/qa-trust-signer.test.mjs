@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { webcrypto } from "node:crypto";
+import {
+  generateKeyPairSync,
+  sign as nodeSign,
+  webcrypto,
+} from "node:crypto";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +23,8 @@ const RELEASE_ID = "herd-qa-release-test-v1";
 const POLICY_DOMAIN = "HERD-POLICY-DESCRIPTOR-SIGNATURE-V1";
 const RECEIPT_DOMAIN = "HERD-TRANSPARENCY-RECEIPT-SIGNATURE-V1";
 const LOG_HEAD_DOMAIN = "HERD-TRANSPARENCY-LOG-HEAD-SIGNATURE-V1";
+const LOG_ENTRY_HASH_DOMAIN = "HERD-TRANSPARENCY-LOG-ENTRY-HASH-V1";
+const RESPONSE_AUTHORIZATION_DOMAIN = "HERD-RESPONSE-AUTHORIZATION-V1";
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
 
@@ -123,7 +129,13 @@ async function canonicalPolicyDocument(fixture) {
   });
 }
 
-async function serviceFetch(pathname, body, bindings, token = TOKEN) {
+async function serviceFetch(
+  pathname,
+  body,
+  bindings,
+  token = TOKEN,
+  origin = null,
+) {
   const modulePaths = await javascriptModules(serverRoot);
   modulePaths.sort((left, right) => {
     const entry = path.join(serverRoot, "index.js");
@@ -144,6 +156,7 @@ async function serviceFetch(pathname, body, bindings, token = TOKEN) {
   try {
     const headers = new Headers({ "content-type": "application/json" });
     if (token !== null) headers.set("authorization", `Bearer ${token}`);
+    if (origin !== null) headers.set("origin", origin);
     const response = await miniflare.dispatchFetch(
       `https://evaluator.test${pathname}`,
       { method: "POST", headers, body: JSON.stringify(body) },
@@ -172,14 +185,26 @@ async function sha256(value) {
   );
 }
 
-function receiptPayload() {
+function responseSigningIdentity() {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const publicDer = publicKey.export({ type: "spki", format: "der" });
+  return {
+    privateKey,
+    publicKey: Buffer.from(publicDer.subarray(publicDer.length - 32)).toString(
+      "base64url",
+    ),
+  };
+}
+
+const responseIdentity = responseSigningIdentity();
+
+async function receiptPayload(overrides = {}) {
   const hash = (fill) => Buffer.alloc(32, fill).toString("base64url");
-  return JSON.stringify({
+  const fields = {
     protocolVersion: 1,
     logId: "herd-response-log-v1",
     logIndex: 7,
     previousEntryHash: hash(1),
-    entryHash: hash(2),
     envelopeId: "40000000-0000-4000-8000-000000000001",
     eventId: "10000000-0000-4000-8000-000000000001",
     inviteeId: "20000000-0000-4000-8000-000000000001",
@@ -187,10 +212,68 @@ function receiptPayload() {
     accountKeyEpochId: "50000000-0000-4000-8000-000000000001",
     revision: 2,
     ciphertextHash: hash(4),
-    responseSigningPublicKey: Buffer.alloc(32, 5).toString("base64url"),
-    responseSignature: Buffer.alloc(64, 6).toString("base64url"),
+    responseSigningPublicKey: responseIdentity.publicKey,
     committedAt: "2026-08-02T12:00:00.000Z",
     signingKeyId: TRANSPARENCY_KEY_ID,
+    ...overrides,
+  };
+  const authorizationDocument = JSON.stringify({
+    protocolVersion: fields.protocolVersion,
+    eventId: fields.eventId,
+    inviteeId: fields.inviteeId,
+    policyHash: fields.policyHash,
+    accountKeyEpochId: fields.accountKeyEpochId,
+    revision: fields.revision,
+    envelopeId: fields.envelopeId,
+    ciphertextHash: fields.ciphertextHash,
+    responseSigningPublicKey: fields.responseSigningPublicKey,
+  });
+  const responseSignature =
+    overrides.responseSignature ??
+    nodeSign(
+      null,
+      Buffer.from(
+        `${RESPONSE_AUTHORIZATION_DOMAIN}\0${authorizationDocument}`,
+        "utf8",
+      ),
+      responseIdentity.privateKey,
+    ).toString("base64url");
+  const core = {
+    protocolVersion: fields.protocolVersion,
+    logId: fields.logId,
+    logIndex: fields.logIndex,
+    previousEntryHash: fields.previousEntryHash,
+    envelopeId: fields.envelopeId,
+    eventId: fields.eventId,
+    inviteeId: fields.inviteeId,
+    policyHash: fields.policyHash,
+    accountKeyEpochId: fields.accountKeyEpochId,
+    revision: fields.revision,
+    ciphertextHash: fields.ciphertextHash,
+    responseSigningPublicKey: fields.responseSigningPublicKey,
+    responseSignature,
+    committedAt: fields.committedAt,
+  };
+  const entryHash =
+    overrides.entryHash ??
+    (await sha256(`${LOG_ENTRY_HASH_DOMAIN}\0${JSON.stringify(core)}`));
+  return JSON.stringify({
+    protocolVersion: core.protocolVersion,
+    logId: core.logId,
+    logIndex: core.logIndex,
+    previousEntryHash: core.previousEntryHash,
+    entryHash,
+    envelopeId: core.envelopeId,
+    eventId: core.eventId,
+    inviteeId: core.inviteeId,
+    policyHash: core.policyHash,
+    accountKeyEpochId: core.accountKeyEpochId,
+    revision: core.revision,
+    ciphertextHash: core.ciphertextHash,
+    responseSigningPublicKey: core.responseSigningPublicKey,
+    responseSignature: core.responseSignature,
+    committedAt: core.committedAt,
+    signingKeyId: fields.signingKeyId,
   });
 }
 
@@ -247,7 +330,7 @@ test("QA policy signer authenticates, hashes, domain-separates, and signs exactl
 
 test("QA transparency signer returns independently verifiable receipt and exact log head", async () => {
   const fixture = await signingFixture();
-  const canonicalReceiptPayload = receiptPayload();
+  const canonicalReceiptPayload = await receiptPayload();
   const response = await serviceFetch(
     "/api/v1/sign/transparency",
     { protocolVersion: 1, kind: "append", canonicalReceiptPayload },
@@ -314,7 +397,10 @@ test("QA signer is absent unless explicitly enabled and fails closed on auth or 
   const production = await serviceFetch(
     "/api/v1/sign/policy",
     { protocolVersion: 1, canonicalDocument: "{}" },
-    { ...fixture.bindings, HERD_DEPLOYMENT_PROFILE: "production" },
+    {
+      HERD_DEPLOYMENT_PROFILE: "production",
+      HERD_SOFTWARE_QA_TRUST_SIGNER_ENABLED: "true",
+    },
   );
   assert.equal(production.status, 404);
   assert.equal((await production.json()).error.code, "not_found");
@@ -328,6 +414,17 @@ test("QA signer is absent unless explicitly enabled and fails closed on auth or 
   assert.equal(unauthorized.status, 401);
   assert.equal((await unauthorized.json()).error.code, "unauthorized");
 
+  const unauthorizedBeforeKeyLoading = await serviceFetch(
+    "/api/v1/sign/policy",
+    { protocolVersion: 1, canonicalDocument: "{}" },
+    {
+      ...fixture.bindings,
+      HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK: "not-json",
+    },
+    "wrong-token-0123456789abcdefghijklmnopqrstuvwxyz",
+  );
+  assert.equal(unauthorizedBeforeKeyLoading.status, 401);
+
   const reused = await serviceFetch(
     "/api/v1/sign/policy",
     { protocolVersion: 1, canonicalDocument: "{}" },
@@ -340,11 +437,33 @@ test("QA signer is absent unless explicitly enabled and fails closed on auth or 
   );
   assert.equal(reused.status, 503);
   assert.equal((await reused.json()).error.code, "service_unavailable");
+
+  const resultKeyReusedForPolicy = await serviceFetch(
+    "/api/v1/sign/policy",
+    { protocolVersion: 1, canonicalDocument: "{}" },
+    {
+      ...fixture.bindings,
+      HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK:
+        fixture.bindings.HERD_EVALUATOR_RESULT_SIGNING_PRIVATE_KEY_JWK,
+    },
+  );
+  assert.equal(resultKeyReusedForPolicy.status, 503);
+
+  const evaluatorIdReusedForPolicy = await serviceFetch(
+    "/api/v1/sign/policy",
+    { protocolVersion: 1, canonicalDocument: "{}" },
+    {
+      ...fixture.bindings,
+      HERD_EVALUATOR_POLICY_SIGNING_KEY_ID: EVALUATOR_KEY_ID,
+    },
+  );
+  assert.equal(evaluatorIdReusedForPolicy.status, 503);
 });
 
 test("QA transparency signer rejects noncanonical, altered, and unsupported receipts", async () => {
   const fixture = await signingFixture();
-  const altered = JSON.parse(receiptPayload());
+  const validReceipt = await receiptPayload();
+  const altered = JSON.parse(validReceipt);
   altered.signingKeyId = "attacker-key";
   const wrongKey = await serviceFetch(
     "/api/v1/sign/transparency",
@@ -357,7 +476,7 @@ test("QA transparency signer rejects noncanonical, altered, and unsupported rece
   );
   assert.equal(wrongKey.status, 400);
 
-  const extra = JSON.parse(receiptPayload());
+  const extra = JSON.parse(validReceipt);
   extra.plaintext = "must never be accepted";
   const unsupported = await serviceFetch(
     "/api/v1/sign/transparency",
@@ -375,9 +494,102 @@ test("QA transparency signer rejects noncanonical, altered, and unsupported rece
     {
       protocolVersion: 1,
       kind: "append",
-      canonicalReceiptPayload: `${receiptPayload()} `,
+      canonicalReceiptPayload: `${validReceipt} `,
     },
     fixture.bindings,
   );
   assert.equal(noncanonical.status, 400);
+
+  const invalidAuthorization = await serviceFetch(
+    "/api/v1/sign/transparency",
+    {
+      protocolVersion: 1,
+      kind: "append",
+      canonicalReceiptPayload: await receiptPayload({
+        responseSignature: Buffer.alloc(64, 6).toString("base64url"),
+      }),
+    },
+    fixture.bindings,
+  );
+  assert.equal(invalidAuthorization.status, 400);
+
+  const wrongEntryHash = await serviceFetch(
+    "/api/v1/sign/transparency",
+    {
+      protocolVersion: 1,
+      kind: "append",
+      canonicalReceiptPayload: await receiptPayload({
+        entryHash: Buffer.alloc(32, 9).toString("base64url"),
+      }),
+    },
+    fixture.bindings,
+  );
+  assert.equal(wrongEntryHash.status, 400);
+
+  const wrongGenesis = await serviceFetch(
+    "/api/v1/sign/transparency",
+    {
+      protocolVersion: 1,
+      kind: "append",
+      canonicalReceiptPayload: await receiptPayload({
+        logIndex: 1,
+        previousEntryHash: Buffer.alloc(32, 1).toString("base64url"),
+      }),
+    },
+    fixture.bindings,
+  );
+  assert.equal(wrongGenesis.status, 400);
+});
+
+test("QA policy signer rejects arbitrary JSON and mismatched frozen release pins", async () => {
+  const fixture = await signingFixture();
+  const canonicalDocument = await canonicalPolicyDocument(fixture);
+  const arbitrary = await serviceFetch(
+    "/api/v1/sign/policy",
+    { protocolVersion: 1, canonicalDocument: '{"arbitrary":true}' },
+    fixture.bindings,
+  );
+  assert.equal(arbitrary.status, 400);
+
+  for (const mutation of [
+    (document) => { document.releaseId = "another-release"; },
+    (document) => { document.evaluator.keyId = "another-evaluator"; },
+    (document) => { document.evaluator.measurement = "another-measurement"; },
+  ]) {
+    const document = JSON.parse(canonicalDocument);
+    mutation(document);
+    const response = await serviceFetch(
+      "/api/v1/sign/policy",
+      { protocolVersion: 1, canonicalDocument: JSON.stringify(document) },
+      fixture.bindings,
+    );
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "invalid_request");
+  }
+});
+
+test("QA signing routes reject browser-origin requests before loading signer keys", async () => {
+  const fixture = await signingFixture();
+  const bindings = {
+    ...fixture.bindings,
+    HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK: "not-json",
+    HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK: "not-json",
+  };
+  for (const [pathname, body] of [
+    ["/api/v1/sign/policy", { protocolVersion: 1, canonicalDocument: "{}" }],
+    [
+      "/api/v1/sign/transparency",
+      { protocolVersion: 1, kind: "append", canonicalReceiptPayload: "{}" },
+    ],
+  ]) {
+    const response = await serviceFetch(
+      pathname,
+      body,
+      bindings,
+      TOKEN,
+      "https://browser.example",
+    );
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, "forbidden");
+  }
 });

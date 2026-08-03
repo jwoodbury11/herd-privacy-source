@@ -7,6 +7,7 @@ const infrastructure = resolve(
   import.meta.dirname,
   "../../infrastructure/gcp-confidential-space",
 );
+const evaluator = resolve(import.meta.dirname, "..");
 
 async function source(name) {
   return readFile(resolve(infrastructure, name), "utf8");
@@ -21,12 +22,21 @@ async function allTerraformSource() {
   );
 }
 
+test("Confidential Space image suppresses workload logs and uses only the socket-compatible user", async () => {
+  const dockerfile = await readFile(resolve(evaluator, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /"tee\.launch_policy\.log_redirect"="never"/u);
+  assert.match(dockerfile, /USER 0:0/u);
+  assert.match(dockerfile, /attestation socket only to the container root/u);
+  assert.doesNotMatch(dockerfile, /allow_capabilities"="true"/u);
+});
+
 test("Terraform makes the custodian database durable and non-administrable by the workload", async () => {
-  const [foundation, identity, compute, variables] = await Promise.all([
+  const [foundation, identity, compute, variables, versions] = await Promise.all([
     source("foundation.tf"),
     source("identity.tf"),
     source("compute.tf"),
     source("variables.tf"),
+    source("versions.tf"),
   ]);
   assert.match(foundation, /resource "google_firestore_database" "transparency"/u);
   assert.match(
@@ -42,7 +52,7 @@ test("Terraform makes the custodian database durable and non-administrable by th
     .map((match) => match[1])
     .sort();
   assert.deepEqual(grantedPermissions, [
-    "datastore.databases.get",
+    "datastore.databases.getMetadata",
     "datastore.entities.create",
     "datastore.entities.get",
     "datastore.entities.update",
@@ -69,6 +79,7 @@ test("Terraform makes the custodian database durable and non-administrable by th
   assert.match(identity, /size\(assertion\.swversion\)\s*==\s*1/u);
   assert.match(identity, /jsonencode\(var\.confidential_space_swversions\)/u);
   assert.match(variables, /regex\("\^\[0-9\]\{6\}\$", version\)/u);
+  assert.match(versions, /backend "gcs" \{\}/u);
   assert.match(identity, /size\(assertion\.google_service_accounts\)\s*==\s*1/u);
   assert.match(
     identity,
@@ -78,6 +89,10 @@ test("Terraform makes the custodian database durable and non-administrable by th
     identity,
     /size\(assertion\.submods\.confidential_space\.monitoring_enabled\)\s*==\s*1/u,
   );
+  assert.match(identity, /assertion\.submods\.container\.args\s*==\s*\["docker-entrypoint\.sh", "node", "src\/server\.mjs"\]/u);
+  assert.match(identity, /size\(assertion\.submods\.container\.env\)\s*==\s*6/u);
+  assert.match(compute, /"tee-container-log-redirect"\s*=\s*"false"/u);
+  assert.match(compute, /wait_for_instances\s*=\s*true/u);
   assert.match(compute, /request_path\s*=\s*"\/readyz"/u);
 });
 
@@ -172,7 +187,7 @@ test("Terraform permits only restricted Google API egress without NAT or a defau
     1,
   );
   assert.equal(
-    [...egress.matchAll(/ports\s*=\s*\["443"\]/gu)].length,
+    [...egress.matchAll(/ports\s*=\s*\["80", "443"\]/gu)].length,
     1,
   );
   assert.match(
@@ -235,4 +250,39 @@ test("Terraform applies a dedicated edge throttle to public nonce attestation an
     loadBalancer,
     /resource "google_compute_backend_service" "evaluator"[\s\S]*?log_config\s*\{\s*enable\s*=\s*false/u,
   );
+});
+
+test("Terraform binds the production evaluator address through a protected DNSSEC zone", async () => {
+  const [dns, variables, outputs] = await Promise.all([
+    source("public-dns.tf"),
+    source("variables.tf"),
+    source("outputs.tf"),
+  ]);
+  assert.match(dns, /resource "google_dns_managed_zone" "public"/u);
+  assert.match(dns, /dnssec_config\s*\{\s*state\s*=\s*"on"/u);
+  assert.match(dns, /prevent_destroy\s*=\s*true/u);
+  assert.match(
+    dns,
+    /rrdatas\s*=\s*\[google_compute_global_address\.evaluator\[0\]\.address\]/u,
+  );
+  assert.match(dns, /endswith\(var\.evaluator_domain, "\.\$\{var\.public_domain\}"\)/u);
+  assert.match(variables, /variable "public_domain"/u);
+  assert.match(outputs, /output "public_dns_name_servers"/u);
+});
+
+test("Terraform retains only explicitly public signed release evidence", async () => {
+  const [evidence, locals, outputs] = await Promise.all([
+    source("release-evidence.tf"),
+    source("locals.tf"),
+    source("outputs.tf"),
+  ]);
+  assert.match(evidence, /uniform_bucket_level_access\s*=\s*true/u);
+  assert.match(evidence, /public_access_prevention\s*=\s*"inherited"/u);
+  assert.match(evidence, /versioning\s*\{\s*enabled\s*=\s*true/u);
+  assert.match(evidence, /retention_period\s*=\s*31536000/u);
+  assert.match(evidence, /prevent_destroy\s*=\s*true/u);
+  assert.match(evidence, /role\s*=\s*"roles\/storage\.objectViewer"/u);
+  assert.match(evidence, /member\s*=\s*"allUsers"/u);
+  assert.match(locals, /"storage\.googleapis\.com"/u);
+  assert.match(outputs, /output "release_evidence_base_url"/u);
 });

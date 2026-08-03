@@ -36,9 +36,14 @@ node release/generate-production-config.mjs \
 ```
 
 Set `productionPolicy.configurationSha256` to the reported digest and run the
-same command without `--prepare`. A strict run must succeed before either client
-is built. The digest excludes release artifact hashes and evidence references,
-so filling those after the build does not create a self-reference.
+same command with `--verify-template` in place of `--prepare`. Template
+verification uses the full fail-closed production-template normalizer and
+requires the configured digest to match before either client is built. Running
+without either mode is intentionally reserved for the final assembled
+production manifest and still requires its complete provenance, transparency,
+transition, and deployment evidence. The digest excludes release artifact
+hashes and evidence references, so filling those after the build does not create
+a self-reference.
 
 Wire the Xcode Release configuration, and only the Release configuration, to
 the checked-in fail-closed wrapper `release/HerdRelease.xcconfig`. That wrapper

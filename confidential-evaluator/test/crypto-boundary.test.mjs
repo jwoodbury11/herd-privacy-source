@@ -27,6 +27,7 @@ function oidcToken({
   restartPolicy = "Always",
   cmdOverride = [],
   envOverride = {},
+  omitEmptyOverrides = false,
   memoryMonitoring = false,
   hwmodel = "GCP_INTEL_TDX",
 } = {}) {
@@ -45,8 +46,17 @@ function oidcToken({
       submods: {
         container: {
           image_digest: imageDigest,
-          cmd_override: cmdOverride,
-          env_override: envOverride,
+          args: ["docker-entrypoint.sh", "node", "src/server.mjs"],
+          env: {
+            HERD_DEPLOYMENT_CONFIG_FILE: "/app/config/deployment.json",
+            HOSTNAME: "herd-evaluator-tdx-ab12",
+            NODE_ENV: "production",
+            NODE_VERSION: "22.13.0",
+            PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            YARN_VERSION: "1.22.22",
+          },
+          ...(omitEmptyOverrides ? {} : { cmd_override: cmdOverride }),
+          ...(omitEmptyOverrides ? {} : { env_override: envOverride }),
           restart_policy: restartPolicy,
         },
         confidential_space: {
@@ -279,6 +289,12 @@ test("exchanges a launcher OIDC token and verifies KMS plaintext CRC32C", async 
 test("extracts only a canonical sha256 image digest from the STS subject token", () => {
   assert.equal(
     attestedImageDigestFromOidcToken(oidcToken()),
+    TEST_IMAGE_DIGEST,
+  );
+  assert.equal(
+    attestedImageDigestFromOidcToken(
+      oidcToken({ omitEmptyOverrides: true }),
+    ),
     TEST_IMAGE_DIGEST,
   );
   assert.throws(

@@ -13,6 +13,7 @@
     "out",
     "partiful ios",
     "parity-audit",
+    "release/generated",
     "screenshots",
     "release/staging"
   ],
@@ -97,6 +98,7 @@
     { "path": "invitee-web/db", "recursive": true },
     { "path": "invitee-web/drizzle", "recursive": true },
     { "path": "invitee-web/lib", "recursive": true },
+    { "path": "invitee-web/legal-content", "recursive": true, "extensions": [".tsx"] },
     { "path": "invitee-web/shared", "recursive": true },
     { "path": "invitee-web/tests", "recursive": true },
     { "path": "invitee-web/worker", "recursive": true },
@@ -115,7 +117,7 @@
     { "path": "invitee-web/vite.config.ts" },
     {
       "path": "invitee-web/.env.example",
-      "exampleSha256": "49949a432b57f6864cb3f6efe065aa563897cae4c5b89afb1d7e9325d1a89693"
+      "exampleSha256": "3408f47c1db9e692bb49cacd858c586b178e33241882c110b53688037b783be6"
     },
     {
       "path": "invitee-web/public/herd-icon.png",
@@ -153,6 +155,7 @@
     { "path": "herd-legal/app", "recursive": true },
     { "path": "herd-legal/build", "recursive": true },
     { "path": "herd-legal/db", "recursive": true },
+    { "path": "herd-legal/legal-content", "recursive": true, "extensions": [".tsx"] },
     { "path": "herd-legal/tests", "recursive": true },
     { "path": "herd-legal/worker", "recursive": true },
     { "path": "herd-legal/README.md" },
@@ -184,7 +187,7 @@
     { "path": "evaluator-service/package-lock.json" },
     {
       "path": "evaluator-service/.env.example",
-      "exampleSha256": "dbdcb9dea4c3920a217e0928e623d6d766eee9fc2037bad0bf2cc1a71e43f882"
+      "exampleSha256": "5b43c784886c502781579a2ca3a0bb65c091d0d7fe9cbe0a859599b1fda758a5"
     },
     { "path": "evaluator-service/next.config.ts" },
     { "path": "evaluator-service/tsconfig.json" },

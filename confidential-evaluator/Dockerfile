@@ -30,7 +30,10 @@ LABEL "tee.launch_policy.allow_capabilities"="false" \
       "tee.launch_policy.log_redirect"="never" \
       "tee.launch_policy.monitoring_memory_allow"="never"
 
-USER 65532:65532
+# Confidential Space exposes its attestation socket only to the container root.
+# The workload remains isolated inside the TDX guest and cannot add capabilities,
+# mounts, command overrides, environment overrides, cgroups, or monitoring.
+USER 0:0
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

@@ -135,6 +135,18 @@ variable "evaluator_domain" {
   }
 }
 
+variable "public_domain" {
+  description = "Registrable public domain hosted in a DNSSEC-enabled Cloud DNS zone. Required for runtime."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.public_domain == null || can(regex("^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", var.public_domain))
+    error_message = "public_domain must be null or a lowercase registrable domain."
+  }
+}
+
 variable "machine_type" {
   description = "Intel TDX-compatible C3 machine type."
   type        = string

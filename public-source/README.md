@@ -11,10 +11,11 @@ documents. It excludes proprietary visual references, screenshots, secrets,
 certificates, private keys, databases, deployment state, dependencies, and build
 outputs. The few first-party PNG build inputs are admitted only by exact path
 and policy-pinned SHA-256. The documented `.env.example` files required by the
-web and software-evaluator test/build closures are likewise admitted only by exact path and digest; all
-other environment files remain forbidden. Other binary/NUL data, symlinks, private-key markers,
-oversized files, unsafe paths, and case-folding collisions fail the export
-instead of being silently included.
+web and software-evaluator test/build closures are likewise admitted only by
+exact path and digest; active and commented secret-bearing assignments must
+also contain explicit placeholder values. All other environment files remain forbidden. Other
+binary/NUL data, symlinks, private-key markers, oversized files, unsafe paths,
+and case-folding collisions fail the export instead of being silently included.
 
 ```sh
 node public-source/export.mjs \

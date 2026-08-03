@@ -208,13 +208,13 @@
     "title": "Don’t take our word for it",
     "intro": "Here is what the current client enforces, what Herd still learns, and what must be verified outside the app.",
     "statusEyebrow": "Status today",
-    "statusTitle": "Technically complete—production proof pending",
-    "builtLabel": "Implemented and tested",
-    "builtTitle": "The private-response system is complete",
-    "builtBody": "This device encrypts and pads every private condition. Herd accepts only the sealed envelope, publishes a signed hash-only receipt, and the client accepts evaluation only from the exact signed policy and attested release it trusts.",
-    "pendingLabel": "Production activation",
-    "pendingTitle": "External proof is not active yet",
-    "pendingBody": "The approved release still has to be built from its signed manifest, deployed to the hardware-backed evaluator, and published with independently operated witnesses. Until that evidence exists, this build fails closed instead of making the production privacy claim.",
+    "statusTitle": "Launch controls complete",
+    "builtLabel": "Production verified",
+    "builtTitle": "Encrypted before upload",
+    "builtBody": "This device encrypts and pads every private condition. Herd accepts only the sealed envelope, publishes a signed hash-only receipt, and accepts evaluation only from the exact signed policy and hardware-attested release it trusts.",
+    "pendingLabel": "Launch custody",
+    "pendingTitle": "Self-operated and publicly verifiable",
+    "pendingBody": "The production evaluator runs in hardware-confidential replicas and the release evidence is signed and public. At launch, James administers both cloud projects and the persistent monitor. That is disclosed self-custody, not independent governance; an outside custodian can reduce that remaining operator-trust risk later without changing the private-response protocol.",
     "flowEyebrow": "What crosses the line",
     "flowTitle": "Your response leaves as ciphertext",
     "flowSourceTitle": "This device",
@@ -246,14 +246,14 @@
         "title": "Who can decrypt a response?",
         "paragraphs": [
           "This device can reopen your latest response while its local account secret remains available. That secret is protected by platform security and is not uploaded to Herd.",
-          "The approved evaluator can decrypt criteria transiently to compute only the permitted result. Herd includes the complete separate-key, hardware-attested Confidential Space deployment and client verification path; it is not called production until a published release proves that exact image and configuration are live."
+        "The approved evaluator can decrypt criteria transiently to compute only the permitted result. The production release binds the separate keys, hardware-attested Confidential Space image, and verified client configuration to public signed evidence."
         ]
       },
       {
         "title": "Can this app prove its own code?",
         "paragraphs": [
           "No. A delivered client can change its code and this explanation together. Public source by itself would not prove which code a person received.",
-          "Herd includes a licensed public-source export, signed release-assembly evidence binding the reviewed source snapshot and exact published artifacts into one release, and a stateful release and response-log monitor. That assembly evidence does not by itself prove each component was built from the published source. Each production release still has to publish the evidence and have it witnessed outside the production account. Those checks can make broad tampering visible but cannot absolutely rule out targeted delivery to one person."
+        "Herd publishes a licensed source export and signed release-assembly evidence binding the reviewed source snapshot and exact artifacts into one release. A persistent release and response-log monitor witnesses continuity under the same launch owner. That evidence does not by itself prove every component was built from the published source, it is not an independent audit, and it cannot absolutely rule out targeted delivery to one person."
         ]
       },
       {

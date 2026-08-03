@@ -12,7 +12,10 @@ import {
   getOrCreateAccountRootSecret,
   loadAccountRootSecret,
 } from "@/lib/privacy/device-vault";
-import { attestEvaluatorForPolicy } from "@/lib/privacy/evaluator-attestation";
+import {
+  attestEvaluatorForPolicy,
+  softwareQaEvaluatorModeEnabled,
+} from "@/lib/privacy/evaluator-attestation";
 import {
   displayableEventResolution,
   type DisplayableEventResolution,
@@ -593,6 +596,7 @@ function EventCard({
 }
 
 export function HerdApp({ inviteToken }: { inviteToken?: string }) {
+  const softwareQaEvaluator = softwareQaEvaluatorModeEnabled();
   const [screen, setScreen] = useState<Screen>("welcome");
   const [otp, setOtp] = useState("");
   const [otpError, setOtpError] = useState("");
@@ -1686,7 +1690,16 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   return (
     <main className="site-stage">
-      <div className={`app-shell screen-${screen}`}>
+      <div
+        className={`app-shell screen-${screen}${
+          softwareQaEvaluator ? " software-qa-mode" : ""
+        }`}
+      >
+        {softwareQaEvaluator ? (
+          <div className="software-qa-banner" role="status">
+            QA · SOFTWARE EVALUATOR · NOT PRODUCTION
+          </div>
+        ) : null}
         <div
           className="screen-stack"
           inert={conditionSheetOpen || releaseStatusOpen ? true : undefined}

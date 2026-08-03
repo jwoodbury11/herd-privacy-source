@@ -48,6 +48,16 @@ output "load_balancer_ip" {
   value       = var.runtime_enabled ? google_compute_global_address.evaluator[0].address : null
 }
 
+output "public_dns_name_servers" {
+  description = "Authoritative name servers to bind to the public domain registration."
+  value       = var.runtime_enabled ? google_dns_managed_zone.public[0].name_servers : []
+}
+
+output "release_evidence_base_url" {
+  description = "Public immutable-prefix base used by signed release artifact descriptors."
+  value       = "https://storage.googleapis.com/${google_storage_bucket.release_evidence.name}/"
+}
+
 output "attestation_condition" {
   description = "Human-reviewable production claims enforced by the WIP provider."
   value       = var.runtime_enabled ? google_iam_workload_identity_pool_provider.google_attestation[0].attribute_condition : null

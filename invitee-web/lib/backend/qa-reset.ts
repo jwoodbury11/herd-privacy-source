@@ -1,6 +1,5 @@
 import type { HerdBindings } from "@/db";
 
-import { getDeploymentProfile } from "./config";
 import { ApiError } from "./http";
 
 export const QA_RESET_CONFIRMATION = "RESET HERD QA DATA";
@@ -23,7 +22,7 @@ function explicitlyTrue(value: string | undefined): boolean {
 
 export function requireQaResetEnabled(bindings: HerdBindings): void {
   if (
-    getDeploymentProfile(bindings) !== "test" ||
+    bindings.HERD_DEPLOYMENT_PROFILE?.trim().toLowerCase() !== "test" ||
     !explicitlyTrue(bindings.HERD_TEST_BYPASS_ENABLED) ||
     !explicitlyTrue(bindings.HERD_ALLOW_INSECURE_QA_BYPASS) ||
     !explicitlyTrue(bindings.HERD_QA_RESET_ENABLED)

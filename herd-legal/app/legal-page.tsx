@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { LEGAL_EFFECTIVE_DATE } from "../../legal-content";
+import { LEGAL_EFFECTIVE_DATE } from "../legal-content";
 
 type LegalPageProps = {
   eyebrow: string;
