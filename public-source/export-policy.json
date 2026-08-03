@@ -127,6 +127,7 @@
       "path": "invitee-web/public/og.png",
       "binarySha256": "c5e5818e488380ab033f9a47623029e5f8228edde6e6761adf3428f54a93a95c"
     },
+    { "path": "invitee-web/public/assets/herd-entry.json" },
     {
       "path": "invitee-web/public/icons/herd-32.png",
       "binarySha256": "c8dc8ee5b1bf3bc1fdd5e76db8d8e222eb9492fee21a9038c8070372026b1866"
