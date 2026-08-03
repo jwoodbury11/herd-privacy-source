@@ -1,0 +1,570 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:herd:schema:release-manifest:v1",
+  "title": "Herd release manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseId",
+    "evaluatorKeyEpochId",
+    "previousRelease",
+    "releaseStage",
+    "createdAt",
+    "sourceDateEpoch",
+    "source",
+    "protocol",
+    "trust",
+    "artifacts",
+    "database",
+    "productionPolicy",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$" },
+    "evaluatorKeyEpochId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$" },
+    "previousRelease": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/previousRelease" }
+      ]
+    },
+    "releaseStage": { "enum": ["candidate", "production"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "sourceDateEpoch": { "type": "integer", "minimum": 0 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "license", "exportArchive", "exportManifest"],
+      "properties": {
+        "repository": { "type": "string", "format": "uri" },
+        "revision": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+        "license": { "const": "Apache-2.0" },
+        "exportArchive": { "$ref": "#/$defs/artifact" },
+        "exportManifest": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "cipherSuite",
+        "paddedPlaintextBytes",
+        "payloadFrameBytes",
+        "userWrapBytes",
+        "evaluatorWrapBytes"
+      ],
+      "properties": {
+        "version": { "const": 1 },
+        "cipherSuite": { "const": "P256_HKDF_SHA256_AES256_GCM" },
+        "paddedPlaintextBytes": { "const": 4096 },
+        "payloadFrameBytes": { "const": 4124 },
+        "userWrapBytes": { "const": 60 },
+        "evaluatorWrapBytes": { "const": 157 }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluatorEncryption",
+        "resultSigning",
+        "policySigning",
+        "receiptTransparencySigning",
+        "releaseManifestSigning",
+        "workload"
+      ],
+      "properties": {
+        "evaluatorEncryption": { "$ref": "#/$defs/encryptionKey" },
+        "resultSigning": { "$ref": "#/$defs/signingKey" },
+        "policySigning": { "$ref": "#/$defs/signingKey" },
+        "receiptTransparencySigning": { "$ref": "#/$defs/signingKey" },
+        "releaseManifestSigning": { "$ref": "#/$defs/signingKey" },
+        "workload": { "$ref": "#/$defs/workload" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web", "ios", "ordinaryApi", "evaluator", "scheduler"],
+      "properties": {
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["publicOrigin", "deploymentArchive", "assetManifestSha256", "entryDocumentSha256"],
+          "properties": {
+            "publicOrigin": { "type": "string", "format": "uri" },
+            "deploymentArchive": { "$ref": "#/$defs/artifact" },
+            "assetManifestSha256": { "$ref": "#/$defs/sha256" },
+            "entryDocumentSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "ios": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bundleIdentifier",
+            "version",
+            "build",
+            "submissionArchive",
+            "normalizedBinarySha256"
+          ],
+          "properties": {
+            "bundleIdentifier": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 255,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(?:\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}$"
+            },
+            "build": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^(?:0|[1-9][0-9]*)(?:\\.(?:0|[1-9][0-9]*)){0,2}$"
+            },
+            "submissionArchive": { "$ref": "#/$defs/artifact" },
+            "normalizedBinarySha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "ordinaryApi": { "$ref": "#/$defs/artifact" },
+        "evaluator": { "$ref": "#/$defs/artifact" },
+        "scheduler": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["migrationSetSha256", "schemaSha256"],
+      "properties": {
+        "migrationSetSha256": { "$ref": "#/$defs/sha256" },
+        "schemaSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "productionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configurationSha256",
+        "testAuthenticationEnabled",
+        "debugEnabled",
+        "requestBodyLoggingEnabled"
+      ],
+      "properties": {
+        "configurationSha256": { "$ref": "#/$defs/sha256" },
+        "testAuthenticationEnabled": { "const": false },
+        "debugEnabled": { "const": false },
+        "requestBodyLoggingEnabled": { "const": false }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sboms", "provenance", "transparency", "transitions", "deployments", "audits"],
+      "properties": {
+        "sboms": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifact" } },
+        "provenance": { "type": "array", "items": { "$ref": "#/$defs/provenance" } },
+        "transparency": { "type": "array", "items": { "$ref": "#/$defs/transparency" } },
+        "transitions": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+        "deployments": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+        "audits": { "type": "array", "items": { "$ref": "#/$defs/artifact" } }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "releaseStage": { "const": "production" } },
+        "required": ["releaseStage"]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "properties": {
+              "exportArchive": {
+                "allOf": [
+                  { "$ref": "#/$defs/productionArtifact" },
+                  { "properties": { "name": { "const": "herd-privacy-source.tar" } } }
+                ]
+              },
+              "exportManifest": {
+                "allOf": [
+                  { "$ref": "#/$defs/productionArtifact" },
+                  { "properties": { "name": { "const": "herd-privacy-source.manifest.json" } } }
+                ]
+              }
+            }
+          },
+          "artifacts": {
+            "properties": {
+              "web": {
+                "properties": {
+                  "deploymentArchive": {
+                    "allOf": [
+                      { "$ref": "#/$defs/productionExternalArtifact" },
+                      { "properties": { "size": { "maximum": 268435456 } } }
+                    ]
+                  }
+                }
+              },
+              "ios": {
+                "properties": {
+                  "submissionArchive": { "$ref": "#/$defs/productionExternalArtifact" }
+                }
+              },
+              "ordinaryApi": { "$ref": "#/$defs/productionExternalArtifact" },
+              "evaluator": { "$ref": "#/$defs/productionExternalArtifact" },
+              "scheduler": {
+                "allOf": [
+                  { "$ref": "#/$defs/productionExternalArtifact" },
+                  { "properties": { "size": { "maximum": 268435456 } } }
+                ]
+              }
+            }
+          },
+          "evidence": {
+            "properties": {
+              "sboms": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/productionArtifact" },
+                    {
+                      "properties": {
+                        "name": { "const": "herd.spdx.json" },
+                        "mediaType": { "const": "application/spdx+json" },
+                        "size": { "maximum": 67108864 }
+                      }
+                    }
+                  ]
+                }
+              },
+              "provenance": {
+                "minItems": 1,
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/provenance" },
+                    {
+                      "properties": {
+                        "statement": {
+                          "allOf": [
+                            { "$ref": "#/$defs/productionArtifact" },
+                            {
+                              "properties": {
+                                "mediaType": { "const": "application/vnd.in-toto+json" },
+                                "size": { "maximum": 67108864 }
+                              }
+                            }
+                          ]
+                        },
+                        "bundle": {
+                          "allOf": [
+                            { "$ref": "#/$defs/productionArtifact" },
+                            {
+                              "properties": {
+                                "mediaType": {
+                                  "pattern": "^application/vnd\\.dev\\.sigstore\\.bundle(?:\\.v[0-9]+(?:\\.[0-9]+)*)?\\+json$"
+                                },
+                                "size": { "maximum": 67108864 }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "transparency": {
+                "minItems": 1,
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/transparency" },
+                    {
+                      "properties": {
+                        "url": { "type": "string", "format": "uri", "pattern": "^https://" }
+                      }
+                    }
+                  ]
+                }
+              },
+              "transitions": {
+                "minItems": 1,
+                "maxItems": 2,
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/productionArtifact" },
+                    {
+                      "properties": {
+                        "size": { "maximum": 67108864 },
+                        "name": {
+                          "enum": ["evaluator-epoch-transition.json", "release-continuity.json"]
+                        },
+                        "mediaType": {
+                          "enum": [
+                            "application/vnd.herd.evaluator-epoch-transition.v2+json",
+                            "application/vnd.herd.release-continuity.v1+json"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "deployments": {
+                "items": { "$ref": "#/$defs/productionArtifact" }
+              },
+              "audits": {
+                "minItems": 1,
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/productionExternalArtifact" },
+                    {
+                      "properties": {
+                        "mediaType": { "const": "application/pdf" },
+                        "size": { "maximum": 67108864 }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "previousRelease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["releaseId", "manifestSha256"],
+      "properties": {
+        "releaseId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mediaType", "sha256", "size", "url"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
+        "mediaType": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "size": { "type": "integer", "minimum": 0 },
+        "url": { "type": ["string", "null"], "format": "uri" }
+      }
+    },
+    "productionArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/artifact" },
+        {
+          "properties": {
+            "url": { "type": "string", "format": "uri", "pattern": "^https://" }
+          }
+        }
+      ]
+    },
+    "productionExternalArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/productionArtifact" },
+        {
+          "properties": {
+            "size": { "maximum": 1073741824 },
+            "name": {
+              "not": {
+                "enum": [
+                  "herd-privacy-source.tar",
+                  "herd-privacy-source.manifest.json",
+                  "herd-privacy-source.second.tar",
+                  "herd-privacy-source.second.manifest.json",
+                  "herd.spdx.json",
+                  "build-provenance.intoto.json",
+                  "build-provenance.sigstore.json",
+                  "build-provenance.rekor.json",
+                  "evaluator-epoch-transition.json",
+                  "release-continuity.json",
+                  "release-manifest.json",
+                  "release-manifest.sig.json",
+                  "release-public.pem",
+                  "release-manifest.sigstore.json",
+                  "production-config"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "encryptionKey": {
+      "allOf": [
+        { "$ref": "#/$defs/key" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithm": { "const": "P256_ECDH_HKDF_SHA256_AES256_GCM" }
+          }
+        }
+      ]
+    },
+    "signingKey": {
+      "allOf": [
+        { "$ref": "#/$defs/key" },
+        {
+          "type": "object",
+          "properties": {
+            "algorithm": { "const": "ECDSA_P256_SHA256" }
+          }
+        }
+      ]
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyId", "algorithm", "publicKeyFormat", "publicKey", "publicKeySha256"],
+      "properties": {
+        "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$" },
+        "algorithm": { "type": "string" },
+        "publicKeyFormat": { "const": "P256_X963_BASE64URL" },
+        "publicKey": { "type": "string", "pattern": "^[A-Za-z0-9_-]{87}$" },
+        "publicKeySha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "enum": ["sha256", "sha384"] },
+        "value": { "type": "string", "pattern": "^(?:[0-9a-f]{64}|[0-9a-f]{96})$" }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "imageDigest",
+        "measurements",
+        "attestationProvider",
+        "attestationClaimPolicy",
+        "attestationRootFingerprint"
+      ],
+      "properties": {
+        "platform": { "const": "gcp-confidential-space" },
+        "imageDigest": { "$ref": "#/$defs/digest" },
+        "measurements": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
+        "attestationProvider": { "const": "google-pki-attestation-token" },
+        "attestationClaimPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policyId",
+            "issuer",
+            "audience",
+            "maxAgeSeconds",
+            "challengeNonceRequired",
+            "keyBindingDomain",
+            "keyBindingHashAlgorithm",
+            "keyBindingHashEncoding",
+            "keyBindingHash",
+            "imageDigest",
+            "projectId",
+            "serviceAccount",
+            "hwmodel",
+            "secboot",
+            "dbgstat",
+            "swname",
+            "allowedSwversions",
+            "oemid",
+            "attesterTcb",
+            "envOverrideAllowed",
+            "cmdOverrideAllowed"
+          ],
+          "properties": {
+            "policyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$" },
+            "issuer": { "const": "https://confidentialcomputing.googleapis.com" },
+            "audience": { "type": "string", "format": "uri", "pattern": "^https://" },
+            "maxAgeSeconds": { "type": "integer", "minimum": 30, "maximum": 900 },
+            "challengeNonceRequired": { "const": true },
+            "keyBindingDomain": { "const": "HERD-CONFIDENTIAL-EVALUATOR-KEY-BINDING-V1" },
+            "keyBindingHashAlgorithm": { "const": "sha256" },
+            "keyBindingHashEncoding": { "const": "base64url" },
+            "keyBindingHash": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+            "imageDigest": {
+              "allOf": [
+                { "$ref": "#/$defs/digest" },
+                { "type": "object", "properties": { "algorithm": { "const": "sha256" } } }
+              ]
+            },
+            "projectId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$" },
+            "serviceAccount": { "type": "string", "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$" },
+            "hwmodel": { "const": "GCP_INTEL_TDX" },
+            "secboot": { "const": true },
+            "dbgstat": { "const": "disabled-since-boot" },
+            "swname": { "const": "CONFIDENTIAL_SPACE" },
+            "allowedSwversions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[0-9]{8}$" }
+            },
+            "oemid": { "const": 11129 },
+            "attesterTcb": { "const": "INTEL" },
+            "envOverrideAllowed": { "const": false },
+            "cmdOverrideAllowed": { "const": false }
+          }
+        },
+        "attestationRootFingerprint": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjects", "predicateType", "issuer", "workflowIdentity", "statement", "bundle"],
+      "properties": {
+        "subjects": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sha256"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$" },
+              "sha256": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        "predicateType": { "const": "https://slsa.dev/provenance/v1" },
+        "issuer": { "const": "https://token.actions.githubusercontent.com/" },
+        "workflowIdentity": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "statement": { "$ref": "#/$defs/artifact" },
+        "bundle": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "transparency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "logId", "entryId", "integratedTime", "bundleSha256", "url"],
+      "properties": {
+        "provider": { "const": "sigstore-rekor" },
+        "logId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "entryId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "integratedTime": { "type": "integer", "minimum": 1 },
+        "bundleSha256": { "$ref": "#/$defs/sha256" },
+        "url": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}

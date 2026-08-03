@@ -1,0 +1,726 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000200 /* HerdHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000100 /* HerdHostApp.swift */; };
+		A00000000000000000000201 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* Models.swift */; };
+		A00000000000000000000202 /* EventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* EventStore.swift */; };
+		A00000000000000000000203 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Theme.swift */; };
+		A00000000000000000000204 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HomeView.swift */; };
+		A00000000000000000000205 /* DateTimeSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* DateTimeSheets.swift */; };
+		A00000000000000000000206 /* EventEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* EventEditorView.swift */; };
+		A00000000000000000000207 /* ContactStoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000107 /* ContactStoreService.swift */; };
+		A00000000000000000000208 /* AttendeeFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* AttendeeFlowView.swift */; };
+		A00000000000000000000209 /* LocationSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* LocationSearchView.swift */; };
+		A00000000000000000000210 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* Assets.xcassets */; };
+		A00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* PrivacyInfo.xcprivacy */; };
+		A00000000000000000000212 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* APIClient.swift */; };
+		A00000000000000000000213 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* AuthStore.swift */; };
+		A00000000000000000000214 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* AuthenticationView.swift */; };
+		A00000000000000000000215 /* RSVPCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* RSVPCrypto.swift */; };
+		A00000000000000000000216 /* AccountKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* AccountKeyStore.swift */; };
+		A00000000000000000000217 /* HerdExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* HerdExperience.swift */; };
+		A00000000000000000000218 /* HerdExperience.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* HerdExperience.json */; };
+		E00000000000000000000200 /* InvitationLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000100 /* InvitationLinks.swift */; };
+		C00000000000000000000200 /* EvaluatorAttestation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000100 /* EvaluatorAttestation.swift */; };
+		F00000000000000000000200 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000100 /* UITestSupport.swift */; };
+		B00000000000000000000200 /* HerdHostCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000100 /* HerdHostCoreTests.swift */; };
+		B00000000000000000000201 /* private-response-v1-cross-platform-vectors.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */; };
+		E00000000000000000000201 /* InvitationLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000101 /* InvitationLinkTests.swift */; };
+		U00000000000000000000200 /* HerdHostUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = U00000000000000000000100 /* HerdHostUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B00000000000000000000020 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A00000000000000000000013;
+			remoteInfo = HerdHost;
+		};
+		U00000000000000000000020 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A00000000000000000000013;
+			remoteInfo = HerdHost;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000005 /* HerdHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HerdHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000100 /* HerdHostApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000101 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A00000000000000000000102 /* EventStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000103 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A00000000000000000000104 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		A00000000000000000000105 /* DateTimeSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateTimeSheets.swift; sourceTree = "<group>"; };
+		A00000000000000000000106 /* EventEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventEditorView.swift; sourceTree = "<group>"; };
+		A00000000000000000000107 /* ContactStoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactStoreService.swift; sourceTree = "<group>"; };
+		A00000000000000000000108 /* AttendeeFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttendeeFlowView.swift; sourceTree = "<group>"; };
+		A00000000000000000000109 /* LocationSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationSearchView.swift; sourceTree = "<group>"; };
+		A00000000000000000000110 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000111 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A00000000000000000000112 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		A00000000000000000000113 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000114 /* AuthenticationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationView.swift; sourceTree = "<group>"; };
+		A00000000000000000000115 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000116 /* RSVPCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSVPCrypto.swift; sourceTree = "<group>"; };
+		A00000000000000000000117 /* AccountKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountKeyStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000118 /* HerdExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdExperience.swift; sourceTree = "<group>"; };
+		A00000000000000000000119 /* HerdExperience.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HerdExperience.json; sourceTree = "<group>"; };
+		E00000000000000000000100 /* InvitationLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationLinks.swift; sourceTree = "<group>"; };
+		C00000000000000000000100 /* EvaluatorAttestation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvaluatorAttestation.swift; sourceTree = "<group>"; };
+		F00000000000000000000100 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
+		B00000000000000000000005 /* HerdHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HerdHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B00000000000000000000100 /* HerdHostCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostCoreTests.swift; sourceTree = "<group>"; };
+		B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "invitee-web/tests/acceptance/private-response-v1-cross-platform-vectors.json"; sourceTree = SOURCE_ROOT; };
+		E00000000000000000000101 /* InvitationLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationLinkTests.swift; sourceTree = "<group>"; };
+		D00000000000000000000100 /* HerdRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = release/HerdRelease.xcconfig; sourceTree = SOURCE_ROOT; };
+		U00000000000000000000005 /* HerdHostUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HerdHostUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		U00000000000000000000100 /* HerdHostUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostUITests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A00000000000000000000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		U00000000000000000000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000004 /* HerdHost */,
+				B00000000000000000000004 /* HerdHostTests */,
+				U00000000000000000000004 /* HerdHostUITests */,
+				A00000000000000000000006 /* Shared */,
+				D00000000000000000000100 /* HerdRelease.xcconfig */,
+				A00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000006 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000119 /* HerdExperience.json */,
+			);
+			path = invitee-web/shared;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000005 /* HerdHost.app */,
+				B00000000000000000000005 /* HerdHostTests.xctest */,
+				U00000000000000000000005 /* HerdHostUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 /* HerdHost */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000100 /* HerdHostApp.swift */,
+				A00000000000000000000101 /* Models.swift */,
+				A00000000000000000000102 /* EventStore.swift */,
+				A00000000000000000000103 /* Theme.swift */,
+				A00000000000000000000104 /* HomeView.swift */,
+				A00000000000000000000105 /* DateTimeSheets.swift */,
+				A00000000000000000000106 /* EventEditorView.swift */,
+				A00000000000000000000107 /* ContactStoreService.swift */,
+				A00000000000000000000108 /* AttendeeFlowView.swift */,
+				A00000000000000000000109 /* LocationSearchView.swift */,
+				A00000000000000000000112 /* APIClient.swift */,
+				A00000000000000000000113 /* AuthStore.swift */,
+				A00000000000000000000114 /* AuthenticationView.swift */,
+				A00000000000000000000116 /* RSVPCrypto.swift */,
+				A00000000000000000000117 /* AccountKeyStore.swift */,
+				A00000000000000000000118 /* HerdExperience.swift */,
+				E00000000000000000000100 /* InvitationLinks.swift */,
+				C00000000000000000000100 /* EvaluatorAttestation.swift */,
+				F00000000000000000000100 /* UITestSupport.swift */,
+				A00000000000000000000115 /* Info.plist */,
+				A00000000000000000000110 /* Assets.xcassets */,
+				A00000000000000000000111 /* PrivacyInfo.xcprivacy */,
+			);
+			path = HerdHost;
+			sourceTree = "<group>";
+		};
+		B00000000000000000000004 /* HerdHostTests */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000100 /* HerdHostCoreTests.swift */,
+				E00000000000000000000101 /* InvitationLinkTests.swift */,
+				B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */,
+			);
+			path = HerdHostTests;
+			sourceTree = "<group>";
+		};
+		U00000000000000000000004 /* HerdHostUITests */ = {
+			isa = PBXGroup;
+			children = (
+				U00000000000000000000100 /* HerdHostUITests.swift */,
+			);
+			path = HerdHostUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000013 /* HerdHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHost" */;
+			buildPhases = (
+				A00000000000000000000010 /* Sources */,
+				A00000000000000000000011 /* Frameworks */,
+				A00000000000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HerdHost;
+			productName = HerdHost;
+			productReference = A00000000000000000000005 /* HerdHost.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B00000000000000000000013 /* HerdHostTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHostTests" */;
+			buildPhases = (
+				B00000000000000000000010 /* Sources */,
+				B00000000000000000000011 /* Frameworks */,
+				B00000000000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B00000000000000000000021 /* PBXTargetDependency */,
+			);
+			name = HerdHostTests;
+			productName = HerdHostTests;
+			productReference = B00000000000000000000005 /* HerdHostTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		U00000000000000000000013 /* HerdHostUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = U00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHostUITests" */;
+			buildPhases = (
+				U00000000000000000000010 /* Sources */,
+				U00000000000000000000011 /* Frameworks */,
+				U00000000000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				U00000000000000000000021 /* PBXTargetDependency */,
+			);
+			name = HerdHostUITests;
+			productName = HerdHostUITests;
+			productReference = U00000000000000000000005 /* HerdHostUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A00000000000000000000013 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					B00000000000000000000013 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A00000000000000000000013;
+					};
+					U00000000000000000000013 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A00000000000000000000013;
+					};
+				};
+			};
+			buildConfigurationList = A00000000000000000000014 /* Build configuration list for PBXProject "HerdHost" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000002;
+			productRefGroup = A00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000013 /* HerdHost */,
+				B00000000000000000000013 /* HerdHostTests */,
+				U00000000000000000000013 /* HerdHostUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A00000000000000000000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000210 /* Assets.xcassets in Resources */,
+				A00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */,
+				A00000000000000000000218 /* HerdExperience.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000201 /* private-response-v1-cross-platform-vectors.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		U00000000000000000000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A00000000000000000000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000200 /* HerdHostApp.swift in Sources */,
+				A00000000000000000000201 /* Models.swift in Sources */,
+				A00000000000000000000202 /* EventStore.swift in Sources */,
+				A00000000000000000000203 /* Theme.swift in Sources */,
+				A00000000000000000000204 /* HomeView.swift in Sources */,
+				A00000000000000000000205 /* DateTimeSheets.swift in Sources */,
+				A00000000000000000000206 /* EventEditorView.swift in Sources */,
+				A00000000000000000000207 /* ContactStoreService.swift in Sources */,
+				A00000000000000000000208 /* AttendeeFlowView.swift in Sources */,
+				A00000000000000000000209 /* LocationSearchView.swift in Sources */,
+				A00000000000000000000212 /* APIClient.swift in Sources */,
+				A00000000000000000000213 /* AuthStore.swift in Sources */,
+				A00000000000000000000214 /* AuthenticationView.swift in Sources */,
+				A00000000000000000000215 /* RSVPCrypto.swift in Sources */,
+				A00000000000000000000216 /* AccountKeyStore.swift in Sources */,
+				A00000000000000000000217 /* HerdExperience.swift in Sources */,
+				E00000000000000000000200 /* InvitationLinks.swift in Sources */,
+				C00000000000000000000200 /* EvaluatorAttestation.swift in Sources */,
+				F00000000000000000000200 /* UITestSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B00000000000000000000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000200 /* HerdHostCoreTests.swift in Sources */,
+				E00000000000000000000201 /* InvitationLinkTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		U00000000000000000000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				U00000000000000000000200 /* HerdHostUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B00000000000000000000021 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A00000000000000000000013 /* HerdHost */;
+			targetProxy = B00000000000000000000020 /* PBXContainerItemProxy */;
+		};
+		U00000000000000000000021 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A00000000000000000000013 /* HerdHost */;
+			targetProxy = U00000000000000000000020 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000016 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A00000000000000000000017 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		A00000000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HerdHost/HerdHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HERD_API_BASE_URL = "https://herd-invitee-preview.jimmy4.chatgpt.site";
+				HERD_ALLOW_SOFTWARE_QA_EVALUATOR = true;
+				HERD_ASSOCIATED_DOMAIN = herd-invitee-preview.jimmy4.chatgpt.site;
+				HERD_DEPLOYMENT_PROFILE = test;
+				HERD_EVALUATOR_KEY_ID = "herd-evaluator-live-v1";
+				HERD_EVALUATOR_MEASUREMENT = "software-reference-sha384:d32be5e3cd9d7a083780352143b7776f0cf66a474debbfeacdf0e50bc26ff186be6e2d752f517555a404f3b9ef26fddc";
+				HERD_EVALUATOR_POLICY_SIGNING_KEY_ID = "herd-qa-policy-2026-08-03-v1";
+				HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY = "BCdbWaurTElXpyvLbBsB-qWlbPuA-H57d4OyJxQHzvW1P_K_X3CwdzkvDd3xzp54fuC6sMX3hkaBQX1Yxk9VtA4";
+				HERD_EVALUATOR_PUBLIC_KEY = "BHNbrGR_UH7htxqVZ71tGrzQYgqatUv7u7FceBCMMHO1nkvd9ccl3tenBrODAyZKBB3MozygfRap8T43B0NFHcY";
+				HERD_EVALUATOR_RESULT_SIGNING_KEY_ID = "herd-evaluator-result-live-v1";
+				HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY = "BJEAjUMUEUQ6S5gh1Z4Ts7rbJcEUd94qn6DURp2KqPh3c0vU9srh14glLe0n29SaClEFOFptiJ1zXJ8Npb34gW0";
+				HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID = "herd-qa-transparency-2026-08-03-v1";
+				HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY = "BHmy2IZtBATBkXd-NjN_CnKYTy5rGgGfwcby1dMbpk5IjFjIWb0YijCdyv7F3jQ-b_dvRmENe__fPB-zOow5L50";
+				HERD_RELEASE_ID = "herd-live-2026-07-30-v1";
+				INFOPLIST_FILE = HerdHost/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Herd;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSContactsUsageDescription = "Herd uses Contacts so you can choose people to invite. Only guests you select are sent to Herd for invitation delivery.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Herd uses Face ID to unlock your private event replies on this iPhone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototype;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A00000000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000100 /* HerdRelease.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HerdHost/HerdHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HerdHost/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Herd;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSContactsUsageDescription = "Herd uses Contacts so you can choose people to invite. Only guests you select are sent to Herd for invitation delivery.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Herd uses Face ID to unlock your private event replies on this iPhone.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		B00000000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototypeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HerdHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HerdHost";
+				TEST_TARGET_NAME = HerdHost;
+			};
+			name = Debug;
+		};
+		B00000000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototypeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HerdHost.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/HerdHost";
+				TEST_TARGET_NAME = HerdHost;
+			};
+			name = Release;
+		};
+		U00000000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototypeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = HerdHost;
+			};
+			name = Debug;
+		};
+		U00000000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototypeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = HerdHost;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000014 /* Build configuration list for PBXProject "HerdHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000016 /* Debug */,
+				A00000000000000000000017 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000018 /* Debug */,
+				A00000000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHostTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000018 /* Debug */,
+				B00000000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		U00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdHostUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				U00000000000000000000018 /* Debug */,
+				U00000000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}

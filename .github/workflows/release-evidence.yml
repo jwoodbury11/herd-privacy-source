@@ -1,0 +1,304 @@
+name: Stage signed privacy release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Canonical release ID contained in the authorized input
+        required: true
+        type: string
+      release_stage:
+        description: Candidate or production evidence validation
+        required: true
+        default: candidate
+        type: choice
+        options: [candidate, production]
+      source_date_epoch:
+        description: Commit timestamp from git show -s --format=%ct
+        required: true
+        type: string
+      evaluator_url:
+        description: Production confidential-evaluator HTTPS endpoint bound into web runtime configuration
+        required: false
+        type: string
+      current_production_origin:
+        description: Existing production web origin used for the live evaluator-epoch drain check
+        required: false
+        type: string
+      initial_evaluator_epoch:
+        description: One-time bootstrap only; false requires a live production drain check
+        required: true
+        default: false
+        type: boolean
+      evidence_base_url:
+        description: Durable HTTPS directory URL where generated production evidence will be published
+        required: false
+        type: string
+
+concurrency:
+  group: privacy-release-evidence
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+env:
+  CI: "true"
+  TZ: UTC
+  LC_ALL: C.UTF-8
+
+jobs:
+  stage-evidence:
+    if: github.repository == 'jwoodbury11/Herd'
+    environment: privacy-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the authorized revision without a persisted credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use the pinned Node release toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: monitor/package-lock.json
+
+      - name: Require exact-main hosted privacy gates before production signing
+        if: inputs.release_stage == 'production'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          response="$RUNNER_TEMP/privacy-ci-runs.json"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-filesize 2097152 \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/privacy-ci.yml/runs?head_sha=$GITHUB_SHA&status=completed&per_page=100" \
+            -o "$response"
+          node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const exact=value.workflow_runs?.filter((run)=>run.head_sha===process.env.GITHUB_SHA&&run.head_branch==="main"&&run.event==="push"&&run.conclusion==="success"&&run.path===".github/workflows/privacy-ci.yml"); if (!exact?.length) throw new Error("The exact main commit has no successful hosted Privacy boundary CI push run.");' "$response"
+
+      - name: Install the locked monitor dependencies without lifecycle scripts
+        run: npm ci --prefix monitor --ignore-scripts
+
+      - name: Require and decode protected release inputs
+        env:
+          RELEASE_INPUT_B64: ${{ secrets.HERD_RELEASE_INPUT_JSON_B64 }}
+          RELEASE_PRIVATE_KEY_B64: ${{ secrets.HERD_RELEASE_SIGNING_PRIVATE_KEY_PEM_B64 }}
+          RELEASE_PUBLIC_KEY_B64: ${{ secrets.HERD_RELEASE_SIGNING_PUBLIC_KEY_PEM_B64 }}
+          ATTESTATION_ROOT_CERTIFICATE_B64: ${{ secrets.HERD_ATTESTATION_ROOT_CERTIFICATE_B64 }}
+          AUTHORIZED_RELEASE_STAGE: ${{ inputs.release_stage }}
+        run: |
+          test -n "$RELEASE_INPUT_B64"
+          test -n "$RELEASE_PRIVATE_KEY_B64"
+          test -n "$RELEASE_PUBLIC_KEY_B64"
+          if [ "$AUTHORIZED_RELEASE_STAGE" = "production" ]; then test -n "$ATTESTATION_ROOT_CERTIFICATE_B64"; fi
+          umask 077
+          mkdir -p "$RUNNER_TEMP/herd-release-secrets" "$RUNNER_TEMP/herd-release-stage"
+          node -e 'const fs=require("node:fs"); const files=[["RELEASE_INPUT_B64","release-input.json"],["RELEASE_PUBLIC_KEY_B64","release-public.pem"]]; if (process.env.AUTHORIZED_RELEASE_STAGE === "production") files.push(["ATTESTATION_ROOT_CERTIFICATE_B64","attestation-root-certificate.pem"]); for (const [name,file] of files) { const value=process.env[name]; const bytes=Buffer.from(value,"base64"); if (bytes.toString("base64") !== value.replace(/\s+/gu,"")) throw new Error(`${name} is not canonical base64`); fs.writeFileSync(`${process.env.RUNNER_TEMP}/herd-release-secrets/${file}`,bytes,{mode:0o600}); }'
+
+      - name: Require the commit-derived epoch and authorized input identity
+        env:
+          AUTHORIZED_RELEASE_ID: ${{ inputs.release_id }}
+          AUTHORIZED_RELEASE_STAGE: ${{ inputs.release_stage }}
+          AUTHORIZED_SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
+        run: |
+          commit_epoch="$(git show -s --format=%ct HEAD)"
+          test "$AUTHORIZED_SOURCE_DATE_EPOCH" = "$commit_epoch"
+          node -e 'const fs=require("node:fs"); const input=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/herd-release-secrets/release-input.json`,"utf8")); if (input.releaseId !== process.env.AUTHORIZED_RELEASE_ID || input.releaseStage !== process.env.AUTHORIZED_RELEASE_STAGE || String(input.sourceDateEpoch) !== process.env.AUTHORIZED_SOURCE_DATE_EPOCH || input.source?.revision !== process.env.GITHUB_SHA) throw new Error("Protected release input does not match the authorized workflow revision and inputs.");'
+          echo "SOURCE_DATE_EPOCH=$AUTHORIZED_SOURCE_DATE_EPOCH" >> "$GITHUB_ENV"
+
+      - name: Verify pinned release tools
+        run: |
+          node release/verify-toolchains.mjs --spec release/toolchains.json
+          npm --prefix monitor run check
+          node --test release/tests/*.test.mjs public-source/tests/*.test.mjs monitor/tests/*.test.mjs security/tests/*.test.mjs
+          node scripts/verify-data-contract.mjs
+
+      - name: Prove evaluator epoch reuse or a zero-unresolved-policy rotation
+        if: inputs.release_stage == 'production'
+        env:
+          CURRENT_PRODUCTION_ORIGIN: ${{ inputs.current_production_origin }}
+          INITIAL_EVALUATOR_EPOCH: ${{ inputs.initial_evaluator_epoch }}
+          HERD_SCHEDULER_TOKEN: ${{ secrets.HERD_SCHEDULER_TOKEN }}
+        run: |
+          if [ "$INITIAL_EVALUATOR_EPOCH" = "true" ]; then
+            test -z "$CURRENT_PRODUCTION_ORIGIN"
+            node release/verify-evaluator-epoch-transition.mjs --template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --initial --output "$RUNNER_TEMP/herd-release-stage/evaluator-epoch-transition.json"
+          else
+            test -n "$CURRENT_PRODUCTION_ORIGIN"
+            test -n "$HERD_SCHEDULER_TOKEN"
+            node release/fetch-evaluator-epoch-status.mjs --origin "$CURRENT_PRODUCTION_ORIGIN" --output "$RUNNER_TEMP/herd-release-secrets/evaluator-epoch-status.json"
+            node release/verify-evaluator-epoch-transition.mjs --template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --status "$RUNNER_TEMP/herd-release-secrets/evaluator-epoch-status.json" --output "$RUNNER_TEMP/herd-release-stage/evaluator-epoch-transition.json"
+            node release/verify-current-release-continuity.mjs --origin "$CURRENT_PRODUCTION_ORIGIN" --template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --public-key "$RUNNER_TEMP/herd-release-secrets/release-public.pem" --output "$RUNNER_TEMP/herd-release-stage/release-continuity.json"
+          fi
+
+      - name: Reproduce and verify the public-source archive
+        run: |
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --require-clean
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.tar" --manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.manifest.json" --require-clean
+          cmp "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.tar"
+          cmp "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.manifest.json"
+          node public-source/verify-export.mjs --archive "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --policy public-source/export-policy.json
+          rm "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.tar" "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.second.manifest.json"
+
+      - name: Generate the SPDX source and dependency SBOM
+        run: node release/generate-sbom.mjs --source-manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --source-root . --output "$RUNNER_TEMP/herd-release-stage/herd.spdx.json" --name "Herd ${{ inputs.release_id }}" invitee-web/package-lock.json herd-legal/package-lock.json evaluator-service/package-lock.json scheduler-service/package-lock.json monitor/package-lock.json
+
+      - name: Normalize a candidate release manifest
+        if: inputs.release_stage == 'candidate'
+        run: |
+          node release/generate-release-manifest.mjs --input "$RUNNER_TEMP/herd-release-secrets/release-input.json" --output "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
+          node release/verify-generated-evidence.mjs --manifest "$RUNNER_TEMP/herd-release-stage/release-manifest.json" --release-id "${{ inputs.release_id }}" --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --source-archive "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" --source-manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --sbom "$RUNNER_TEMP/herd-release-stage/herd.spdx.json"
+
+      - name: Fetch every external production artifact before provenance
+        if: inputs.release_stage == 'production'
+        run: node release/fetch-release-template-artifacts.mjs --template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --output-directory "$RUNNER_TEMP/herd-release-stage"
+
+      - name: Generate deterministic complete-subject SLSA v1 provenance
+        if: inputs.release_stage == 'production'
+        run: |
+          instant="$(node -e 'console.log(new Date(Number(process.env.SOURCE_DATE_EPOCH)*1000).toISOString())')"
+          continuity_args=()
+          if [ -f "$RUNNER_TEMP/herd-release-stage/release-continuity.json" ]; then continuity_args=(--release-continuity "$RUNNER_TEMP/herd-release-stage/release-continuity.json"); fi
+          node release/generate-provenance.mjs --artifact-root "$RUNNER_TEMP/herd-release-stage" --release-template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --evaluator-epoch-transition "$RUNNER_TEMP/herd-release-stage/evaluator-epoch-transition.json" "${continuity_args[@]}" --output "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json" --started-at "$instant" --finished-at "$instant" --source-repository "https://github.com/${GITHUB_REPOSITORY}" --source-revision "$GITHUB_SHA" --release-id "${{ inputs.release_id }}" --toolchain-spec release/toolchains.json --builder-id "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml" --invocation-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Install the pinned Cosign client
+        if: inputs.release_stage == 'production'
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: v2.5.3
+
+      - name: Sign provenance and record its Rekor inclusion before constructing the manifest
+        if: inputs.release_stage == 'production'
+        run: |
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_REF}"
+          cosign sign-blob --yes --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json"
+          cosign verify-blob --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json"
+          node release/record-transparency.mjs --bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" --rekor-record-base-url "https://rekor.sigstore.dev/api/v1/log/entries" --output "$RUNNER_TEMP/herd-release-stage/build-provenance.rekor.json"
+
+      - name: Construct the production manifest from the generated evidence graph
+        if: inputs.release_stage == 'production'
+        env:
+          AUTHORIZED_EVIDENCE_BASE_URL: ${{ inputs.evidence_base_url }}
+        run: |
+          test -n "$AUTHORIZED_EVIDENCE_BASE_URL"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_REF}"
+          continuity_args=()
+          if [ -f "$RUNNER_TEMP/herd-release-stage/release-continuity.json" ]; then continuity_args=(--release-continuity "$RUNNER_TEMP/herd-release-stage/release-continuity.json"); fi
+          node release/assemble-release-manifest.mjs --template "$RUNNER_TEMP/herd-release-secrets/release-input.json" --evaluator-epoch-transition "$RUNNER_TEMP/herd-release-stage/evaluator-epoch-transition.json" "${continuity_args[@]}" --provenance-statement "$RUNNER_TEMP/herd-release-stage/build-provenance.intoto.json" --sigstore-bundle "$RUNNER_TEMP/herd-release-stage/build-provenance.sigstore.json" --transparency-record "$RUNNER_TEMP/herd-release-stage/build-provenance.rekor.json" --evidence-base-url "$AUTHORIZED_EVIDENCE_BASE_URL" --issuer "https://token.actions.githubusercontent.com" --workflow-identity "$identity" --output "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
+          node release/verify-generated-evidence.mjs --manifest "$RUNNER_TEMP/herd-release-stage/release-manifest.json" --release-id "${{ inputs.release_id }}" --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --source-archive "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.tar" --source-manifest "$RUNNER_TEMP/herd-release-stage/herd-privacy-source.manifest.json" --sbom "$RUNNER_TEMP/herd-release-stage/herd.spdx.json" --require-production
+
+      - name: Sign and locally verify the bottom-up release manifest
+        env:
+          HERD_RELEASE_SIGNING_PRIVATE_KEY_PEM_B64: ${{ secrets.HERD_RELEASE_SIGNING_PRIVATE_KEY_PEM_B64 }}
+          HERD_RELEASE_SIGNING_PUBLIC_KEY_PEM_B64: ${{ secrets.HERD_RELEASE_SIGNING_PUBLIC_KEY_PEM_B64 }}
+        run: |
+          production_flag=""
+          artifact_flag=""
+          if [ "${{ inputs.release_stage }}" = "production" ]; then
+            production_flag="--require-production"
+            artifact_flag="--artifact-root $RUNNER_TEMP/herd-release-stage"
+          fi
+          node release/sign-release-manifest.mjs --manifest "$RUNNER_TEMP/herd-release-stage/release-manifest.json" --output "$RUNNER_TEMP/herd-release-stage/release-manifest.sig.json"
+          node release/verify-release-manifest.mjs --manifest "$RUNNER_TEMP/herd-release-stage/release-manifest.json" --signature "$RUNNER_TEMP/herd-release-stage/release-manifest.sig.json" --public-key "$RUNNER_TEMP/herd-release-secrets/release-public.pem" $production_flag $artifact_flag
+          cp "$RUNNER_TEMP/herd-release-secrets/release-public.pem" "$RUNNER_TEMP/herd-release-stage/release-public.pem"
+
+      - name: Derive production web, runtime, and iOS configuration from the signed manifest
+        if: inputs.release_stage == 'production'
+        env:
+          AUTHORIZED_EVALUATOR_URL: ${{ inputs.evaluator_url }}
+        run: |
+          node release/generate-production-config.mjs --manifest "$RUNNER_TEMP/herd-release-stage/release-manifest.json" --evaluator-url "$AUTHORIZED_EVALUATOR_URL" --attestation-root-certificate "$RUNNER_TEMP/herd-release-secrets/attestation-root-certificate.pem" --output-directory "$RUNNER_TEMP/herd-release-stage/production-config"
+
+      - name: Add an outer keyless signature to the already complete manifest
+        if: inputs.release_stage == 'production'
+        run: |
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-evidence.yml@${GITHUB_REF}"
+          cosign sign-blob --yes --bundle "$RUNNER_TEMP/herd-release-stage/release-manifest.sigstore.json" "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
+          cosign verify-blob --bundle "$RUNNER_TEMP/herd-release-stage/release-manifest.sigstore.json" --certificate-identity "$identity" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" "$RUNNER_TEMP/herd-release-stage/release-manifest.json"
+
+      - name: Upload staged evidence without publishing a release or deploying
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: herd-release-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/herd-release-stage/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  production-artifact-preflight:
+    if: github.repository == 'jwoodbury11/Herd' && inputs.release_stage == 'production'
+    needs: stage-evidence
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      SOURCE_DATE_EPOCH: ${{ inputs.source_date_epoch }}
+    steps:
+      - name: Check out the authorized revision without a persisted credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use the pinned Node release toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+
+      - name: Select the pinned hosted Apple toolchain
+        run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+
+      - name: Install the pinned Cosign verifier
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+        with:
+          cosign-release: v2.5.3
+
+      - name: Download the signed evidence produced by this workflow run
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: herd-release-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/herd-release-evidence
+
+      - name: Require the pinned Apple release toolchain
+        run: node release/verify-toolchains.mjs --spec release/toolchains.json --profile ios
+
+      - name: Recover the public attestation root from the manifest-derived configuration
+        run: |
+          mkdir -p "$RUNNER_TEMP/herd-production-preflight"
+          node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/herd-release-evidence/production-config/release-config.json`,"utf8")); fs.writeFileSync(`${process.env.RUNNER_TEMP}/herd-production-preflight/attestation-root.der`,Buffer.from(value.contract.trust.workload.attestationRootCertificate.derBase64,"base64"),{mode:0o600});'
+
+      - name: Fetch the exact public production archives pinned by the signed manifest
+        run: |
+          web_name="$(node -e 'const m=require(process.env.RUNNER_TEMP+"/herd-release-evidence/release-manifest.json"); process.stdout.write(m.artifacts.web.deploymentArchive.name)')"
+          ios_name="$(node -e 'const m=require(process.env.RUNNER_TEMP+"/herd-release-evidence/release-manifest.json"); process.stdout.write(m.artifacts.ios.submissionArchive.name)')"
+          echo "HERD_WEB_ARCHIVE=$RUNNER_TEMP/herd-production-preflight/$web_name" >> "$GITHUB_ENV"
+          echo "HERD_IOS_ARCHIVE=$RUNNER_TEMP/herd-production-preflight/$ios_name" >> "$GITHUB_ENV"
+          node release/fetch-pinned-artifact.mjs --manifest "$RUNNER_TEMP/herd-release-evidence/release-manifest.json" --artifact web --output "$RUNNER_TEMP/herd-production-preflight/$web_name"
+          node release/fetch-pinned-artifact.mjs --manifest "$RUNNER_TEMP/herd-release-evidence/release-manifest.json" --artifact ios --output "$RUNNER_TEMP/herd-production-preflight/$ios_name"
+
+      - name: Extract and normalize the submitted iOS application without modifying the archive
+        run: node release/extract-ios-preflight-inputs.mjs --archive "$HERD_IOS_ARCHIVE" --output-directory "$RUNNER_TEMP/herd-production-preflight/ios"
+
+      - name: Fail closed unless both production artifacts exactly match the signed manifest configuration
+        env:
+          AUTHORIZED_EVALUATOR_URL: ${{ inputs.evaluator_url }}
+        run: |
+          node release/preflight-production-artifacts.mjs --manifest "$RUNNER_TEMP/herd-release-evidence/release-manifest.json" --signature "$RUNNER_TEMP/herd-release-evidence/release-manifest.sig.json" --public-key "$RUNNER_TEMP/herd-release-evidence/release-public.pem" --evaluator-url "$AUTHORIZED_EVALUATOR_URL" --attestation-root-certificate "$RUNNER_TEMP/herd-production-preflight/attestation-root.der" --config-directory "$RUNNER_TEMP/herd-release-evidence/production-config" --artifact-root "$RUNNER_TEMP/herd-release-evidence" --web-archive "$HERD_WEB_ARCHIVE" --ios-archive "$HERD_IOS_ARCHIVE" --normalized-ios-binary "$RUNNER_TEMP/herd-production-preflight/ios/HerdHost.normalized-executable" --ios-info-json "$RUNNER_TEMP/herd-production-preflight/ios/Info.plist.json" --ios-entitlements-json "$RUNNER_TEMP/herd-production-preflight/ios/Entitlements.plist.json" > "$RUNNER_TEMP/herd-production-preflight/preflight-result.json"
+
+      - name: Upload the successful artifact preflight record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: herd-production-preflight-${{ github.run_id }}
+          path: ${{ runner.temp }}/herd-production-preflight/preflight-result.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

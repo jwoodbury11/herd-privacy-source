@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "archivePrefix": "herd-privacy-source",
+  "license": "Apache-2.0",
+  "maximumFileBytes": 8388608,
+  "prohibitedPathFragments": [
+    ".git",
+    ".local-secrets",
+    ".openai",
+    ".vinext",
+    ".wrangler",
+    "node_modules",
+    "out",
+    "partiful ios",
+    "parity-audit",
+    "screenshots",
+    "release/staging"
+  ],
+  "prohibitedExtensions": [
+    ".7z",
+    ".cer",
+    ".crt",
+    ".db",
+    ".der",
+    ".gif",
+    ".gz",
+    ".ipa",
+    ".jpeg",
+    ".jpg",
+    ".key",
+    ".mobileprovision",
+    ".mov",
+    ".mp4",
+    ".p12",
+    ".pem",
+    ".png",
+    ".sqlite",
+    ".tar",
+    ".webp",
+    ".xcarchive",
+    ".zip"
+  ],
+  "includes": [
+    { "path": "LICENSE" },
+    { "path": "README.md" },
+    { "path": "SECURITY.md" },
+    { "path": "public-source", "recursive": true },
+    { "path": "release", "recursive": true },
+    { "path": "monitor/src", "recursive": true },
+    { "path": "monitor/tests", "recursive": true },
+    { "path": "monitor/README.md" },
+    { "path": "monitor/package.json" },
+    { "path": "monitor/package-lock.json" },
+    { "path": "monitor/wrangler.jsonc" },
+    { "path": "security", "recursive": true },
+    { "path": ".github/workflows", "recursive": true },
+    { "path": "docs/private-response-architecture.md" },
+    { "path": "docs/private-response-implementation-status.md" },
+    { "path": "docs/private-response-protocol-v1.md" },
+    { "path": "docs/confidential-evaluator-api.md", "optional": true },
+    { "path": "docs/confidential-evaluator-deployment.md", "optional": true },
+    { "path": "docs/confidential-evaluator-runbook.md", "optional": true },
+    { "path": "docs/release-evidence.md", "optional": true },
+    { "path": "docs/release-process.md", "optional": true },
+    { "path": "docs/public-source-export.md", "optional": true },
+    { "path": "docs/data-retention-and-privacy-operations.md", "optional": true },
+    { "path": "docs/cross-platform-experience.md", "optional": true },
+    { "path": "privacy-evaluator", "recursive": true },
+    { "path": "confidential-evaluator", "recursive": true, "optional": true },
+    {
+      "path": "infrastructure/gcp-confidential-space",
+      "recursive": true,
+      "optional": true,
+      "extensions": [".example", ".hcl", ".md", ".tf"]
+    },
+    { "path": "scripts/test-all", "optional": true },
+    { "path": "scripts/verify-data-contract.mjs" },
+    { "path": "scripts/scan-sensitive-artifacts.mjs" },
+    {
+      "path": "HerdHost",
+      "recursive": true,
+      "extensions": [".entitlements", ".json", ".plist", ".swift", ".xcprivacy"]
+    },
+    {
+      "path": "HerdHost/Assets.xcassets/AppIcon.appiconset/HerdAppIcon.png",
+      "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
+    },
+    {
+      "path": "HerdHost.xcodeproj",
+      "recursive": true,
+      "extensions": [".pbxproj", ".plist", ".xcscheme"]
+    },
+    { "path": "HerdHostTests", "recursive": true, "extensions": [".mjs", ".swift"] },
+    { "path": "HerdHostUITests", "recursive": true, "extensions": [".swift"] },
+    { "path": "legal-content", "recursive": true, "extensions": [".mjs", ".tsx"] },
+    { "path": "invitee-web/app", "recursive": true },
+    { "path": "invitee-web/db", "recursive": true },
+    { "path": "invitee-web/drizzle", "recursive": true },
+    { "path": "invitee-web/lib", "recursive": true },
+    { "path": "invitee-web/shared", "recursive": true },
+    { "path": "invitee-web/tests", "recursive": true },
+    { "path": "invitee-web/worker", "recursive": true },
+    { "path": "invitee-web/build", "recursive": true },
+    { "path": "invitee-web/scripts/live-scheduler-smoke.mjs" },
+    { "path": "invitee-web/scripts/browser-qa-harness.mjs" },
+    { "path": "invitee-web/README.md" },
+    { "path": "invitee-web/package.json" },
+    { "path": "invitee-web/package-lock.json" },
+    { "path": "invitee-web/playwright.config.mjs" },
+    { "path": "invitee-web/drizzle.config.ts" },
+    { "path": "invitee-web/eslint.config.mjs" },
+    { "path": "invitee-web/next.config.ts" },
+    { "path": "invitee-web/postcss.config.mjs" },
+    { "path": "invitee-web/tsconfig.json" },
+    { "path": "invitee-web/vite.config.ts" },
+    {
+      "path": "invitee-web/.env.example",
+      "exampleSha256": "49949a432b57f6864cb3f6efe065aa563897cae4c5b89afb1d7e9325d1a89693"
+    },
+    {
+      "path": "invitee-web/public/herd-icon.png",
+      "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
+    },
+    {
+      "path": "invitee-web/public/og.png",
+      "binarySha256": "c5e5818e488380ab033f9a47623029e5f8228edde6e6761adf3428f54a93a95c"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-32.png",
+      "binarySha256": "c8dc8ee5b1bf3bc1fdd5e76db8d8e222eb9492fee21a9038c8070372026b1866"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-88.png",
+      "binarySha256": "bfbd974cbee65ffdddc6e77851cfda7b41c33d098c105e81b2caaacf64eefa4b"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-108.png",
+      "binarySha256": "67b55a1eddb6cb620368c2f9f8d3936685f21d659bbf6da6783cb0c9faead723"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-180.png",
+      "binarySha256": "c5f8383666aaf42f9def8ec4f049812dc5b89c82fb258082f6813441f1248bf4"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-192.png",
+      "binarySha256": "eeffbe382698ec2be4b2ea3f7e32f2856ee7379ea15f3419f52bcd00b1b2c42e"
+    },
+    {
+      "path": "invitee-web/public/icons/herd-512.png",
+      "binarySha256": "07418a3249faead9321cd34f2b476c25e92371ae699d00503f27ae9f53d171e4"
+    },
+    { "path": "invitee-web/public/site.webmanifest" },
+    { "path": "herd-legal/app", "recursive": true },
+    { "path": "herd-legal/build", "recursive": true },
+    { "path": "herd-legal/db", "recursive": true },
+    { "path": "herd-legal/tests", "recursive": true },
+    { "path": "herd-legal/worker", "recursive": true },
+    { "path": "herd-legal/README.md" },
+    { "path": "herd-legal/package.json" },
+    { "path": "herd-legal/package-lock.json" },
+    { "path": "herd-legal/drizzle.config.ts" },
+    { "path": "herd-legal/eslint.config.mjs" },
+    { "path": "herd-legal/next.config.ts" },
+    { "path": "herd-legal/postcss.config.mjs" },
+    { "path": "herd-legal/tsconfig.json" },
+    { "path": "herd-legal/vite.config.ts" },
+    {
+      "path": "herd-legal/public/herd-icon.png",
+      "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
+    },
+    {
+      "path": "herd-legal/public/og.png",
+      "binarySha256": "6d03dbbfd88b96f0d809f500de28e5da47d8901a07d450746abea2f23676f0f4"
+    },
+    { "path": "evaluator-service/app", "recursive": true },
+    { "path": "evaluator-service/build", "recursive": true },
+    { "path": "evaluator-service/lib", "recursive": true },
+    { "path": "evaluator-service/scripts", "recursive": true },
+    { "path": "evaluator-service/tests", "recursive": true },
+    { "path": "evaluator-service/vendor", "recursive": true },
+    { "path": "evaluator-service/worker", "recursive": true },
+    { "path": "evaluator-service/README.md" },
+    { "path": "evaluator-service/package.json" },
+    { "path": "evaluator-service/package-lock.json" },
+    {
+      "path": "evaluator-service/.env.example",
+      "exampleSha256": "dbdcb9dea4c3920a217e0928e623d6d766eee9fc2037bad0bf2cc1a71e43f882"
+    },
+    { "path": "evaluator-service/next.config.ts" },
+    { "path": "evaluator-service/tsconfig.json" },
+    { "path": "evaluator-service/vite.config.ts" },
+    { "path": "scheduler-service/src", "recursive": true },
+    { "path": "scheduler-service/tests", "recursive": true },
+    { "path": "scheduler-service/README.md" },
+    { "path": "scheduler-service/package.json" },
+    { "path": "scheduler-service/package-lock.json" },
+    { "path": "scheduler-service/wrangler.jsonc" }
+  ]
+}

@@ -1,0 +1,1 @@
+CREATE INDEX `events_due_resolution_idx` ON `events` (`invitations_sent`,`rsvp_deadline`,`id`);

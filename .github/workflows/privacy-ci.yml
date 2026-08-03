@@ -1,0 +1,226 @@
+name: Privacy boundary CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: privacy-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  TZ: UTC
+  LC_ALL: C.UTF-8
+
+jobs:
+  release-evidence:
+    name: Release, export, and monitor tools
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source without a persisted credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use the pinned Node release toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: monitor/package-lock.json
+
+      - name: Install the locked monitor dependencies without lifecycle scripts
+        run: npm ci --prefix monitor --ignore-scripts
+
+      - name: Verify release tools and fail-closed monitor behavior
+        run: |
+          npm --prefix monitor run check
+          node --test release/tests/*.test.mjs public-source/tests/*.test.mjs monitor/tests/*.test.mjs security/tests/*.test.mjs
+          node scripts/verify-data-contract.mjs
+
+      - name: Derive deterministic source time
+        run: |
+          source_epoch="$(git show -s --format=%ct HEAD)"
+          case "$source_epoch" in
+            0|[1-9][0-9]*) ;;
+            *) exit 1 ;;
+          esac
+          echo "SOURCE_DATE_EPOCH=$source_epoch" >> "$GITHUB_ENV"
+
+      - name: Build the allowlisted public source twice
+        run: |
+          mkdir -p "$RUNNER_TEMP/herd-export-one" "$RUNNER_TEMP/herd-export-two"
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output "$RUNNER_TEMP/herd-export-one/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-export-one/herd-privacy-source.manifest.json"
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output "$RUNNER_TEMP/herd-export-two/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-export-two/herd-privacy-source.manifest.json"
+          cmp "$RUNNER_TEMP/herd-export-one/herd-privacy-source.tar" "$RUNNER_TEMP/herd-export-two/herd-privacy-source.tar"
+          cmp "$RUNNER_TEMP/herd-export-one/herd-privacy-source.manifest.json" "$RUNNER_TEMP/herd-export-two/herd-privacy-source.manifest.json"
+          node public-source/verify-export.mjs --archive "$RUNNER_TEMP/herd-export-one/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-export-one/herd-privacy-source.manifest.json" --policy public-source/export-policy.json
+
+      - name: Build the SPDX SBOM twice
+        run: |
+          node release/generate-sbom.mjs --source-manifest "$RUNNER_TEMP/herd-export-one/herd-privacy-source.manifest.json" --source-root . --output "$RUNNER_TEMP/herd-export-one/herd.spdx.json" --name "Herd privacy source $GITHUB_SHA" invitee-web/package-lock.json herd-legal/package-lock.json evaluator-service/package-lock.json scheduler-service/package-lock.json monitor/package-lock.json
+          node release/generate-sbom.mjs --source-manifest "$RUNNER_TEMP/herd-export-one/herd-privacy-source.manifest.json" --source-root . --output "$RUNNER_TEMP/herd-export-two/herd.spdx.json" --name "Herd privacy source $GITHUB_SHA" invitee-web/package-lock.json herd-legal/package-lock.json evaluator-service/package-lock.json scheduler-service/package-lock.json monitor/package-lock.json
+          cmp "$RUNNER_TEMP/herd-export-one/herd.spdx.json" "$RUNNER_TEMP/herd-export-two/herd.spdx.json"
+
+      - name: Audit the independently deployed monitor toolchain
+        run: npm audit --prefix monitor --audit-level=high
+
+  privacy-services:
+    name: Privacy services and client contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source without a persisted credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use the pinned Node release toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: |
+            invitee-web/package-lock.json
+            herd-legal/package-lock.json
+            evaluator-service/package-lock.json
+            scheduler-service/package-lock.json
+
+      - name: Use the pinned Terraform toolchain
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Build, verify, and unpack the reviewed public source
+        run: |
+          source_epoch="$(git show -s --format=%ct HEAD)"
+          mkdir -p "$RUNNER_TEMP/herd-public-source"
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$source_epoch" --output "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-public-source/herd-privacy-source.manifest.json" --require-clean
+          node public-source/verify-export.mjs --archive "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-public-source/herd-privacy-source.manifest.json" --policy public-source/export-policy.json
+          tar -xf "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" -C "$RUNNER_TEMP/herd-public-source"
+          echo "HERD_TEST_ROOT=$RUNNER_TEMP/herd-public-source/herd-privacy-source" >> "$GITHUB_ENV"
+
+      - name: Validate the production Confidential Space infrastructure
+        run: |
+          terraform "-chdir=$HERD_TEST_ROOT/infrastructure/gcp-confidential-space" fmt -check -recursive
+          terraform "-chdir=$HERD_TEST_ROOT/infrastructure/gcp-confidential-space" init -backend=false -input=false -lockfile=readonly
+          terraform "-chdir=$HERD_TEST_ROOT/infrastructure/gcp-confidential-space" validate -no-color
+
+      - name: Install locked service dependencies without lifecycle scripts
+        run: |
+          npm ci --prefix "$HERD_TEST_ROOT/invitee-web" --ignore-scripts
+          npm ci --prefix "$HERD_TEST_ROOT/herd-legal" --ignore-scripts
+          npm ci --prefix "$HERD_TEST_ROOT/evaluator-service" --ignore-scripts
+          npm ci --prefix "$HERD_TEST_ROOT/scheduler-service" --ignore-scripts
+
+      - name: Audit locked service dependencies at high severity
+        run: |
+          npm audit --prefix "$HERD_TEST_ROOT/invitee-web" --audit-level=high
+          npm audit --prefix "$HERD_TEST_ROOT/herd-legal" --audit-level=high
+          npm audit --prefix "$HERD_TEST_ROOT/evaluator-service" --audit-level=high
+          npm audit --prefix "$HERD_TEST_ROOT/scheduler-service" --audit-level=high
+
+      - name: Test the privacy evaluator core
+        run: npm test --prefix "$HERD_TEST_ROOT/privacy-evaluator"
+
+      - name: Test the Confidential Space evaluator
+        run: npm test --prefix "$HERD_TEST_ROOT/confidential-evaluator"
+
+      - name: Test the scheduler
+        run: npm test --prefix "$HERD_TEST_ROOT/scheduler-service"
+
+      - name: Test the isolated evaluator service
+        run: npm test --prefix "$HERD_TEST_ROOT/evaluator-service"
+
+      - name: Test the web app and ordinary API
+        run: npm test --prefix "$HERD_TEST_ROOT/invitee-web"
+
+      - name: Install the pinned headless browser
+        run: cd "$HERD_TEST_ROOT/invitee-web" && npx playwright install --with-deps chromium
+
+      - name: Exercise all invitation-account UI permutations
+        run: npm --prefix "$HERD_TEST_ROOT/invitee-web" run test:browser-ui
+
+      - name: Lint the web app and ordinary API
+        run: npm --prefix "$HERD_TEST_ROOT/invitee-web" run lint -- --max-warnings=0
+
+      - name: Test the public privacy and account-deletion disclosures
+        run: npm test --prefix "$HERD_TEST_ROOT/herd-legal"
+
+      - name: Require identical rendered legal content on both public surfaces
+        run: cd "$HERD_TEST_ROOT" && node --test legal-content/tests/*.test.mjs
+
+      - name: Lint the public legal site
+        run: npm --prefix "$HERD_TEST_ROOT/herd-legal" run lint -- --max-warnings=0
+
+      - name: Test iOS source and protocol contracts
+        run: cd "$HERD_TEST_ROOT" && node --test HerdHostTests/*.test.mjs
+
+  ios-native:
+    name: Native iOS privacy, erasure, and UI tests from public source
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source without a persisted credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Use the pinned Node release toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.13.0
+
+      - name: Select the pinned hosted Apple toolchain
+        run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+
+      - name: Derive deterministic source time
+        run: |
+          source_epoch="$(git show -s --format=%ct HEAD)"
+          case "$source_epoch" in
+            0|[1-9][0-9]*) ;;
+            *) exit 1 ;;
+          esac
+          echo "SOURCE_DATE_EPOCH=$source_epoch" >> "$GITHUB_ENV"
+
+      - name: Build, verify, and unpack the reviewed public source
+        run: |
+          mkdir -p "$RUNNER_TEMP/herd-public-source"
+          node public-source/export.mjs --root . --policy public-source/export-policy.json --source-revision "$GITHUB_SHA" --source-date-epoch "$SOURCE_DATE_EPOCH" --output "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-public-source/herd-privacy-source.manifest.json" --require-clean
+          node public-source/verify-export.mjs --archive "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" --manifest "$RUNNER_TEMP/herd-public-source/herd-privacy-source.manifest.json" --policy public-source/export-policy.json
+          tar -xf "$RUNNER_TEMP/herd-public-source/herd-privacy-source.tar" -C "$RUNNER_TEMP/herd-public-source"
+          echo "HERD_TEST_ROOT=$RUNNER_TEMP/herd-public-source/herd-privacy-source" >> "$GITHUB_ENV"
+
+      - name: Require the pinned Apple toolchain
+        run: cd "$HERD_TEST_ROOT" && node release/verify-toolchains.mjs --spec release/toolchains.json --profile ios
+
+      - name: Run native unit and UI simulator tests with Keychain entitlements
+        run: |
+          cd "$HERD_TEST_ROOT"
+          xcodebuild test \
+            -project HerdHost.xcodeproj \
+            -scheme HerdHost \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -derivedDataPath "$RUNNER_TEMP/herd-ios-ci-derived-data"
+
+      - name: Build the fail-closed Release configuration without signing
+        run: |
+          cd "$HERD_TEST_ROOT"
+          xcodebuild build \
+            -project HerdHost.xcodeproj \
+            -scheme HerdHost \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/herd-ios-ci-derived-data" \
+            CODE_SIGNING_ALLOWED=NO

@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "databaseSnapshot": "invitee-web/drizzle/meta/0013_snapshot.json",
+  "reviewedAt": "2026-08-02",
+  "externalStores": {
+    "transparencyAuthorityFirestore": {
+      "purpose": "Independently administered monotonic authority for immutable event-policy commitments, authenticated latest-response state, response-log append order, one-time canonical evaluation consumption, and byte-identical certifications across evaluator replicas and restarts.",
+      "projectBoundary": "Key-custodian project; the workload operator and VM service account have no Firestore role. Only the exact attested image-digest WIF principal receives data-plane access.",
+      "ordinaryMetadata": ["protocolVersion", "logId", "logIndex", "treeSize", "responseRevision", "responseSequence", "rsvpDeadline", "committedAt", "evaluatedAt", "releaseId", "evaluatorKeyId", "signingKeyId", "receiptSignature", "headSignature", "generatedAt"],
+      "pseudonymousOrHashed": ["eventId", "orderedOpaqueMemberIds", "inviteeId", "envelopeId", "accountKeyEpochId", "policyHash", "ciphertextHash", "responseSigningPublicKey", "evaluationBatchHash", "previousEntryHash", "entryHash", "headEntryHash", "canonicalReceiptPayload", "canonicalHeadPayload", "receiptPayloadHash", "headPayloadHash"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Indefinite security authority and append-only audit record. Frozen policy documents contain only an event commitment, deadline, ordered opaque member IDs, and evaluator release/key IDs; per-member documents contain only the latest opaque envelope commitment, authorization key, revision, and log certification; finalization contains only the consumed batch hash/time. Event names, people names, phone data, locations, descriptions, response ciphertext, and response plaintext are never stored. Database deletion protection, Terraform prevent_destroy, and PITR are enabled; recovery must never rewind below a signed or witnessed head or accepted evaluation consumption."
+    }
+  },
+  "tables": {
+    "account_key_epochs": {
+      "purpose": "Tracks device-held account-key generations and one-way commitments.",
+      "ordinaryMetadata": ["created_at", "epoch_number", "id", "superseded_at", "user_id"],
+      "pseudonymousOrHashed": ["key_commitment"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Account lifetime; account deletion cascades through every epoch and its sealed responses. Superseded epochs otherwise remain so historical sealed responses cannot be silently rebound."
+    },
+    "auth_ip_rate_limits": {
+      "purpose": "Network abuse throttling without storing a raw IP address.",
+      "ordinaryMetadata": ["last_requested_at", "request_count", "window_started_at"],
+      "pseudonymousOrHashed": ["ip_hash"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Automatically deleted 24 hours after the last request."
+    },
+    "auth_phone_rate_limits": {
+      "purpose": "Phone abuse throttling without using the raw phone as the lookup key.",
+      "ordinaryMetadata": ["last_requested_at", "request_count", "window_started_at"],
+      "pseudonymousOrHashed": ["phone_hash"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Automatically deleted 24 hours after the last request."
+    },
+    "challenges": {
+      "purpose": "Short-lived SMS verification state and abuse evidence.",
+      "ordinaryMetadata": ["attempt_count", "created_at", "delivery", "expires_at", "id", "max_attempts", "resend_at", "status", "verified_at"],
+      "pseudonymousOrHashed": ["code_hash", "phone_hash", "request_ip_hash"],
+      "sensitivePlaintext": ["phone_number", "provider_sid"],
+      "sealed": [],
+      "retention": "Automatically deleted 24 hours after challenge expiry."
+    },
+    "event_policies": {
+      "purpose": "Immutable signed event rules, evaluator identity, limits, and opaque event-scoped member IDs; the canonical document excludes guest names, phone numbers, and phone-derived assignments.",
+      "ordinaryMetadata": ["canonical_document", "cipher_suite", "evaluator_epoch_descriptor_sha256", "evaluator_key_id", "evaluator_measurement", "evaluator_public_key", "event_id", "frozen_at", "padded_plaintext_bytes", "policy_hash", "policy_signature", "policy_signing_key_id", "protocol_version", "release_id"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime; retained with the final result as audit evidence. Host account deletion removes the event and policy."
+    },
+    "evaluator_epoch_state": {
+      "purpose": "Singleton operational fence identifying the one evaluator key epoch allowed to freeze new private-event policies and whether issuance is actively draining for rotation.",
+      "ordinaryMetadata": ["activated_at", "drain_started_at", "epoch_descriptor_sha256", "evaluation_result_signing_key_id", "evaluator_key_epoch_id", "generation", "mode", "policy_signing_key_id", "response_decryption_key_id", "response_transparency_signing_key_id", "singleton_id", "transparency_identity_sha256", "updated_at", "workload_image_digest"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Service lifetime. The singleton advances in place only after a drained rotation; deletion and unsupported state changes are blocked by database guards."
+    },
+    "evaluator_epoch_transitions": {
+      "purpose": "Immutable evaluator-epoch drain counts and canonical activation evidence linking each generation to its successor.",
+      "ordinaryMetadata": ["activated_at", "activation_evidence_sha256", "active_evaluation_job_count_at_drain", "active_evaluation_lease_count_at_drain", "canonical_activation_evidence", "drain_started_at", "from_epoch_descriptor_sha256", "from_evaluator_key_epoch_id", "from_generation", "to_epoch_descriptor_sha256", "to_evaluator_key_epoch_id", "to_generation", "transition_id", "transparency_identity_sha256", "uncertified_transparency_count_at_drain", "unresolved_policy_count_at_drain"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Indefinite immutable security audit record. Activation evidence is retained across subsequent rotations and cannot be updated or deleted after activation."
+    },
+    "event_resolutions": {
+      "purpose": "Evaluation leases, committed batch hash, the policy-authorized final result, and the evaluator's exact signed result attestation.",
+      "ordinaryMetadata": ["attending_member_ids", "batch_hash", "created_at", "evaluation_lease_expires_at", "evaluation_lease_id", "evaluation_request_hash", "event_id", "policy_hash", "resolved_at", "result_attestation_canonical_document", "result_attestation_evaluated_at", "result_attestation_protocol_version", "result_attestation_signature", "result_attestation_signing_key_id", "status", "updated_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime; contains only the permitted final outcome, commitments, and public verification proof. Host account deletion removes the event and result."
+    },
+    "events": {
+      "purpose": "Host-created public event details and reply policy timing.",
+      "ordinaryMetadata": ["created_at", "end_date", "event_date", "event_description", "host_name", "host_user_id", "id", "invitations_sent", "location_address", "location_name", "minimum_participants", "rsvp_deadline", "title", "updated_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Until the host deletes the event/account; deletion cascades to event-scoped private storage."
+    },
+    "group_members": {
+      "purpose": "Host-declared event attendance rule membership.",
+      "ordinaryMetadata": ["group_id", "invitee_id", "position"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime."
+    },
+    "groups": {
+      "purpose": "Host-declared event attendance rule groups.",
+      "ordinaryMetadata": ["event_id", "id", "position"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime."
+    },
+    "invitation_deliveries": {
+      "purpose": "Durable, exactly-once invitation delivery status and bounded provider diagnostics.",
+      "ordinaryMetadata": ["attempt_count", "created_at", "dispatch_started_at", "event_id", "failed_at", "id", "invitee_id", "last_error_code", "last_error_message", "provider_message_sid", "provider_status", "sent_at", "status", "suppressed_reason", "updated_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Provider identifiers, diagnostics, and dispatch timestamp are automatically scrubbed after 30 days; status remains with the event. Account deletion immediately removes delivery rows tied to that guest and hosted-event deletion cascades the rest."
+    },
+    "invitees": {
+      "purpose": "Event membership, account assignment, and private invitation capability delivery.",
+      "ordinaryMetadata": ["created_at", "display_name", "event_id", "id", "token_storage_version", "updated_at", "user_id"],
+      "pseudonymousOrHashed": ["phone_hash", "token_hash"],
+      "sensitivePlaintext": ["phone_number"],
+      "sealed": ["token_ciphertext", "token_nonce"],
+      "retention": "Event lifetime; removed when the host deletes the event. Invitee account deletion unlinks the account, invalidates the invitation token, and scrubs name, phone, phone hash, and sealed token while preserving an anonymous member placeholder required by frozen event rules."
+    },
+    "response_envelopes": {
+      "purpose": "Fixed-size, server-blind invitee reply revisions and their two key wraps.",
+      "ordinaryMetadata": ["account_key_epoch_id", "cipher_suite", "ciphertext_hash", "created_at", "evaluator_key_id", "event_id", "id", "invitee_id", "policy_hash", "protocol_version", "response_signature", "revision", "updated_at"],
+      "pseudonymousOrHashed": ["response_signing_public_key"],
+      "sensitivePlaintext": [],
+      "sealed": ["evaluator_key_wrap", "payload_ciphertext", "user_key_wrap"],
+      "retention": "Automatically deleted 90 days after a final event resolution; host event deletion or invitee account deletion removes it sooner."
+    },
+    "response_transparency_entries": {
+      "purpose": "Append-only signed commitments proving a response envelope was published.",
+      "ordinaryMetadata": ["canonical_receipt_payload", "created_at", "entry_hash", "envelope_id", "log_id", "log_index", "previous_entry_hash", "receipt_signature", "signed_at", "signing_key_id"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Indefinite append-only audit record; no response plaintext or ciphertext is present."
+    },
+    "response_transparency_heads": {
+      "purpose": "Signed append-only response-log heads.",
+      "ordinaryMetadata": ["canonical_payload", "generated_at", "head_entry_hash", "log_id", "log_index", "signature", "signing_key_id"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Indefinite append-only audit record."
+    },
+    "sessions": {
+      "purpose": "Revocable phone-authenticated sessions.",
+      "ordinaryMetadata": ["auth_mode", "created_at", "expires_at", "id", "last_seen_at", "qa_bypass_generation", "revoked_at", "user_id"],
+      "pseudonymousOrHashed": ["token_hash"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Expired or revoked sessions are automatically deleted after 30 days; account deletion removes all sessions immediately."
+    },
+    "users": {
+      "purpose": "Phone-linked account and user-provided profile.",
+      "ordinaryMetadata": ["created_at", "id", "name", "updated_at"],
+      "pseudonymousOrHashed": ["phone_hash"],
+      "sensitivePlaintext": ["address", "phone_number"],
+      "sealed": [],
+      "retention": "Account lifetime. The in-app deletion flow requires a phone-authenticated session no more than five minutes old, then removes the account. Phone/profile data is readable by the narrow account service and is not claimed to be server-blind."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "releaseId": "herd-evaluator-2026-08-01",
+  "keyBundleCiphertextFile": "/app/config/key-bundle.ciphertext",
+  "kmsKeyResource": "projects/replace-key-project/locations/us-central1/keyRings/herd-evaluator/cryptoKeys/key-bundle",
+  "transparencyKeyCiphertextFile": "/app/config/transparency-key.ciphertext",
+  "transparencyKmsKeyResource": "projects/replace-key-project/locations/us-central1/keyRings/herd-evaluator/cryptoKeys/response-transparency-identity",
+  "workloadIdentityProvider": "projects/123456789012/locations/global/workloadIdentityPools/herd-evaluator/providers/google-attestation",
+  "transparencyStateProjectId": "replace-key-project",
+  "transparencyStateDatabaseId": "herd-transparency",
+  "transparencyStateCollection": "herd_response_log_v1",
+  "attestationAudience": "https://replace.example/evaluator-attestation/v1",
+  "allowedOrigin": "https://app.replace.example",
+  "port": 8080,
+  "attestationSocket": "/run/container_launcher/teeserver.sock"
+}

@@ -1,0 +1,18 @@
+{
+  "name": "herd-confidential-space-evaluator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "npm run check:core && node --test test/*.test.mjs",
+    "generate:core": "node scripts/generate-evaluator-core.mjs && node scripts/generate-relay-core.mjs && node scripts/generate-invitee-contract-fixture.mjs",
+    "test:unit": "node --test test/config.test.mjs test/crypto-boundary.test.mjs test/evaluation-authority.test.mjs test/signing.test.mjs test/transparency-authority.test.mjs",
+    "test:integration": "node --test test/firestore-transparency.integration.test.mjs test/http.integration.test.mjs test/relay-compatibility.integration.test.mjs",
+    "check:core": "node scripts/check-vendored-core.mjs",
+    "check:container-base": "node scripts/require-image-digest.mjs"
+  }
+}

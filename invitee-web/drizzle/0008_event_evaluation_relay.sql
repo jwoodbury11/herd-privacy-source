@@ -1,0 +1,1 @@
+ALTER TABLE `event_resolutions` ADD `evaluation_request_hash` text;

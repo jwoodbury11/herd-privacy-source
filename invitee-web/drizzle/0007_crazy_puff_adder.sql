@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `qa_bypass_generation` text;

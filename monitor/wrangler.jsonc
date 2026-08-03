@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "herd-release-monitor",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-07-31",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "STATUS_KV",
+      "id": "REPLACE_WITH_PRODUCTION_KV_NAMESPACE_ID",
+      "preview_id": "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MONITOR_COORDINATOR",
+        "class_name": "ReleaseMonitorCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ReleaseMonitorCoordinator"]
+    }
+  ]
+}

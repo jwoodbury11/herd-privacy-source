@@ -1,0 +1,8 @@
+*
+!package.json
+!src/
+!src/**
+!vendor/
+!vendor/**
+!scripts/
+!scripts/require-image-digest.mjs

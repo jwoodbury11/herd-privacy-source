@@ -1,0 +1,111 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$repository_root"
+
+TZ=UTC
+LC_ALL=C.UTF-8
+SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+export TZ LC_ALL SOURCE_DATE_EPOCH
+
+node_version=$(node -p 'process.versions.node.split(".").slice(0, 2).join(" ")')
+set -- $node_version
+node_major=$1
+node_minor=$2
+if [ "$node_major" -lt 22 ] || { [ "$node_major" -eq 22 ] && [ "$node_minor" -lt 13 ]; }; then
+  echo "Herd's full test suite requires Node.js 22.13 or newer; found $(node --version)." >&2
+  exit 1
+fi
+
+echo "Verifying the pinned release toolchain"
+node release/verify-toolchains.mjs --spec release/toolchains.json --profile release
+
+echo "Testing the private evaluator core"
+npm --prefix privacy-evaluator test
+
+echo "Testing the production Confidential Space evaluator"
+npm --prefix confidential-evaluator test
+
+echo "Testing the scheduler"
+npm --prefix scheduler-service test
+
+echo "Testing the reference evaluator service"
+npm --prefix evaluator-service test
+
+echo "Testing the invitee web app and API"
+npm --prefix invitee-web test
+
+echo "Testing all invitation-account browser permutations"
+npm --prefix invitee-web run test:browser-ui
+
+echo "Linting the invitee web app and API"
+npm --prefix invitee-web run lint -- --max-warnings=0
+
+echo "Testing the legal site"
+npm --prefix herd-legal test
+
+echo "Requiring identical legal content on both public surfaces"
+node --test legal-content/tests/*.test.mjs
+
+echo "Linting the legal site"
+npm --prefix herd-legal run lint -- --max-warnings=0
+
+echo "Testing release evidence, public export, monitoring, and artifact safety"
+npm --prefix monitor run check
+node --test \
+  release/tests/*.test.mjs \
+  public-source/tests/*.test.mjs \
+  monitor/tests/*.test.mjs \
+  security/tests/*.test.mjs
+
+echo "Verifying the database data-classification contract"
+node scripts/verify-data-contract.mjs
+
+terraform_required=$(node -p 'require("./release/toolchains.json").linux.terraform')
+if ! command -v terraform >/dev/null 2>&1; then
+  echo "Terraform $terraform_required is required to validate the production infrastructure." >&2
+  exit 1
+fi
+terraform version -json | node -e '
+  const fs = require("node:fs");
+  const actual = JSON.parse(fs.readFileSync(0, "utf8")).terraform_version;
+  const expected = process.argv[1];
+  if (actual !== expected) throw new Error(`Terraform ${actual} != ${expected}`);
+' "$terraform_required"
+echo "Validating the production Confidential Space infrastructure"
+terraform -chdir=infrastructure/gcp-confidential-space fmt -check -recursive
+terraform -chdir=infrastructure/gcp-confidential-space init -backend=false -input=false -lockfile=readonly
+terraform -chdir=infrastructure/gcp-confidential-space validate -no-color
+
+echo "Testing iOS source-contract checks"
+node --test HerdHostTests/*.test.mjs
+
+if [ "${HERD_SKIP_IOS_TESTS:-0}" = "1" ]; then
+  echo "Skipping XCTest because HERD_SKIP_IOS_TESTS=1"
+  exit 0
+fi
+
+if ! command -v xcodebuild >/dev/null 2>&1; then
+  echo "xcodebuild is required for the iOS XCTest target (or set HERD_SKIP_IOS_TESTS=1)." >&2
+  exit 1
+fi
+
+echo "Verifying the pinned Apple toolchain"
+node release/verify-toolchains.mjs --spec release/toolchains.json --profile ios
+
+ios_destination=${HERD_IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5}
+echo "Testing the iOS app on $ios_destination"
+xcodebuild test \
+  -project HerdHost.xcodeproj \
+  -scheme HerdHost \
+  -destination "$ios_destination" \
+  -parallel-testing-enabled NO
+
+echo "Building the fail-closed iOS Release configuration"
+xcodebuild build \
+  -project HerdHost.xcodeproj \
+  -scheme HerdHost \
+  -configuration Release \
+  -destination "$ios_destination" \
+  CODE_SIGNING_ALLOWED=NO

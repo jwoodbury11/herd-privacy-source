@@ -1,0 +1,40 @@
+{
+  "bundle": {
+    "path": "test/vendor/invitee-relay-completion.mjs",
+    "sha256": "35670592b3b1dd7962315252f5891620d32749c08fc7762ef473b0487f6b319b"
+  },
+  "sources": [
+    {
+      "path": "scripts/generate-invitee-contract-fixture.mjs",
+      "sha256": "b619403aa90272584be20c33e916370782a37cb31cb74b0759bb6af2b8df77a6"
+    },
+    {
+      "path": "../invitee-web/lib/backend/resolutions.ts",
+      "sha256": "9d837c689d8d34d85ed30f4d0d475b041fee2a3c3685d49cdab46beddf0031dc"
+    },
+    {
+      "path": "../invitee-web/lib/backend/config.ts",
+      "sha256": "5004dbd6a5e27bc848e982fa84e2f57afb33e782e8f0967b0cae8ba7328119dc"
+    },
+    {
+      "path": "../invitee-web/lib/backend/evaluator-trust.ts",
+      "sha256": "129ac6ac9a7d02df0b34236008dd4811b02b7255625b533c470d414ff0f53466"
+    },
+    {
+      "path": "../invitee-web/lib/backend/http.ts",
+      "sha256": "1a715c610b10e322e123e8a63920d492b174ae054a89708d1df758e991ec0ecc"
+    },
+    {
+      "path": "../invitee-web/lib/backend/response-envelopes.ts",
+      "sha256": "b9175aef5dbcb78d9ac8b711bc0a20a5bb82d47caeda08bdaa6d4d76a37cfbff"
+    },
+    {
+      "path": "../invitee-web/lib/backend/response-transparency.ts",
+      "sha256": "d18a6ad0f978c99b0ffc611bafffc8be7aaf839aed443066027aae2307b98992"
+    },
+    {
+      "path": "../invitee-web/lib/privacy/protocol.ts",
+      "sha256": "2f2a6784f1ea7940ebcf0fae716413e237c69ab9be7521f1f8f0172d412c048b"
+    }
+  ]
+}

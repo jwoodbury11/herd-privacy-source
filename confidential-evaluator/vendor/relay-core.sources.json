@@ -1,0 +1,32 @@
+{
+  "bundle": {
+    "path": "vendor/relay-core.mjs",
+    "sha256": "a822e03bea87123b3c4e11f55677d0b3c6731bacd8037f9cc69bbf85a03f7882"
+  },
+  "sources": [
+    {
+      "path": "scripts/generate-relay-core.mjs",
+      "sha256": "b92b2c3340285324a0317a4b68e728d7e33df8e96641aa238e8a39811454e1ee"
+    },
+    {
+      "path": "../evaluator-service/lib/relay.ts",
+      "sha256": "615edd7e431bca54201bb46cb1bd90aff313ae56cd23ab79e7f8d765896a8490"
+    },
+    {
+      "path": "../evaluator-service/lib/evaluate.ts",
+      "sha256": "20e92017b7ef60f1abb3107f1ea3d3485d777dbdc745ef538d60f68f8d3cb592"
+    },
+    {
+      "path": "../evaluator-service/lib/open-valid-private-responses.mjs",
+      "sha256": "258b2040aaccb9838a6b0b675dda7e890870193ff0718d2767fced153ae092d9"
+    },
+    {
+      "path": "../evaluator-service/vendor/privacy-evaluator/fixed-point.mjs",
+      "sha256": "a9d622965eee9fc145b4615eea289819f4cb01ce42105c784de02b318c765221"
+    },
+    {
+      "path": "../evaluator-service/vendor/privacy-evaluator/private-response-envelope.mjs",
+      "sha256": "3d948f18f57eac37ce5374053336eccd4e300b66c5d21974d0fd1b7d9a0dd600"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "node": "22.13.0",
+    "npm": "10.9.2",
+    "sourceDateEpochRequired": true,
+    "locale": "C.UTF-8",
+    "timezone": "UTC"
+  },
+  "ios": {
+    "runnerLabels": ["macos-26"],
+    "xcode": "26.6",
+    "xcodeBuild": "17F113",
+    "swift": "6.3.3",
+    "sdk": "iphoneos26.5",
+    "simulatorSdk": "iphonesimulator26.5"
+  },
+  "linux": {
+    "githubRunner": "ubuntu-24.04",
+    "architecture": "x64",
+    "terraform": "1.15.8"
+  },
+  "releaseEvidence": {
+    "cosign": "v2.5.3",
+    "rekorRecordBaseUrl": "https://rekor.sigstore.dev/api/v1/log/entries",
+    "oidcIssuer": "https://token.actions.githubusercontent.com"
+  },
+  "monitor": {
+    "runtime": "cloudflare-workers",
+    "wrangler": "4.118.0"
+  },
+  "packageLocks": [
+    "invitee-web/package-lock.json",
+    "herd-legal/package-lock.json",
+    "evaluator-service/package-lock.json",
+    "scheduler-service/package-lock.json",
+    "monitor/package-lock.json"
+  ]
+}

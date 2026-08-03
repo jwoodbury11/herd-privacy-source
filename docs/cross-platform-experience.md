@@ -1,0 +1,115 @@
+# Cross-platform experience parity
+
+Herd has one product experience with two renderers. The web experience is the
+design, content, information-architecture, and interaction source of truth for
+every shared surface. A difference between web and iPhone must be caused by a
+real platform capability, not by independent product decisions.
+
+React and SwiftUI may use different code and native implementation patterns.
+They do not need structural code parity. They do need user-visible parity in
+screen inventory, content order, copy, control meaning, validation, and
+loading, empty, error, confirmation, success, and completed states.
+
+## Source of truth
+
+`invitee-web/shared/HerdExperience.json` owns cross-platform product copy and the layout
+values needed to keep equivalent components aligned. The SwiftUI app decodes
+the bundled file through `HerdExperience.shared`; the web app imports the same
+file through `lib/experience.ts`.
+
+Both apps also use the same authenticated event API and canonical event fields.
+Platform components remain separate so iPhone can keep native navigation,
+accessibility, Contacts, Keychain, and offline behavior, while the web keeps
+browser navigation and browser cryptography.
+
+## Authentication contract
+
+Both authentication renderers consume `authentication` from the shared
+experience file. The welcome and verification screens use the same:
+
+- brand, release status disclosure, headline, supporting copy, and action labels;
+- phone placeholder, validation readiness, and hidden single-digit QA aliases;
+- legal consent copy and links;
+- masked phone-number treatment and four-cell verification-code entry;
+- horizontal padding, control sizing, corner radii, and action placement.
+
+The QA aliases are request behavior only. They remain absent from product copy
+and are accepted by the backend only when its QA bypass is explicitly enabled.
+
+## Invitation-link contract
+
+Both renderers preserve the invitation capability through phone authentication
+and then open the exact linked event. On iPhone, the app accepts only the
+configured HTTPS origin's canonical `/invite/:token` universal link, rejects
+credentials, queries, fragments, escaped path data, extra components, malformed
+tokens, and every custom scheme, and never logs the token. A pending token is
+stored device-only in Keychain rather than ordinary preferences and is removed
+only after the linked detail actually appears or the person explicitly dismisses
+it.
+
+When either renderer carries an invitation into phone authentication, the
+backend hashes both values and requires the token and normalized phone to match
+the same invitee row before creating a challenge, granting a QA session, or
+calling the SMS provider. A missing token and a different phone receive the
+same generic response with no event or phone details. The network request
+budget is consumed before this comparison; the phone/SMS resend budget is
+consumed only after a valid pair, so correcting a bad link does not throttle the
+legitimate number.
+
+If an authenticated phone number does not own the invitation, both renderers
+offer an explicit account switch and preserve the link while the current
+session is removed. The iPhone target declares the associated domain, and the
+web origin serves `/.well-known/apple-app-site-association` directly without a
+redirect. Production release configuration derives that domain from the signed
+web origin and publishes the signed app identifier to the web runtime.
+
+## Intentional differences
+
+| Experience | iPhone | Web |
+| --- | --- | --- |
+| Create an event | Opens the native event editor and contact picker | Opens the iPhone download handoff |
+
+Everything else is presumed to require parity. Add a difference to this table
+before shipping it, with the platform constraint that requires it.
+
+## Home-screen contract
+
+Both home screens now:
+
+- show `Herd events` without a greeting or platform-only eyebrow;
+- use profile initials in the same circular control;
+- display hosted and invited events in one chronological list;
+- label cards `Hosting` or `Invited` consistently;
+- use the same event metrics, countdown states, spacing, card radius, and create-card height;
+- show the same `Host an event` card when the list is empty or populated.
+
+The web card alone routes to the iPhone handoff, which is the explicit exception
+above.
+
+Existing hosted events are not part of that exception. On both platforms they
+open the shared event-detail experience. Only a newly started event opens the
+iPhone editor.
+
+## Shared account and invitation contract
+
+The `profile`, `invitation`, `attendees`, `reply`, `privacy`, and `success`
+sections of `HerdExperience.json` are the content contract for both renderers.
+Together they require both platforms to use the same:
+
+- profile field order, sync/privacy note, save and logout order, and logout warning;
+- event hero, status semantics, metadata, metrics, guest-list entry, and resolution states;
+- dedicated guest-list screen with host and current-user markers;
+- privacy callout and full proof/limits screen;
+- reply selection and condition editing before an explicit submit action;
+- saved/locked response recovery language and account-key reset warning; and
+- successful-response summary and return actions.
+
+Selecting a reply is local editing state. It must never show `Responded` or
+perform a network write until the explicit encrypted-reply submit action
+succeeds.
+
+## Visual regression evidence
+
+Paired reference screenshots and the screen-by-screen decision matrix live in
+`docs/parity-audit-2026-07-31/`. Capture both renderers at the same mobile
+device class and data state whenever a shared experience changes.

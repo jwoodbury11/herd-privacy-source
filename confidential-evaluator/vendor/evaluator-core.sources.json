@@ -1,0 +1,28 @@
+{
+  "bundle": {
+    "path": "vendor/evaluator-core.mjs",
+    "sha256": "5ee8b74e9d482a09417773a36e487cf5d5663c034ad83302eef26bc3ec3b3f83"
+  },
+  "sources": [
+    {
+      "path": "scripts/generate-evaluator-core.mjs",
+      "sha256": "ced8835a44850b5eca445eb63dc5c794612e568e72b2cd90ccaaf82de0b26143"
+    },
+    {
+      "path": "../evaluator-service/lib/evaluate.ts",
+      "sha256": "20e92017b7ef60f1abb3107f1ea3d3485d777dbdc745ef538d60f68f8d3cb592"
+    },
+    {
+      "path": "../evaluator-service/lib/open-valid-private-responses.mjs",
+      "sha256": "258b2040aaccb9838a6b0b675dda7e890870193ff0718d2767fced153ae092d9"
+    },
+    {
+      "path": "../evaluator-service/vendor/privacy-evaluator/fixed-point.mjs",
+      "sha256": "a9d622965eee9fc145b4615eea289819f4cb01ce42105c784de02b318c765221"
+    },
+    {
+      "path": "../evaluator-service/vendor/privacy-evaluator/private-response-envelope.mjs",
+      "sha256": "3d948f18f57eac37ce5374053336eccd4e300b66c5d21974d0fd1b7d9a0dd600"
+    }
+  ]
+}

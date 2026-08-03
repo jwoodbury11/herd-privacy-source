@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785385749871,
+      "tag": "0000_high_komodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1785386427882,
+      "tag": "0001_fine_hardball",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785388191316,
+      "tag": "0002_revoke_legacy_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785390403566,
+      "tag": "0003_stormy_morgan_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785526675471,
+      "tag": "0004_red_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785526815972,
+      "tag": "0005_milky_morlocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785529351095,
+      "tag": "0006_event_resolution_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785530456966,
+      "tag": "0007_crazy_puff_adder",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785536294823,
+      "tag": "0008_event_evaluation_relay",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785543311048,
+      "tag": "0009_loose_rhino",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785725335537,
+      "tag": "0010_powerful_bishop",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1785733526731,
+      "tag": "0011_nifty_the_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1785739194714,
+      "tag": "0012_goofy_unicorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1785744355973,
+      "tag": "0013_bumpy_serpent_society",
+      "breakpoints": true
+    }
+  ]
+}

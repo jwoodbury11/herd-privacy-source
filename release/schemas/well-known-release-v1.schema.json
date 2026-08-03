@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:herd:schema:well-known-release:v1",
+  "title": "Herd well-known release pointer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseId",
+    "previousRelease",
+    "protocol",
+    "releaseSigningKey",
+    "manifest",
+    "deploymentStatement",
+    "web",
+    "evaluator",
+    "responseTransparency",
+    "monitoredResources",
+    "verifier"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseId": { "type": "string" },
+    "previousRelease": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "release-manifest-v1.schema.json#/$defs/previousRelease" }
+      ]
+    },
+    "protocol": { "type": "object" },
+    "releaseSigningKey": { "type": "object" },
+    "manifest": { "type": "object" },
+    "deploymentStatement": { "type": "object" },
+    "web": { "type": "object" },
+    "evaluator": {
+      "type": "object",
+      "required": ["evaluatorKeyEpochId"],
+      "properties": { "evaluatorKeyEpochId": { "type": "string" } }
+    },
+    "responseTransparency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "logId",
+        "url",
+        "signingKey",
+        "dataPolicy",
+        "entryFields"
+      ],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "logId": { "const": "herd-response-log-v1" },
+        "url": { "type": "string", "format": "uri" },
+        "signingKey": { "$ref": "release-manifest-v1.schema.json#/$defs/signingKey" },
+        "dataPolicy": { "const": "hash-chain-heads-only-v1" },
+        "entryFields": {
+          "const": ["entryHash", "head", "logIndex", "previousEntryHash"]
+        }
+      }
+    },
+    "monitoredResources": { "type": "array", "minItems": 3 },
+    "verifier": { "type": "object" }
+  }
+}
