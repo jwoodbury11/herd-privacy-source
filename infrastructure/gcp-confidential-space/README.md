@@ -30,7 +30,7 @@ After the image is pushed, set:
 runtime_enabled           = true
 image_digest              = "sha256:<64 lowercase hex>"
 confidential_space_image  = "<exact production image self-link, not a family>"
-confidential_space_swversions = ["<signed eight-digit swversion>"]
+confidential_space_swversions = ["<signed six-digit swversion, for example 260600>"]
 evaluator_domain          = "evaluator.example.com"
 ```
 

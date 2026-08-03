@@ -25,7 +25,7 @@ const AUDIENCE = `${ORIGIN}/attestation`;
 const PROJECT_ID = "herd-prod";
 const SERVICE_ACCOUNT = "herd-evaluator@herd-prod.iam.gserviceaccount.com";
 const IMAGE_DIGEST = `sha256:${"1".repeat(64)}`;
-const SW_VERSION = "20260701";
+const SW_VERSION = "260600";
 const RELEASE_ID = "herd-evaluator-epoch-2026.08";
 const FIXED_NONCE = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
 
@@ -316,7 +316,7 @@ test("live attestation fails closed across token, key, claim, and root attacks",
     ["extra monitoring mode", { claims: (claims) => { claims.submods.confidential_space.monitoring_enabled.disk = true; } }],
     ["missing command override", { claims: (claims) => { delete claims.submods.container.cmd_override; } }],
     ["wrong environment override shape", { claims: (claims) => { claims.submods.container.env_override = []; } }],
-    ["unapproved OS", { claims: (claims) => { claims.swversion = ["20990101"]; } }],
+    ["unapproved OS", { claims: (claims) => { claims.swversion = ["999999"]; } }],
     ["bad signature", { badSignature: true }],
     ["dangerous remote key header", { header: (header) => { header.jku = "https://evil.example/key"; } }],
     ["changed key binding", { binding: (binding) => { binding.keys.policySigning.keyId = "other-policy-key"; } }],

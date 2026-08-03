@@ -117,9 +117,9 @@ variable "confidential_space_swversions" {
   validation {
     condition = (
       length(var.confidential_space_swversions) == length(distinct(var.confidential_space_swversions)) &&
-      alltrue([for version in var.confidential_space_swversions : can(regex("^[0-9]{8}$", version))])
+      alltrue([for version in var.confidential_space_swversions : can(regex("^[0-9]{6}$", version))])
     )
-    error_message = "confidential_space_swversions must contain unique eight-digit versions."
+    error_message = "confidential_space_swversions must contain unique six-digit Confidential Space versions."
   }
 }
 

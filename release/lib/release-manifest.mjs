@@ -236,9 +236,9 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
   }
   const allowedSwversions = value.allowedSwversions.map((version, index) =>
     requireString(version, `${label}.allowedSwversions[${index}]`, {
-      minimum: 8,
-      maximum: 8,
-      pattern: /^[0-9]{8}$/u,
+      minimum: 6,
+      maximum: 6,
+      pattern: /^[0-9]{6}$/u,
     }),
   );
   if (new Set(allowedSwversions).size !== allowedSwversions.length) {

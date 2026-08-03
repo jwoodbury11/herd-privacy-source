@@ -274,7 +274,7 @@ export function makeReleaseFixture({
           secboot: true,
           dbgstat: "disabled-since-boot",
           swname: "CONFIDENTIAL_SPACE",
-          allowedSwversions: ["20260101", "20260701"],
+          allowedSwversions: ["260500", "260600"],
           oemid: 11129,
           attesterTcb: "INTEL",
           envOverrideAllowed: false,

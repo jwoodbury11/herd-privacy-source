@@ -22,10 +22,11 @@ async function allTerraformSource() {
 }
 
 test("Terraform makes the custodian database durable and non-administrable by the workload", async () => {
-  const [foundation, identity, compute] = await Promise.all([
+  const [foundation, identity, compute, variables] = await Promise.all([
     source("foundation.tf"),
     source("identity.tf"),
     source("compute.tf"),
+    source("variables.tf"),
   ]);
   assert.match(foundation, /resource "google_firestore_database" "transparency"/u);
   assert.match(
@@ -67,6 +68,7 @@ test("Terraform makes the custodian database durable and non-administrable by th
   assert.match(identity, /assertion\.attester_tcb\[0\]\s*==\s*"INTEL"/u);
   assert.match(identity, /size\(assertion\.swversion\)\s*==\s*1/u);
   assert.match(identity, /jsonencode\(var\.confidential_space_swversions\)/u);
+  assert.match(variables, /regex\("\^\[0-9\]\{6\}\$", version\)/u);
   assert.match(identity, /size\(assertion\.google_service_accounts\)\s*==\s*1/u);
   assert.match(
     identity,

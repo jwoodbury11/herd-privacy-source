@@ -168,7 +168,7 @@ const audience = "https://herd.test/attestation";
 const projectId = "herd-attestation-test-project";
 const serviceAccount = "evaluator@herd-attestation-test.iam.gserviceaccount.com";
 const imageDigest = `sha256:${"a".repeat(64)}`;
-const swVersion = "20260101";
+const swVersion = "260600";
 const keyBinding = {
   protocolVersion: 1,
   releaseId,
@@ -397,7 +397,7 @@ test("RS256 Google-PKI evaluator attestation is certificate- and release-bound",
         disk: true,
       };
     }],
-    ["unapproved OS version", (claims) => { claims.swversion = ["20990101"]; }],
+    ["unapproved OS version", (claims) => { claims.swversion = ["999999"]; }],
     ["expired token", (claims) => {
       const now = Math.floor(Date.now() / 1_000);
       claims.iat = now - 600;

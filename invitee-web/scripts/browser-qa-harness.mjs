@@ -37,7 +37,7 @@ const attestationAudience = "https://herd-browser-qa.invalid/evaluator-attestati
 const attestationProjectId = "herd-browser-qa-project";
 const attestationServiceAccount =
   "evaluator@herd-browser-qa-project.iam.gserviceaccount.com";
-const attestationSwVersion = "20260801";
+const attestationSwVersion = "260600";
 
 cryptoProvider.set(webcrypto);
 

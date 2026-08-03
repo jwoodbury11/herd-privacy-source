@@ -1064,7 +1064,7 @@ async function normalizeCriticalManifest(value, requireProduction) {
   if (!Array.isArray(claim.allowedSwversions) || claim.allowedSwversions.length === 0 || new Set(claim.allowedSwversions).size !== claim.allowedSwversions.length) {
     throw new TypeError("release manifest attestation swversion allowlist is invalid.");
   }
-  claim.allowedSwversions.forEach((version, index) => string(version, `release manifest allowedSwversions[${index}]`, { minimum: 8, maximum: 8, pattern: /^[0-9]{8}$/u }));
+  claim.allowedSwversions.forEach((version, index) => string(version, `release manifest allowedSwversions[${index}]`, { minimum: 6, maximum: 6, pattern: /^[0-9]{6}$/u }));
   if (!sameJson(normalizeDigest(claim.imageDigest, "release manifest attestation imageDigest", { sha256Only: true }), imageDigest)) {
     throw new TypeError("release manifest attestation image digest is inconsistent.");
   }

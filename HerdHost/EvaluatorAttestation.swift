@@ -233,7 +233,7 @@ struct EvaluatorAttestationVerifier: Sendable {
             !versions.isEmpty,
             Set(versions).count == versions.count,
             versions.allSatisfy({
-                $0.range(of: "^[0-9]{8}$", options: .regularExpression) != nil
+                $0.range(of: "^[0-9]{6}$", options: .regularExpression) != nil
             })
         else { throw EvaluatorAttestationVerificationError.invalidRelease }
         let maxAgeValue = try value("HERD_ATTESTATION_MAX_AGE_SECONDS")

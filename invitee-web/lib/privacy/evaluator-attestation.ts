@@ -157,7 +157,7 @@ function loadAttestationConfig(): AttestationConfig {
   if (
     allowedSwVersions.length < 1 ||
     new Set(allowedSwVersions).size !== allowedSwVersions.length ||
-    allowedSwVersions.some((value) => !/^[0-9]{8}$/u.test(value))
+    allowedSwVersions.some((value) => !/^[0-9]{6}$/u.test(value))
   ) {
     throw new EvaluatorAttestationError(
       "This Herd release has an invalid Confidential Space OS allowlist.",

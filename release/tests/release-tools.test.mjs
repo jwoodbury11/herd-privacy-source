@@ -193,6 +193,7 @@ test("canonical manifest binds distinct operational keys to exact Confidential S
   assert.equal(policy.secboot, true);
   assert.equal(policy.dbgstat, "disabled-since-boot");
   assert.equal(policy.swname, "CONFIDENTIAL_SPACE");
+  assert.deepEqual(policy.allowedSwversions, ["260500", "260600"]);
   assert.equal(policy.oemid, 11129);
   assert.equal(policy.attesterTcb, "INTEL");
   assert.equal(policy.envOverrideAllowed, false);
@@ -208,6 +209,13 @@ test("canonical manifest binds distinct operational keys to exact Confidential S
 
 test("manifest rejects an incorrect four-key binding and reused trust keys", () => {
   const fixture = makeReleaseFixture();
+  const staleSwversionFormat = structuredClone(fixture.manifest);
+  staleSwversionFormat.trust.workload.attestationClaimPolicy.allowedSwversions = ["20260801"];
+  assert.throws(
+    () => normalizeReleaseManifest(staleSwversionFormat),
+    /allowedSwversions\[0\] is invalid/u,
+  );
+
   const badBinding = structuredClone(fixture.manifest);
   badBinding.trust.workload.attestationClaimPolicy.keyBindingHash = "00".repeat(32);
   assert.throws(() => normalizeReleaseManifest(badBinding), /all four operational key descriptors/u);
