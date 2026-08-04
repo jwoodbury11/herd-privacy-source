@@ -6,6 +6,8 @@ import { releaseSigningKeyDescriptor, signCanonicalArtifact } from "../lib/signa
 
 const MANIFEST_TYPE = "application/vnd.herd.release-manifest.v1+json";
 const DEPLOYMENT_TYPE = "application/vnd.herd.deployment-statement.v1+json";
+const REKOR_LOG_ID_BYTES = Buffer.alloc(32, 9);
+const REKOR_LOG_ID = REKOR_LOG_ID_BYTES.toString("base64");
 
 function artifact(
   name,
@@ -182,7 +184,7 @@ export function makeReleaseFixture({
       certificate: { rawBytes: Buffer.alloc(96, 5).toString("base64") },
       tlogEntries: [
         {
-          logId: { keyId: "rekor-production" },
+          logId: { keyId: REKOR_LOG_ID },
           logIndex: "1234",
           integratedTime: String(sourceDateEpoch),
           inclusionPromise: { signedEntryTimestamp: Buffer.alloc(64, 6).toString("base64") },
@@ -335,8 +337,8 @@ export function makeReleaseFixture({
           ? [
               {
                 provider: "sigstore-rekor",
-                logId: "rekor-production",
-                entryId: "rekor-production:1234",
+                logId: REKOR_LOG_ID,
+                entryId: `${REKOR_LOG_ID}:1234`,
                 integratedTime: sourceDateEpoch,
                 bundleSha256: provenanceBundle.sha256,
                 url: "https://rekor.sigstore.dev/api/v1/log/entries?logIndex=1234",
@@ -506,7 +508,7 @@ export function makeReleaseFixture({
     [audit, auditBytes],
   ];
   const rekorResponseBytes = Buffer.from(canonicalJson({
-    logID: "rekor-production",
+    logID: REKOR_LOG_ID_BYTES.toString("hex"),
     logIndex: 1234,
     integratedTime: sourceDateEpoch,
   }));

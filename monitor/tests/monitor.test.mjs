@@ -124,6 +124,24 @@ test("verifies the independently pinned release, deployment, and deployed resour
   );
 });
 
+test("accepts a public release pointer from an explicitly pinned evidence origin", async () => {
+  const fixture = monitoredFixture();
+  const evidenceUrl = "https://evidence.example/releases/current/herd-release.json";
+  fixture.responses.set(evidenceUrl, fixture.responses.get(fixture.wellKnownUrl));
+  fixture.target.wellKnownUrl = evidenceUrl;
+  const result = await verifyMonitoredTarget(fixture, {
+    fetchImpl: mockFetch(fixture.responses),
+    now: () => new Date("2026-08-02T12:00:00.000Z"),
+  });
+  assert.equal(result.ok, true);
+
+  fixture.target.wellKnownUrl = "https://untrusted.example/herd-release.json";
+  await assert.rejects(
+    verifyMonitoredTarget(fixture, { fetchImpl: mockFetch(fixture.responses) }),
+    /outside the configured web or evidence origins/u,
+  );
+});
+
 test("production live attestation requires an independent root/origin and exact signed relay endpoint", async () => {
   const missing = monitoredFixture();
   delete missing.target.evaluatorAttestation;

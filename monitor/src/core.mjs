@@ -798,13 +798,26 @@ function assertPdf(bytes, label) {
   }
 }
 
+function matchingRekorLogId(candidate, expected) {
+  if (candidate === expected) return true;
+  if (typeof candidate !== "string" || !/^[0-9a-f]{64}$/u.test(candidate)) return false;
+  try {
+    const binary = atob(expected);
+    return binary.length === 32 && bytesToHex(
+      Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+    ) === candidate;
+  } catch {
+    return false;
+  }
+}
+
 function matchingRekorRecord(value, transparency) {
   if (Array.isArray(value)) return value.some((item) => matchingRekorRecord(item, transparency));
   if (!isObject(value)) return false;
   const rawLogId = value.logID ?? value.logId;
   const candidateLogId = isObject(rawLogId) ? rawLogId.keyId : rawLogId;
   if (
-    candidateLogId === transparency.logId &&
+    matchingRekorLogId(candidateLogId, transparency.logId) &&
     integerLike(value.logIndex, "Rekor response logIndex") === transparency.logIndex &&
     integerLike(value.integratedTime, "Rekor response integratedTime") === transparency.integratedTime
   ) return true;
@@ -1616,8 +1629,12 @@ export async function verifyTarget(
   } = {},
 ) {
   const target = await normalizeTarget(targetValue);
-  if (new URL(target.wellKnownUrl).origin !== target.expectedWebOrigin) {
-    throw new TypeError("well-known release record is outside the configured web origin.");
+  const wellKnownOrigin = new URL(target.wellKnownUrl).origin;
+  if (
+    wellKnownOrigin !== target.expectedWebOrigin &&
+    !target.allowedEvidenceOrigins.includes(wellKnownOrigin)
+  ) {
+    throw new TypeError("well-known release record is outside the configured web or evidence origins.");
   }
   const wellKnownFetch = await fetchBounded(fetchImpl, target.wellKnownUrl, MAX_WELL_KNOWN_BYTES, "well-known release record");
   if (wellKnownFetch.contentType && wellKnownFetch.contentType !== "application/json" && !wellKnownFetch.contentType.endsWith("+json")) {

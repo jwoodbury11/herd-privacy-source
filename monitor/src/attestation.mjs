@@ -522,11 +522,19 @@ async function verifyToken(response, expectedNonce, configuration, currentTime) 
     ["memory"],
     "Live evaluator monitoring claims",
   );
-  const environmentOverride = exactRecord(
-    container.env_override,
-    [],
-    "Live evaluator environment override",
-  );
+  // Confidential Space omits these claims when no override was requested. An
+  // explicitly empty value is equivalent, but any supplied override remains a
+  // hard policy failure.
+  const environmentOverride = container.env_override === undefined
+    ? {}
+    : exactRecord(
+        container.env_override,
+        [],
+        "Live evaluator environment override",
+      );
+  const commandOverride = container.cmd_override === undefined
+    ? []
+    : container.cmd_override;
   if (
     claims.iss !== GOOGLE_ATTESTATION_ISSUER ||
     claims.aud !== policy.audience ||
@@ -551,8 +559,8 @@ async function verifyToken(response, expectedNonce, configuration, currentTime) 
       `sha256:${configuration.manifest.trust.workload.imageDigest.value}` ||
     container.restart_policy !== "Always" ||
     Object.keys(environmentOverride).length !== 0 ||
-    !Array.isArray(container.cmd_override) ||
-    container.cmd_override.length !== 0 ||
+    !Array.isArray(commandOverride) ||
+    commandOverride.length !== 0 ||
     !supportAttributes.includes("USABLE") ||
     !supportAttributes.includes("STABLE") ||
     monitoring.memory !== false
