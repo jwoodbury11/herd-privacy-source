@@ -293,7 +293,7 @@ test("privacy CI validates the exact production infrastructure with a pinned Ter
   assert.equal(toolchains.linux.terraform, "1.15.8");
   assert.match(
     privacyWorkflow,
-    /hashicorp\/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd/u,
+    /hashicorp\/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e/u,
   );
   assert.match(privacyWorkflow, /terraform_version: 1\.15\.8/u);
   assert.match(
