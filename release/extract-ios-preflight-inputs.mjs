@@ -1,9 +1,7 @@
 #!/usr/bin/env node
-import { execFile, spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 
 import { parseArgs, requireArg } from "./lib/canonical.mjs";
@@ -36,38 +34,14 @@ async function unzipSmallEntry(archive, entry) {
   return stdout;
 }
 
-async function unzipEntryToFile(archive, entry, output) {
-  const child = spawn("/usr/bin/unzip", ["-p", archive, entry], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stderr = "";
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => {
-    if (stderr.length < 64 * 1024) stderr += chunk.slice(0, 64 * 1024 - stderr.length);
-  });
-  const completion = new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
-      if (code === 0) resolve();
-      else {
-        reject(
-          new TypeError(
-            `Could not extract the iOS application executable (exit ${code ?? "unknown"}${signal ? `, signal ${signal}` : ""}): ${stderr.trim()}`,
-          ),
-        );
-      }
-    });
-  });
-  try {
-    await Promise.all([
-      pipeline(child.stdout, createWriteStream(output, { flags: "wx", mode: 0o700 })),
-      completion,
-    ]);
-    await chmod(output, 0o700);
-  } catch (error) {
-    child.kill();
-    await rm(output, { force: true });
-    throw error;
+async function rejectExtractedLinks(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    const metadata = await lstat(entryPath);
+    if (metadata.isSymbolicLink()) {
+      throw new TypeError("iOS archive contains a symbolic link.");
+    }
+    if (metadata.isDirectory()) await rejectExtractedLinks(entryPath);
   }
 }
 
@@ -100,25 +74,33 @@ async function main() {
   const appPrefix = infoEntries[0].slice(0, -"Info.plist".length);
   const executableEntry = `${appPrefix}${info.CFBundleExecutable}`;
   if (!entries.includes(executableEntry)) throw new TypeError("iOS application executable is missing.");
-  const executablePath = path.join(outputDirectory, "HerdHost.executable");
-  const normalizedPath = path.join(outputDirectory, "HerdHost.normalized-executable");
-  await unzipEntryToFile(archive, executableEntry, executablePath);
+  const extractionRoot = path.join(outputDirectory, "bundle");
+  await mkdir(extractionRoot);
+  await run("/usr/bin/unzip", ["-qq", archive, "-d", extractionRoot], {
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  await rejectExtractedLinks(extractionRoot);
+  const appPath = path.join(extractionRoot, appPrefix);
   try {
-    await run("/usr/bin/codesign", ["--verify", "--strict", executablePath], {
+    await run("/usr/bin/codesign", ["--verify", "--strict", appPath], {
       maxBuffer: 1024 * 1024,
     });
   } catch (error) {
     throw new TypeError(
-      `The iOS executable signature is invalid: ${error instanceof Error ? error.message : error}`,
+      `The iOS application signature is invalid: ${error instanceof Error ? error.message : error}`,
     );
   }
+  const executablePath = path.join(outputDirectory, "HerdHost.executable");
+  const normalizedPath = path.join(outputDirectory, "HerdHost.normalized-executable");
+  await copyFile(path.join(extractionRoot, executableEntry), executablePath);
+  await chmod(executablePath, 0o700);
   const entitlementsPlistPath = path.join(outputDirectory, "Entitlements.plist");
   const entitlementsJsonPath = path.join(outputDirectory, "Entitlements.plist.json");
   let signedEntitlements;
   try {
     ({ stdout: signedEntitlements } = await run(
       "/usr/bin/codesign",
-      ["-d", "--entitlements", "-", executablePath],
+      ["-d", "--entitlements", ":-", executablePath],
       { encoding: "buffer", maxBuffer: 4 * 1024 * 1024 },
     ));
   } catch (error) {

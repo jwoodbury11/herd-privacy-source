@@ -276,8 +276,9 @@ test("hosted native iOS CI runs the public export on pull requests with the exac
     new URL("../extract-ios-preflight-inputs.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(extractor, /codesign", \["--verify", "--strict"/u);
-  assert.match(extractor, /codesign",\s*\["-d", "--entitlements", "-"/u);
+  assert.match(extractor, /codesign", \["--verify", "--strict", appPath\]/u);
+  assert.match(extractor, /rejectExtractedLinks\(extractionRoot\)/u);
+  assert.match(extractor, /codesign",\s*\["-d", "--entitlements", ":-"/u);
   assert.deepEqual(toolchains.ios.runnerLabels, ["macos-26"]);
 });
 
