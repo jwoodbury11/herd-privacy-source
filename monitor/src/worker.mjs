@@ -46,6 +46,10 @@ function authorized(request, env) {
 }
 
 export function sitesAuthorizedFetch(env, target, fetchImpl = fetch) {
+  // A production client must be able to reach the published origin without a
+  // browser-only Sites session. Deliberately ignore the operator bypass here so
+  // the monitor catches an accidental owner-only access policy before users do.
+  if (target.requireProduction === true) return fetchImpl;
   const token = env.SITES_BYPASS_BEARER_TOKEN;
   if (token === undefined || token === "") return fetchImpl;
   if (typeof token !== "string" || token.length < 32) {

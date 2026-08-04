@@ -51,6 +51,29 @@ test("Sites bypass authorization is confined to the exact configured web origin"
   );
 });
 
+test("production origins are checked without the Sites bypass credential", async () => {
+  const calls = [];
+  const wrapped = sitesAuthorizedFetch(
+    { SITES_BYPASS_BEARER_TOKEN: "s".repeat(48) },
+    {
+      expectedWebOrigin: "https://app.herdprivacy.com",
+      requireProduction: true,
+    },
+    async (input, init) => {
+      calls.push({ url: String(input), headers: new Headers(init?.headers) });
+      return new Response("ok");
+    },
+  );
+
+  await wrapped("https://app.herdprivacy.com/.well-known/apple-app-site-association", {
+    headers: { accept: "application/json" },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers.get("OAI-Sites-Authorization"), null);
+  assert.equal(calls[0].headers.get("accept"), "application/json");
+});
+
 function logEntry(index, previousEntryHash, entryHash, keyPair) {
   const unsignedHead = {
     protocolVersion: 1,

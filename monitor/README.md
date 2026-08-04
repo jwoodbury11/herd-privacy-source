@@ -31,6 +31,9 @@ Configure `TARGETS_JSON` as a Worker secret. For a Sites origin protected by
 Sign in with ChatGPT, also configure `SITES_BYPASS_BEARER_TOKEN` as a Worker
 secret. The monitor sends it only to the target's exact `expectedWebOrigin`;
 evidence, Rekor, and evaluator requests never receive the Sites credential.
+Production targets deliberately ignore this bypass and verify the web origin as
+an ordinary unauthenticated client, preventing an owner-only hosting policy from
+silently blocking native applications.
 Both `responseTransparency` and
 `evaluatorAttestation` are mandatory when `requireProduction` is true:
 
