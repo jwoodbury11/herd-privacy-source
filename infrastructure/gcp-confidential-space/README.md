@@ -7,7 +7,8 @@ This Terraform package defines the recommended two-project production boundary:
   instance group, Cloud Armor, and an external HTTPS load balancer; and
 - an existing, independently administered **key-custodian project** owns Cloud
   KMS, a deletion-protected named Firestore database, and a Workload Identity
-  Pool whose policy authorizes one exact workload image digest.
+  Pool whose policy normally authorizes one exact workload image digest and,
+  only during a reviewed same-key-epoch rollout, its one predecessor.
 
 It never creates projects, billing accounts, DNS records, credentials, or a
 container image. Running `terraform apply` creates billable resources. No apply
@@ -28,7 +29,13 @@ After the image is pushed, set:
 
 ```hcl
 runtime_enabled           = true
-image_digest              = "sha256:<64 lowercase hex>"
+evaluator_slots = {
+  blue = {
+    image_digest   = "sha256:<64 lowercase hex>"
+    instance_count = 3
+    serve_traffic  = true
+  }
+}
 confidential_space_image  = "<exact production image self-link, not a family>"
 confidential_space_swversions = ["<signed six-digit swversion, for example 260600>"]
 evaluator_domain          = "evaluator.example.com"
@@ -55,6 +62,27 @@ The runtime phase then creates:
   the integrity authority;
 - a regional MIG with autohealing and replacement-only updates; and
 - a no-CDN HTTPS load balancer with Cloud Armor throttling.
+
+For a verified artifact-only rebuild that embeds the identical evaluator epoch,
+global transparency identity, and stable policy measurement, add a second slot
+(for example `green`) with the new digest, three instances, and
+`serve_traffic = false`. This creates an independent MIG without exposing it to
+released clients that may still pin only blue's exact digest. Prove every green
+instance through an access-restricted validation path. Only after released
+clients accept both exact digests may a reviewed apply set green to
+`serve_traffic = true`; detach blue in a later apply before scaling it to zero.
+Only after green remains healthy should blue and its old digest authorization be
+removed. Alternate slot names on later releases. Never change a slot's digest in
+place, bridge two key epochs, or remove the serving slot in the same apply that
+creates its candidate.
+
+Never use `terraform destroy -target` to retire a slot: Terraform follows
+reverse dependencies during destroy and can include the backend, URL map,
+HTTPS proxy, and forwarding rule. Scale the retired slot to zero in a normal
+reviewed apply, then remove it from `evaluator_slots` in a later normal apply.
+The public address, certificate, backend, URL map, proxy, and forwarding rule
+have `prevent_destroy` guards so an accidental targeted teardown fails at plan
+time instead of removing the edge.
 
 The Workload Identity Provider requires all of these claims at once:
 

@@ -144,7 +144,7 @@ function requiredWebValues(result) {
   });
 }
 
-function verifyWebArchive(archive, result) {
+export function verifyWebArchive(archive, result) {
   const files = readUstarFiles(archive);
   const markerEntries = [...files.entries()].filter(([name]) =>
     name.endsWith("/HERD-RELEASE-CONFIG-SHA256"),
@@ -169,12 +169,25 @@ function verifyWebArchive(archive, result) {
     .filter((bytes) => bytes.byteLength <= 16 * 1024 * 1024 && !bytes.includes(0))
     .map((bytes) => bytes.toString("utf8"))
     .join("\n");
+  const clientJavaScript = [...files.entries()]
+    .filter(([name, bytes]) =>
+      /\/client\/assets\/[^/]+\.js$/u.test(name) &&
+      bytes.byteLength <= 16 * 1024 * 1024 &&
+      !bytes.includes(0)
+    )
+    .map(([, bytes]) => bytes.toString("utf8"))
+    .join("\n");
+  if (!clientJavaScript) {
+    throw new TypeError("Web archive does not contain an inspectable browser JavaScript bundle.");
+  }
   for (const { pattern, label } of FORBIDDEN_BUILD_PATTERNS) {
     if (pattern.test(searchable)) throw new TypeError(`Web archive contains a ${label}.`);
   }
   for (const representations of requiredWebValues(result)) {
-    if (!representations.some((required) => searchable.includes(required))) {
-      throw new TypeError("Web archive does not contain every public value derived from the signed manifest.");
+    if (!representations.some((required) => clientJavaScript.includes(required))) {
+      throw new TypeError(
+        "Web archive browser JavaScript does not contain every public value derived from the signed manifest.",
+      );
     }
   }
 }

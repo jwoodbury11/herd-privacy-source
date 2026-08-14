@@ -11,6 +11,7 @@ import { ApiError } from "./http";
 const RESPONSE_LOG_ID = "herd-response-log-v1";
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const EPOCH_STATE_SELECT = `SELECT
   singleton_id AS singletonId,
   generation,
@@ -114,6 +115,14 @@ export type EvaluatorEpochTransitionRequest = {
   schemaVersion: 1;
   expectedGeneration: number;
   expectedEvaluatorKeyEpochId: string;
+};
+
+export type EvaluatorEpochRetirementRequest = {
+  schemaVersion: 1;
+  expectedGeneration: number;
+  expectedEvaluatorKeyEpochId: string;
+  expectedUnresolvedPolicyCount: number;
+  confirmation: "RETIRE_UNRESOLVED_BETA_EVENTS";
 };
 
 function canonicalTimestamp(value: string, field: string): string {
@@ -812,6 +821,130 @@ export function parseEvaluatorEpochTransitionRequest(
   };
 }
 
+export function parseEvaluatorEpochRetirementRequest(
+  value: Record<string, unknown>,
+): EvaluatorEpochRetirementRequest {
+  const keys = Object.keys(value).sort();
+  const expected = [
+    "confirmation",
+    "expectedEvaluatorKeyEpochId",
+    "expectedGeneration",
+    "expectedUnresolvedPolicyCount",
+    "schemaVersion",
+  ];
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== expected[index]) ||
+    value.schemaVersion !== 1 ||
+    !Number.isInteger(value.expectedGeneration) ||
+    (value.expectedGeneration as number) < 1 ||
+    (value.expectedGeneration as number) >= 2_147_483_647 ||
+    typeof value.expectedEvaluatorKeyEpochId !== "string" ||
+    !IDENTIFIER_PATTERN.test(value.expectedEvaluatorKeyEpochId) ||
+    !Number.isInteger(value.expectedUnresolvedPolicyCount) ||
+    (value.expectedUnresolvedPolicyCount as number) < 1 ||
+    (value.expectedUnresolvedPolicyCount as number) > 1_000 ||
+    value.confirmation !== "RETIRE_UNRESOLVED_BETA_EVENTS"
+  ) {
+    throw new ApiError(
+      400,
+      "invalid_evaluator_epoch_retirement",
+      "The evaluator epoch retirement request is invalid.",
+    );
+  }
+  return {
+    schemaVersion: 1,
+    expectedGeneration: value.expectedGeneration as number,
+    expectedEvaluatorKeyEpochId: value.expectedEvaluatorKeyEpochId,
+    expectedUnresolvedPolicyCount: value.expectedUnresolvedPolicyCount as number,
+    confirmation: "RETIRE_UNRESOLVED_BETA_EVENTS",
+  };
+}
+
+export async function retireUnresolvedEvaluatorEpochEvents(
+  db: D1Database,
+  bindings: HerdBindings,
+  request: EvaluatorEpochRetirementRequest,
+  now = new Date(),
+) {
+  const runtime = await getRuntimeEvaluatorEpoch(bindings, {
+    requireComplete: true,
+  });
+  const nowIso = now.toISOString();
+  const state = await ensureState(db, runtime, nowIso);
+  if (
+    state.mode !== "active" ||
+    state.generation !== request.expectedGeneration ||
+    state.evaluatorKeyEpochId !== request.expectedEvaluatorKeyEpochId ||
+    state.transparencyIdentitySha256 !== runtime.transparencyIdentitySha256
+  ) {
+    throw new ApiError(
+      409,
+      "evaluator_epoch_retirement_conflict",
+      "The evaluator epoch changed before its unresolved events could be retired.",
+    );
+  }
+  const before = await drainCounts(db, nowIso);
+  if (
+    before.unresolvedPolicyCount !== request.expectedUnresolvedPolicyCount ||
+    before.activeEvaluationLeaseCount !== 0 ||
+    before.uncertifiedTransparencyCount !== 0
+  ) {
+    throw new ApiError(
+      409,
+      "evaluator_epoch_retirement_conflict",
+      "The unresolved evaluator work changed before retirement.",
+    );
+  }
+  const rows = await db
+    .prepare(
+      `SELECT policies.event_id AS eventId
+         FROM event_policies AS policies
+         LEFT JOIN event_resolutions AS resolutions
+           ON resolutions.event_id = policies.event_id
+        WHERE policies.release_id = ?
+          AND policies.evaluator_epoch_descriptor_sha256 = ?
+          AND (resolutions.status IS NULL
+            OR resolutions.status NOT IN ('confirmed', 'not_confirmed'))
+        ORDER BY policies.event_id`,
+    )
+    .bind(state.evaluatorKeyEpochId, state.epochDescriptorSha256)
+    .all<{ eventId: string }>();
+  const eventIds = rows.results.map((row) => row.eventId);
+  if (
+    eventIds.length !== request.expectedUnresolvedPolicyCount ||
+    eventIds.some((eventId) => !UUID_PATTERN.test(eventId))
+  ) {
+    throw new ApiError(
+      409,
+      "evaluator_epoch_retirement_conflict",
+      "The unresolved events do not exactly match the active evaluator epoch.",
+    );
+  }
+  await db.batch(
+    eventIds.map((eventId) =>
+      db.prepare("DELETE FROM events WHERE id = ?").bind(eventId),
+    ),
+  );
+  const after = await drainCounts(db, nowIso);
+  if (Object.values(after).some((value) => value !== 0)) {
+    throw new ApiError(
+      500,
+      "evaluator_epoch_retirement_failed",
+      "Evaluator work remained after event retirement.",
+    );
+  }
+  return {
+    schemaVersion: 1 as const,
+    generation: state.generation,
+    evaluatorKeyEpochId: state.evaluatorKeyEpochId,
+    retiredEventCount: eventIds.length,
+    retiredEventSetSha256: await sha256Hex(canonicalJson(eventIds)),
+    remaining: after,
+    retiredAt: nowIso,
+  };
+}
+
 export async function beginEvaluatorEpochDrain(
   db: D1Database,
   bindings: HerdBindings,
@@ -823,10 +956,15 @@ export async function beginEvaluatorEpochDrain(
   });
   const nowIso = now.toISOString();
   const initial = await ensureState(db, runtime, nowIso);
+  const runtimeIsActiveState = runtimeMatchesState(runtime, initial);
+  const runtimeIsServingOffSuccessor =
+    runtime.evaluatorKeyEpochId !== initial.evaluatorKeyEpochId &&
+    runtime.descriptorSha256 !== initial.epochDescriptorSha256 &&
+    runtime.transparencyIdentitySha256 === initial.transparencyIdentitySha256;
   if (
     request.expectedGeneration !== initial.generation ||
     request.expectedEvaluatorKeyEpochId !== initial.evaluatorKeyEpochId ||
-    !runtimeMatchesState(runtime, initial)
+    (!runtimeIsActiveState && !runtimeIsServingOffSuccessor)
   ) {
     throw new ApiError(
       409,

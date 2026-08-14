@@ -9,6 +9,51 @@ enum InvitationOpenOutcome: Equatable {
     case failed(String)
 }
 
+struct AccountKeyDiagnostic: Identifiable, Hashable, Sendable {
+    let epochID: UUID
+    let commitment: String?
+    let eventCount: Int
+    let hasSavedResponse: Bool
+    let isAvailableOnDevice: Bool
+
+    var id: UUID { epochID }
+    var requiresRecovery: Bool { commitment != nil && !isAvailableOnDevice }
+}
+
+struct EventStorePrivateResponseDependencies {
+    let makeCrypto: () throws -> PrivateResponseCrypto
+    let verifyAttestation: (
+        EvaluatorAttestationResponse,
+        String,
+        PrivateResponsePolicyV1
+    ) throws -> Void
+    let verifyReceipt: (PrivateResponseReceiptV1) throws -> Void
+    let verifyPublication: (
+        PrivateResponseReceiptV1,
+        PrivateResponseTransparencyLogV1
+    ) throws -> Void
+
+    static let live = EventStorePrivateResponseDependencies(
+        makeCrypto: { try PrivateResponseCrypto.configured() },
+        verifyAttestation: { response, nonce, policy in
+            try EvaluatorAttestationVerifier.configured().verify(
+                response,
+                nonce: nonce,
+                policy: policy
+            )
+        },
+        verifyReceipt: { receipt in
+            try PrivateResponseReceiptVerifier.configured().verify(receipt)
+        },
+        verifyPublication: { receipt, publicLog in
+            try PrivateResponseReceiptPublicationVerifier.verify(
+                receipt: receipt,
+                publicLog: publicLog
+            )
+        }
+    )
+}
+
 private actor EventStoreOperationGate {
     private var isHeld = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -42,38 +87,60 @@ final class EventStore {
         let sessionGeneration: UInt
     }
 
+    private struct PendingResponseSubmission {
+        let draft: PrivateResponseDraft
+        let accountKeyEpochID: UUID
+        let revision: Int
+        let policyHash: String
+        let envelope: PrivateResponseEnvelopeV1
+    }
+
+    private struct PreparedAccountKey {
+        let epochID: UUID
+        let rootSecret: SymmetricKey
+        let commitment: String
+    }
+
     private(set) var events: [HerdEvent] = []
     private(set) var isRefreshing = false
     private(set) var isMutating = false
     private(set) var isUsingCachedData = false
     private(set) var errorMessage: String?
+    private(set) var lastUpdatedAt: Date?
     private(set) var unlockedResponses: [UUID: RSVPResponse] = [:]
     private(set) var unlockedDrafts: [UUID: PrivateResponseDraft] = [:]
-    private(set) var accountResetEventID: UUID?
-    private(set) var isResettingAccount = false
+    private(set) var deviceSwitchEventID: UUID?
+    private(set) var isSwitchingDevice = false
+    private(set) var unavailablePrivateResponseEventID: UUID?
     private(set) var legacyImportCandidateCount = 0
 
     private let defaults: UserDefaults
     private let apiClient: APIClient
-    private let accountKeyStore: AccountKeyStore
+    private let accountKeyStore: any AccountKeyStoring
+    private let privateResponseDependencies: EventStorePrivateResponseDependencies
     private let operationGate = EventStoreOperationGate()
     private var activeUserID: String?
     private var sessionGeneration: UInt = 0
     private var unauthorizedHandler: (() -> Void)?
-    private var pendingResetDrafts: [UUID: PrivateResponseDraft] = [:]
+    private var pendingDeviceSwitchDrafts: [UUID: PrivateResponseDraft] = [:]
+    private var pendingResponseSubmissions: [UUID: PendingResponseSubmission] = [:]
+    private var pendingCertificationEnvelopes: [UUID: PrivateResponseEnvelopeV1] = [:]
     private var pendingLegacyEvents: [HerdEvent] = []
     private var privacyLockGeneration: UInt = 0
     private static let legacyEventsKey = "herd.host.events.v1"
     private static let legacyOwnerKey = "herd.host.events.v1.claimed-user-id"
+    private static let lastUpdatedKeyPrefix = "herd.events.lastUpdated.v1"
 
     init(
         defaults: UserDefaults = .standard,
         apiClient: APIClient = APIClient(),
-        accountKeyStore: AccountKeyStore = AccountKeyStore()
+        accountKeyStore: any AccountKeyStoring = AccountKeyStore(),
+        privateResponseDependencies: EventStorePrivateResponseDependencies = .live
     ) {
         self.defaults = defaults
         self.apiClient = apiClient
         self.accountKeyStore = accountKeyStore
+        self.privateResponseDependencies = privateResponseDependencies
     }
 
     func setUnauthorizedHandler(_ handler: @escaping () -> Void) {
@@ -87,11 +154,14 @@ final class EventStore {
         activeUserID = userID
         unlockedResponses = [:]
         unlockedDrafts = [:]
-        pendingResetDrafts = [:]
-        accountResetEventID = nil
+        pendingDeviceSwitchDrafts = [:]
+        pendingResponseSubmissions = [:]
+        pendingCertificationEnvelopes = [:]
+        deviceSwitchEventID = nil
+        unavailablePrivateResponseEventID = nil
         isRefreshing = false
         isMutating = false
-        isResettingAccount = false
+        isSwitchingDevice = false
         removeLegacyPrivateResponseCaches()
         let legacyEvents = loadLegacyHostedEvents()
         let legacyEventIDs = Set(legacyEvents.map(\.id))
@@ -103,6 +173,9 @@ final class EventStore {
         legacyImportCandidateCount = legacyOwnerID == nil ? legacyEvents.count : 0
         events = mergeEvents(events, with: pendingLegacyEvents)
         sortEvents()
+        lastUpdatedAt = defaults.object(
+            forKey: Self.lastUpdatedKey(for: userID)
+        ) as? Date
         isUsingCachedData = !events.isEmpty
         errorMessage = nil
     }
@@ -114,19 +187,24 @@ final class EventStore {
         events = []
         unlockedResponses = [:]
         unlockedDrafts = [:]
-        pendingResetDrafts = [:]
+        pendingDeviceSwitchDrafts = [:]
+        pendingResponseSubmissions = [:]
+        pendingCertificationEnvelopes = [:]
         pendingLegacyEvents = []
-        accountResetEventID = nil
+        deviceSwitchEventID = nil
+        unavailablePrivateResponseEventID = nil
         isRefreshing = false
         isMutating = false
-        isResettingAccount = false
+        isSwitchingDevice = false
         legacyImportCandidateCount = 0
+        lastUpdatedAt = nil
         isUsingCachedData = false
         errorMessage = nil
     }
 
     func eraseLocalAccountData(userID: String) {
         defaults.removeObject(forKey: "herd.events.cache.v2.\(userID)")
+        defaults.removeObject(forKey: Self.lastUpdatedKey(for: userID))
         removeClaimedLegacyStorage(for: userID)
         if activeUserID == userID {
             clearSession()
@@ -173,6 +251,37 @@ final class EventStore {
         }
     }
 
+    func accountKeyDiagnostics() async -> [AccountKeyDiagnostic] {
+        guard let context = currentOperationContext else { return [] }
+        let keyedEvents = events.filter {
+            $0.role == .invitee && $0.accountKeyEpochId != nil
+        }
+        let groupedEvents = Dictionary(grouping: keyedEvents) { $0.accountKeyEpochId! }
+        var diagnostics: [AccountKeyDiagnostic] = []
+
+        for epochID in groupedEvents.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            guard operationIsCurrent(context), let matchingEvents = groupedEvents[epochID] else {
+                return []
+            }
+            let isAvailable = await accountKeyStore.hasRootSecret(
+                userID: context.userID,
+                epochID: epochID
+            )
+            guard operationIsCurrent(context) else { return [] }
+            diagnostics.append(
+                AccountKeyDiagnostic(
+                    epochID: epochID,
+                    commitment: matchingEvents.compactMap(\.accountKeyCommitment).first,
+                    eventCount: matchingEvents.count,
+                    hasSavedResponse: matchingEvents.contains(where: \.hasResponse),
+                    isAvailableOnDevice: isAvailable
+                )
+            )
+        }
+
+        return diagnostics
+    }
+
     func openInvitation(inviteToken: String) async -> InvitationOpenOutcome {
         guard
             InvitationToken.normalize(inviteToken) != nil,
@@ -192,6 +301,14 @@ final class EventStore {
                     self.events[index] = invitation
                 } else {
                     self.events.append(invitation)
+                }
+                if invitation.responseCertificationStatus == .pending,
+                   invitation.responseRevision != nil {
+                    _ = await self.performRetryPendingResponseCertification(
+                        for: invitation,
+                        context: context
+                    )
+                    guard self.operationIsCurrent(context) else { return .unauthorized }
                 }
                 self.sortEvents()
                 self.persistCache()
@@ -240,7 +357,25 @@ final class EventStore {
             try requireCurrentOperation(context)
             events = mergeEvents(syncedEvents, with: pendingLegacyEvents)
             sortEvents()
+            let pendingCertifications = events.filter {
+                $0.role == .invitee &&
+                    $0.responseCertificationStatus == .pending &&
+                    $0.responseRevision != nil
+            }
+            for pendingEvent in pendingCertifications {
+                try requireCurrentOperation(context)
+                guard await performRetryPendingResponseCertification(
+                    for: pendingEvent,
+                    context: context
+                ) else {
+                    break
+                }
+            }
+            try requireCurrentOperation(context)
             persistCache()
+            let updatedAt = Date()
+            lastUpdatedAt = updatedAt
+            defaults.set(updatedAt, forKey: Self.lastUpdatedKey(for: context.userID))
             isUsingCachedData = !pendingLegacyEvents.isEmpty
             if let migrationError {
                 let eventLabel = pendingLegacyEvents.count == 1 ? "event" : "events"
@@ -260,6 +395,10 @@ final class EventStore {
         }
     }
 
+    private static func lastUpdatedKey(for userID: String) -> String {
+        "\(lastUpdatedKeyPrefix).\(userID)"
+    }
+
     private func relayDueHostedEvaluations(
         in syncedEvents: [HerdEvent],
         context: OperationContext
@@ -269,8 +408,6 @@ final class EventStore {
                 event.role == .host,
                 event.invitationsSent,
                 event.privateResponsePolicy != nil,
-                let deadline = event.rsvpDeadline,
-                deadline <= .now,
                 event.resolution == nil || event.resolution?.status == .pending
             else { return nil }
             return event.id
@@ -338,6 +475,43 @@ final class EventStore {
     }
 
     @discardableResult
+    func addAttendees(_ invitees: [Invitee], to eventID: UUID) async -> Bool {
+        guard !invitees.isEmpty, let context = currentOperationContext else { return false }
+        return await withSerializedOperation(context) {
+            guard self.operationIsCurrent(context) else { return false }
+            self.isMutating = true
+            self.errorMessage = nil
+            defer { self.isMutating = false }
+
+            do {
+                let savedEvent = try await self.apiClient.addAttendees(
+                    eventID: eventID,
+                    invitees: invitees
+                )
+                try self.requireCurrentOperation(context)
+                guard let index = self.events.firstIndex(where: { $0.id == eventID }) else {
+                    throw APIError.invalidResponse
+                }
+                self.events[index] = savedEvent
+                self.sortEvents()
+                self.persistCache()
+                self.isUsingCachedData = false
+                return true
+            } catch APIError.unauthorized {
+                guard self.operationIsCurrent(context) else { return false }
+                self.handleUnauthorized()
+                return false
+            } catch is CancellationError {
+                return false
+            } catch {
+                guard self.operationIsCurrent(context) else { return false }
+                self.errorMessage = Self.message(for: error)
+                return false
+            }
+        } ?? false
+    }
+
+    @discardableResult
     func delete(_ event: HerdEvent) async -> Bool {
         guard let context = currentOperationContext else { return false }
         return await withSerializedOperation(context) {
@@ -398,7 +572,8 @@ final class EventStore {
     private func performRespond(
         to event: HerdEvent,
         draft: PrivateResponseDraft,
-        context operationContext: OperationContext
+        context operationContext: OperationContext,
+        preparedAccountKey: PreparedAccountKey? = nil
     ) async -> Bool {
         guard operationIsCurrent(operationContext) else { return false }
         let activeUserID = operationContext.userID
@@ -414,50 +589,63 @@ final class EventStore {
         do {
             let context = try await apiClient.fetchInvitePrivateResponse(inviteToken: inviteToken)
             try requireCurrentOperation(operationContext)
+            if let index = events.firstIndex(where: { $0.id == event.id }) {
+                events[index].responseCertificationStatus = context.responseCertificationStatus
+            }
+            if
+                context.responseCertificationStatus == .pending,
+                let storedEnvelope = context.responseEnvelope
+            {
+                pendingCertificationEnvelopes[event.id] = storedEnvelope.envelope
+            } else {
+                pendingCertificationEnvelopes[event.id] = nil
+            }
             guard context.event.id == event.id, let policy = context.event.privateResponsePolicy else {
                 throw PrivateResponseCryptoError.invalidPolicy(
                     "This event is not ready to accept encrypted private replies."
                 )
             }
 
-            let hasLocalKey = await accountKeyStore.hasRootSecret(
-                userID: activeUserID,
-                epochID: context.accountKeyEpochID
-            )
-            try requireCurrentOperation(operationContext)
             let accountRootSecret: SymmetricKey
-            if hasLocalKey {
-                accountRootSecret = try await accountKeyStore.rootSecret(
-                    userID: activeUserID,
-                    epochID: context.accountKeyEpochID
-                )
-                try requireCurrentOperation(operationContext)
-            } else if context.accountKeyCommitment == nil {
-                accountRootSecret = try await accountKeyStore.createRootSecret(
-                    userID: activeUserID,
-                    epochID: context.accountKeyEpochID
-                )
-                try requireCurrentOperation(operationContext)
+            let keyCommitment: String
+            if let preparedAccountKey,
+               preparedAccountKey.epochID == context.accountKeyEpochID {
+                // A device switch just created and authenticated this key. Reuse it
+                // for the replacement reply instead of immediately asking Keychain
+                // (and therefore the user) to unlock the same key a second time.
+                accountRootSecret = preparedAccountKey.rootSecret
+                keyCommitment = preparedAccountKey.commitment
             } else {
-                if context.hasResponse {
-                    errorMessage = "This saved reply is locked to the account key that authorized it. Starting over can secure future replies, but it cannot replace this one."
+                let hasLocalKey = await accountKeyStore.hasRootSecret(
+                    userID: activeUserID,
+                    epochID: context.accountKeyEpochID
+                )
+                try requireCurrentOperation(operationContext)
+                if hasLocalKey {
+                    accountRootSecret = try await accountKeyStore.rootSecret(
+                        userID: activeUserID,
+                        epochID: context.accountKeyEpochID
+                    )
+                    try requireCurrentOperation(operationContext)
+                } else if context.accountKeyCommitment == nil {
+                    accountRootSecret = try await accountKeyStore.createRootSecret(
+                        userID: activeUserID,
+                        epochID: context.accountKeyEpochID
+                    )
+                    try requireCurrentOperation(operationContext)
+                } else {
+                    pendingDeviceSwitchDrafts[event.id] = draft
+                    deviceSwitchEventID = event.id
+                    errorMessage = nil
                     return false
                 }
-                pendingResetDrafts[event.id] = draft
-                accountResetEventID = event.id
-                errorMessage = nil
-                return false
+                keyCommitment = await accountKeyStore.commitment(for: accountRootSecret)
+                try requireCurrentOperation(operationContext)
             }
-            let keyCommitment = await accountKeyStore.commitment(for: accountRootSecret)
-            try requireCurrentOperation(operationContext)
             if let expectedCommitment = context.accountKeyCommitment {
                 guard expectedCommitment == keyCommitment else {
-                    if context.hasResponse {
-                        errorMessage = "This saved reply is locked to the account key that authorized it. Starting over can secure future replies, but it cannot replace this one."
-                        return false
-                    }
-                    pendingResetDrafts[event.id] = draft
-                    accountResetEventID = event.id
+                    pendingDeviceSwitchDrafts[event.id] = draft
+                    deviceSwitchEventID = event.id
                     errorMessage = nil
                     return false
                 }
@@ -468,40 +656,57 @@ final class EventStore {
                 )
                 try requireCurrentOperation(operationContext)
             }
-#if DEBUG
-            let softwareQAEvaluator = try EvaluatorAttestationVerifier
-                .allowsSoftwareQAEvaluator(policy: policy)
-#else
-            let softwareQAEvaluator = false
-#endif
-            if !softwareQAEvaluator {
+            let crypto = try privateResponseDependencies.makeCrypto()
+            let revision = (context.responseRevision ?? 0) + 1
+            let pendingSubmission = pendingResponseSubmissions[event.id]
+            let serverAlreadyStoredPendingSubmission = pendingSubmission.map {
+                context.responseEnvelope?.envelope == $0.envelope
+            } ?? false
+            let envelope: PrivateResponseEnvelopeV1
+            if
+                let pendingSubmission,
+                pendingSubmission.draft == draft,
+                pendingSubmission.accountKeyEpochID == context.accountKeyEpochID,
+                (
+                    pendingSubmission.revision == revision ||
+                    serverAlreadyStoredPendingSubmission
+                ),
+                pendingSubmission.policyHash == policy.policyHash
+            {
+                envelope = pendingSubmission.envelope
+            } else {
                 let attestationNonce = try secureRandomData(count: 32)
                     .base64URLEncodedString()
                 let attestation = try await apiClient.fetchEvaluatorAttestation(
                     nonce: attestationNonce
                 )
                 try requireCurrentOperation(operationContext)
-                try EvaluatorAttestationVerifier.configured().verify(
+                try privateResponseDependencies.verifyAttestation(
                     attestation,
-                    nonce: attestationNonce,
-                    policy: policy
+                    attestationNonce,
+                    policy
+                )
+                envelope = try crypto.seal(
+                    eventID: event.id,
+                    inviteeID: context.inviteeID,
+                    accountKeyEpochID: context.accountKeyEpochID,
+                    revision: revision,
+                    response: draft.response,
+                    minimumParticipants: draft.minimumParticipants,
+                    minimumAllowedParticipants: context.event.minimumParticipants,
+                    requiredGroups: draft.requiredGroups,
+                    allowedMemberIDs: Set(context.event.invitees.map(\.id)),
+                    policy: policy,
+                    accountRootSecret: accountRootSecret
+                )
+                pendingResponseSubmissions[event.id] = PendingResponseSubmission(
+                    draft: draft,
+                    accountKeyEpochID: context.accountKeyEpochID,
+                    revision: revision,
+                    policyHash: policy.policyHash,
+                    envelope: envelope
                 )
             }
-            let crypto = try PrivateResponseCrypto.configured()
-            let revision = (context.responseRevision ?? 0) + 1
-            let envelope = try crypto.seal(
-                eventID: event.id,
-                inviteeID: context.inviteeID,
-                accountKeyEpochID: context.accountKeyEpochID,
-                revision: revision,
-                response: draft.response,
-                minimumParticipants: draft.minimumParticipants,
-                minimumAllowedParticipants: context.event.minimumParticipants,
-                requiredGroups: draft.requiredGroups,
-                allowedMemberIDs: Set(context.event.invitees.map(\.id)),
-                policy: policy,
-                accountRootSecret: accountRootSecret
-            )
             let result = try await apiClient.submitRSVP(
                 inviteToken: inviteToken,
                 envelope: envelope
@@ -521,8 +726,7 @@ final class EventStore {
                 result.responseEnvelope.ciphertextHash == expectedCiphertextHash,
                 result.receipt.ciphertextHash == expectedCiphertextHash
             else { throw APIError.invalidResponse }
-            let receiptVerifier = try PrivateResponseReceiptVerifier.configured()
-            try receiptVerifier.verify(result.receipt)
+            try privateResponseDependencies.verifyReceipt(result.receipt)
             guard let proof = result.receipt.transparency else {
                 throw APIError.invalidResponse
             }
@@ -530,10 +734,7 @@ final class EventStore {
                 logIndex: proof.logIndex
             )
             try requireCurrentOperation(operationContext)
-            try PrivateResponseReceiptPublicationVerifier.verify(
-                receipt: result.receipt,
-                publicLog: publicLog
-            )
+            try privateResponseDependencies.verifyPublication(result.receipt, publicLog)
             guard let index = events.firstIndex(where: { $0.id == event.id }) else {
                 throw APIError.invalidResponse
             }
@@ -541,13 +742,17 @@ final class EventStore {
             events[index].accountKeyCommitment = keyCommitment
             events[index].hasResponse = true
             events[index].responseRevision = result.receipt.revision
+            events[index].responseCertificationStatus = .certified
             events[index].privateResponsePolicy = policy
+            unavailablePrivateResponseEventID = nil
             if privacyLockGeneration == initialPrivacyLockGeneration {
                 unlockedResponses[event.id] = draft.response
                 unlockedDrafts[event.id] = draft
             }
             persistCache()
             isUsingCachedData = false
+            pendingCertificationEnvelopes[event.id] = nil
+            pendingResponseSubmissions[event.id] = nil
             return true
         } catch APIError.unauthorized {
             guard operationIsCurrent(operationContext) else { return false }
@@ -596,6 +801,14 @@ final class EventStore {
                 let policy = context.event.privateResponsePolicy,
                 context.responseRevision == storedEnvelope.revision
             else { throw APIError.invalidResponse }
+            if let index = events.firstIndex(where: { $0.id == event.id }) {
+                events[index].responseCertificationStatus = context.responseCertificationStatus
+            }
+            if context.responseCertificationStatus == .pending {
+                pendingCertificationEnvelopes[event.id] = storedEnvelope.envelope
+            } else {
+                pendingCertificationEnvelopes[event.id] = nil
+            }
             let hasRootSecret = await accountKeyStore.hasRootSecret(
                 userID: activeUserID,
                 epochID: context.accountKeyEpochID
@@ -612,7 +825,7 @@ final class EventStore {
             guard keyCommitment == context.accountKeyCommitment else {
                 throw AccountKeyStoreError.wrongEpoch
             }
-            let crypto = try PrivateResponseCrypto.configured()
+            let crypto = try privateResponseDependencies.makeCrypto()
             guard try crypto.envelopeHash(storedEnvelope.envelope) == storedEnvelope.ciphertextHash else {
                 throw APIError.invalidResponse
             }
@@ -640,6 +853,145 @@ final class EventStore {
             }
             unlockedResponses[event.id] = plaintext.response
             unlockedDrafts[event.id] = draft
+            if context.responseCertificationStatus == .pending {
+                pendingResponseSubmissions[event.id] = PendingResponseSubmission(
+                    draft: draft,
+                    accountKeyEpochID: UUID(uuidString: storedEnvelope.accountKeyEpochId)
+                        ?? context.accountKeyEpochID,
+                    revision: storedEnvelope.revision,
+                    policyHash: storedEnvelope.policyHash,
+                    envelope: storedEnvelope.envelope
+                )
+            }
+            unavailablePrivateResponseEventID = nil
+            return true
+        } catch APIError.unauthorized {
+            guard operationIsCurrent(operationContext) else { return false }
+            handleUnauthorized()
+            return false
+        } catch is CancellationError {
+            return false
+        } catch let error as AccountKeyStoreError {
+            guard operationIsCurrent(operationContext) else { return false }
+            switch error {
+            case .missingKey, .wrongEpoch, .decryptionFailed, .invalidRecord:
+                unavailablePrivateResponseEventID = event.id
+            case .devicePasscodeRequired, .keychain:
+                break
+            }
+            errorMessage = Self.message(for: error)
+            return false
+        } catch {
+            guard operationIsCurrent(operationContext) else { return false }
+            errorMessage = Self.message(for: error)
+            return false
+        }
+    }
+
+    func cancelDeviceSwitch() {
+        if let deviceSwitchEventID {
+            pendingDeviceSwitchDrafts[deviceSwitchEventID] = nil
+        }
+        deviceSwitchEventID = nil
+    }
+
+    func hasPendingResponseSubmission(
+        for eventID: UUID,
+        draft: PrivateResponseDraft
+    ) -> Bool {
+        pendingResponseSubmissions[eventID]?.draft == draft
+    }
+
+    func hasPendingResponseCertification(for eventID: UUID) -> Bool {
+        pendingCertificationEnvelopes[eventID] != nil ||
+            events.first(where: { $0.id == eventID })?.responseCertificationStatus == .pending
+    }
+
+    @discardableResult
+    func retryPendingResponseCertification(for event: HerdEvent) async -> Bool {
+        guard let operationContext = currentOperationContext else { return false }
+        return await withSerializedOperation(operationContext) {
+            await self.performRetryPendingResponseCertification(
+                for: event,
+                context: operationContext
+            )
+        } ?? false
+    }
+
+    private func performRetryPendingResponseCertification(
+        for event: HerdEvent,
+        context operationContext: OperationContext
+    ) async -> Bool {
+        guard
+            operationIsCurrent(operationContext),
+            let inviteToken = event.inviteToken,
+            !inviteToken.isEmpty
+        else { return false }
+        isMutating = true
+        errorMessage = nil
+        defer { isMutating = false }
+        do {
+            let context = try await apiClient.fetchInvitePrivateResponse(
+                inviteToken: inviteToken
+            )
+            try requireCurrentOperation(operationContext)
+            guard
+                context.event.id == event.id,
+                let storedEnvelope = context.responseEnvelope
+            else { throw APIError.invalidResponse }
+            if context.responseCertificationStatus == .certified {
+                guard let index = events.firstIndex(where: { $0.id == event.id }) else {
+                    throw APIError.invalidResponse
+                }
+                events[index].responseCertificationStatus = .certified
+                pendingCertificationEnvelopes[event.id] = nil
+                pendingResponseSubmissions[event.id] = nil
+                persistCache()
+                return true
+            }
+            guard context.responseCertificationStatus == .pending else {
+                throw APIError.invalidResponse
+            }
+            let envelope = storedEnvelope.envelope
+            let result = try await apiClient.submitRSVP(
+                inviteToken: inviteToken,
+                envelope: envelope
+            )
+            try requireCurrentOperation(operationContext)
+            let expectedCiphertextHash = try privateResponseDependencies.makeCrypto()
+                .envelopeHash(envelope)
+            guard
+                result.responseEnvelope.envelope == envelope,
+                result.responseEnvelope.ciphertextHash == expectedCiphertextHash,
+                result.receipt.envelopeId == envelope.envelopeId,
+                result.receipt.eventId == envelope.eventId,
+                result.receipt.inviteeId == envelope.inviteeId,
+                result.receipt.policyHash == envelope.policyHash,
+                result.receipt.accountKeyEpochId == envelope.accountKeyEpochId,
+                result.receipt.revision == envelope.revision,
+                result.receipt.responseSigningPublicKey == envelope.responseSigningPublicKey,
+                result.receipt.responseSignature == envelope.responseSignature,
+                result.receipt.ciphertextHash == expectedCiphertextHash
+            else { throw APIError.invalidResponse }
+            try privateResponseDependencies.verifyReceipt(result.receipt)
+            guard let proof = result.receipt.transparency else {
+                throw APIError.invalidResponse
+            }
+            let publicLog = try await apiClient.fetchResponseTransparencyEntry(
+                logIndex: proof.logIndex
+            )
+            try requireCurrentOperation(operationContext)
+            try privateResponseDependencies.verifyPublication(result.receipt, publicLog)
+            guard let index = events.firstIndex(where: { $0.id == event.id }) else {
+                throw APIError.invalidResponse
+            }
+            events[index].hasResponse = true
+            events[index].responseRevision = envelope.revision
+            events[index].responseCertificationStatus = .certified
+            pendingCertificationEnvelopes[event.id] = nil
+            pendingResponseSubmissions[event.id] = nil
+            persistCache()
+            isUsingCachedData = false
             return true
         } catch APIError.unauthorized {
             guard operationIsCurrent(operationContext) else { return false }
@@ -654,37 +1006,30 @@ final class EventStore {
         }
     }
 
-    func cancelAccountReset() {
-        if let accountResetEventID {
-            pendingResetDrafts[accountResetEventID] = nil
-        }
-        accountResetEventID = nil
-    }
-
     @discardableResult
-    func startOverAccount(for eventID: UUID) async -> Bool {
+    func switchPrivateRepliesToThisDevice(for eventID: UUID) async -> Bool {
         guard let context = currentOperationContext else { return false }
         return await withSerializedOperation(context) {
-            await self.performStartOverAccount(for: eventID, context: context)
+            await self.performDeviceSwitch(for: eventID, context: context)
         } ?? false
     }
 
-    private func performStartOverAccount(
+    private func performDeviceSwitch(
         for eventID: UUID,
         context operationContext: OperationContext
     ) async -> Bool {
         guard operationIsCurrent(operationContext) else { return false }
         let activeUserID = operationContext.userID
         guard
-            accountResetEventID == eventID,
+            deviceSwitchEventID == eventID,
             let event = events.first(where: { $0.id == eventID }),
             let inviteToken = event.inviteToken,
-            let draft = pendingResetDrafts[eventID]
+            let draft = pendingDeviceSwitchDrafts[eventID]
         else { return false }
 
-        isResettingAccount = true
+        isSwitchingDevice = true
         errorMessage = nil
-        defer { isResettingAccount = false }
+        defer { isSwitchingDevice = false }
         do {
             let context = try await apiClient.fetchInvitePrivateResponse(inviteToken: inviteToken)
             try requireCurrentOperation(operationContext)
@@ -705,16 +1050,26 @@ final class EventStore {
                 keyCommitment: keyCommitment
             )
             try requireCurrentOperation(operationContext)
+            pendingResponseSubmissions[eventID] = nil
             for index in events.indices {
                 if events[index].role == .invitee {
                     events[index].accountKeyEpochId = newEpochID
                     events[index].accountKeyCommitment = keyCommitment
                 }
             }
-            pendingResetDrafts[eventID] = nil
-            accountResetEventID = nil
+            pendingDeviceSwitchDrafts[eventID] = nil
+            deviceSwitchEventID = nil
             persistCache()
-            return await performRespond(to: event, draft: draft, context: operationContext)
+            return await performRespond(
+                to: event,
+                draft: draft,
+                context: operationContext,
+                preparedAccountKey: PreparedAccountKey(
+                    epochID: newEpochID,
+                    rootSecret: accountRootSecret,
+                    commitment: keyCommitment
+                )
+            )
         } catch APIError.unauthorized {
             guard operationIsCurrent(operationContext) else { return false }
             handleUnauthorized()

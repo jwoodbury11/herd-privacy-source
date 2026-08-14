@@ -34,6 +34,7 @@ export type CanonicalEvent = {
   locationAddress: string;
   invitees: CanonicalInvitee[];
   minimumParticipants: number;
+  allowsAttendeesToAddGuests: boolean;
   requiredGroups: CanonicalRequiredGroup[];
   rsvpDeadline: string | null;
   eventDescription: string;
@@ -46,6 +47,10 @@ export type CanonicalEvent = {
 export type PublicInvitee = {
   id: string;
   displayName: string;
+  responseHistory?: {
+    missedConfirmedEvents: number;
+    totalConfirmedEvents: number;
+  };
 };
 
 export type PublicEvent = Omit<CanonicalEvent, "invitees" | "invitationDelivery"> & {
@@ -75,7 +80,13 @@ export type EventResolution =
   | { status: "pending"; retrying?: true; relayNeeded?: true }
   | {
       status: "confirmed";
-      attendingMemberIds: string[];
+      attendingMemberIds?: string[];
+      attendanceRevealed: boolean;
+      guestStates?: Array<{
+        memberId: string;
+        status: "going" | "cant_commit" | "no_response";
+        missedDeadline: boolean;
+      }>;
       resolvedAt: string;
       attestation?: EvaluationResultAttestation;
     }

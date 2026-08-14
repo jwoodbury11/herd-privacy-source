@@ -17,6 +17,13 @@ process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID =
   fixture.trustPins.transparencySigning.keyId;
 process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY =
   fixture.trustPins.transparencySigning.publicKey;
+process.env.NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID =
+  fixture.vectors[0].policy.evaluatorKeyId;
+process.env.NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY =
+  fixture.vectors[0].policy.evaluatorPublicKey;
+process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT =
+  fixture.vectors[0].policy.evaluatorMeasurement;
+process.env.NEXT_PUBLIC_HERD_RELEASE_ID = fixture.vectors[0].policy.releaseId;
 const { protocol, privateResponseCrypto, cleanup } =
   await loadPrivateResponseTestModules(projectRoot);
 

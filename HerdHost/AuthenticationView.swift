@@ -7,6 +7,8 @@ struct AuthenticationView: View {
     @Environment(InvitationCoordinator.self) private var invitationCoordinator
     @State private var phoneNumber = ""
     @State private var code = ""
+    @State private var automaticallySubmittedPhoneNumber: String?
+    @State private var automaticallySubmittedCode: String?
     @State private var showsReleaseStatus = false
     @FocusState private var focusedField: Field?
 
@@ -39,6 +41,8 @@ struct AuthenticationView: View {
         }
         .onChange(of: authStore.challenge?.challengeId) { _, challengeID in
             code = ""
+            automaticallySubmittedPhoneNumber = nil
+            automaticallySubmittedCode = nil
             focusedField = challengeID == nil ? .phone : .code
         }
     }
@@ -54,6 +58,8 @@ struct AuthenticationView: View {
                             .font(.system(size: 42, weight: .bold))
                             .tracking(-1.4)
                             .lineSpacing(-2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
 
                         Text(experience.welcome.body)
                             .font(.title3)
@@ -102,11 +108,11 @@ struct AuthenticationView: View {
 
     private var brand: some View {
         HStack(spacing: 10) {
-            Image(systemName: "person.3.fill")
-                .font(.headline)
-                .foregroundStyle(.black)
+            Image("HerdBrandIcon")
+                .resizable()
+                .interpolation(.high)
                 .frame(width: 36, height: 36)
-                .background(.white, in: .rect(cornerRadius: 9))
+                .clipShape(.rect(cornerRadius: 9))
 
             Text(experience.brandName)
                 .font(.system(size: 18, weight: .bold))
@@ -117,7 +123,7 @@ struct AuthenticationView: View {
             Button {
                 showsReleaseStatus = true
             } label: {
-                Text(experience.releaseStatus.label)
+                Label(experience.releaseStatus.label, systemImage: "hammer.fill")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -156,12 +162,24 @@ struct AuthenticationView: View {
                     RoundedRectangle(cornerRadius: experience.layout.fieldCornerRadius)
                         .stroke(HerdTheme.subtleBorder, lineWidth: 1)
                 }
-                .onChange(of: phoneNumber) { _, value in
+                .onChange(of: phoneNumber) { previousValue, value in
                     let formatted = Self.formattedPhoneNumber(value)
                     if formatted != value {
                         phoneNumber = formatted
                     }
                     authStore.clearError()
+
+                    if
+                        Self.shouldAutomaticallySubmitPhoneNumber(
+                            previousValue: previousValue,
+                            newValue: value
+                        ),
+                        automaticallySubmittedPhoneNumber != formatted,
+                        !authStore.isBusy
+                    {
+                        automaticallySubmittedPhoneNumber = formatted
+                        requestVerificationCode(for: formatted)
+                    }
                 }
                 .accessibilityIdentifier("authentication-phone")
         }
@@ -170,13 +188,7 @@ struct AuthenticationView: View {
     private var welcomeAction: some View {
         VStack(spacing: 12) {
             Button {
-                focusedField = nil
-                Task {
-                    _ = await authStore.requestCode(
-                        phoneNumber: phoneNumber,
-                        inviteToken: invitationCoordinator.pendingToken
-                    )
-                }
+                requestVerificationCode(for: phoneNumber)
             } label: {
                 HStack(spacing: 10) {
                     if authStore.isBusy {
@@ -245,11 +257,7 @@ struct AuthenticationView: View {
         {
             return value
         }
-#if DEBUG
-        return "https://herd-invitee-preview.jimmy4.chatgpt.site"
-#else
-        return "https://configuration.invalid"
-#endif
+        return "https://app.herdprivacy.com"
     }
 
     private func verificationScreen(_ challenge: AuthChallenge) -> some View {
@@ -376,6 +384,18 @@ struct AuthenticationView: View {
                         code = digits
                     }
                     authStore.clearError()
+                    if digits.count < Self.verificationCodeLength {
+                        automaticallySubmittedCode = nil
+                    } else if
+                        automaticallySubmittedCode != digits,
+                        !authStore.isBusy
+                    {
+                        automaticallySubmittedCode = digits
+                        focusedField = nil
+                        Task {
+                            _ = await authStore.verifyCode(digits)
+                        }
+                    }
                 }
         }
         .contentShape(.rect)
@@ -473,6 +493,31 @@ struct AuthenticationView: View {
             return "+\(digits)"
         }
         return formattedNationalPhoneNumber(digits)
+    }
+
+    static func shouldAutomaticallySubmitPhoneNumber(
+        previousValue: String,
+        newValue: String
+    ) -> Bool {
+        let previousDigitCount = previousValue.filter(\.isWholeNumber).count
+        let newDigitCount = newValue.filter(\.isWholeNumber).count
+        guard newDigitCount - previousDigitCount > 1 else { return false }
+        return AuthStore.canRequestCode(phoneNumber: formattedPhoneNumber(newValue))
+    }
+
+    private func requestVerificationCode(for candidate: String) {
+        guard
+            !authStore.isBusy,
+            AuthStore.canRequestCode(phoneNumber: candidate)
+        else { return }
+
+        focusedField = nil
+        Task {
+            _ = await authStore.requestCode(
+                phoneNumber: candidate,
+                inviteToken: invitationCoordinator.pendingToken
+            )
+        }
     }
 
     private static func formattedNationalPhoneNumber(_ digits: String) -> String {

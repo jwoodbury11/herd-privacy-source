@@ -1057,20 +1057,6 @@ function normalizeCanonicalDocument(value) {
     releaseId: boundedString(input.releaseId, 1, 200)
   };
 }
-function validateCanonicalPolicyDocumentForSigning(value, config) {
-  const canonicalDocument = boundedString(value, 2, 64 * 1024);
-  let parsedDocument;
-  try {
-    parsedDocument = JSON.parse(canonicalDocument);
-  } catch {
-    invalidRequest();
-  }
-  const document = normalizeCanonicalDocument(parsedDocument);
-  if (JSON.stringify(document) !== canonicalDocument || document.evaluator.keyId !== config.keyId || document.evaluator.publicKey !== config.publicKey || document.evaluator.measurement !== config.measurement || document.releaseId !== config.releaseId) {
-    invalidRequest();
-  }
-  return canonicalDocument;
-}
 async function normalizePolicy(value, config, now) {
   const input = record2(value);
   exactKeys2(input, POLICY_KEYS);
@@ -1102,9 +1088,6 @@ async function normalizePolicy(value, config, now) {
   const frozenAt = canonicalIsoTimestamp(input.frozenAt);
   const nowIso = now.toISOString();
   if (frozenAt > document.rsvpDeadline || frozenAt > nowIso) invalidRequest();
-  if (nowIso < document.rsvpDeadline) {
-    throw new EvaluatorHttpError(409, "deadline_not_reached");
-  }
   return {
     policy: {
       protocolVersion: PROTOCOL_VERSION,
@@ -1254,26 +1237,39 @@ async function normalizeSlots(value, eventId, policy, document) {
 async function normalizeEvaluationRequest(value, config, now) {
   if (!Number.isFinite(now.getTime())) serviceUnavailable();
   const input = record2(value);
-  exactKeys2(input, ["protocolVersion", "eventId", "policy", "batchHash", "slots"]);
+  exactKeys2(input, [
+    "protocolVersion",
+    "eventId",
+    "policy",
+    "batchHash",
+    "revealAttendance",
+    "slots"
+  ]);
   if (input.protocolVersion !== PROTOCOL_VERSION) invalidRequest();
   const eventId = uuid2(input.eventId);
   const { policy, document } = await normalizePolicy(input.policy, config, now);
   if (document.event.id !== eventId) invalidRequest();
+  if (typeof input.revealAttendance !== "boolean") invalidRequest();
+  const revealAttendance = input.revealAttendance;
+  if (revealAttendance !== now.toISOString() >= document.rsvpDeadline) {
+    invalidRequest();
+  }
   const batchHash = encodeBase64Url(decodeBase64Url2(input.batchHash, 32));
   const slots = await normalizeSlots(input.slots, eventId, policy, document);
   const batchCommitment = JSON.stringify({
     protocolVersion: PROTOCOL_VERSION,
     eventId,
     policyHash: policy.policyHash,
+    revealAttendance,
     slots: slots.map(({ inviteeId, envelopeHash }) => ({ inviteeId, envelopeHash }))
   });
   if (!constantTimeEqual(await sha256Base64Url(batchCommitment), batchHash)) {
     invalidRequest();
   }
-  return { eventId, policy, document, batchHash, slots };
+  return { eventId, policy, document, batchHash, revealAttendance, slots };
 }
 async function evaluationAuthorityClaim(value, config, now) {
-  const { eventId, policy, document, batchHash, slots } = await normalizeEvaluationRequest(value, config, now);
+  const { eventId, policy, document, batchHash, revealAttendance, slots } = await normalizeEvaluationRequest(value, config, now);
   return {
     protocolVersion: PROTOCOL_VERSION,
     eventId,
@@ -1283,6 +1279,7 @@ async function evaluationAuthorityClaim(value, config, now) {
     rsvpDeadline: document.rsvpDeadline,
     memberIds: document.members.map(({ id }) => id),
     batchHash,
+    revealAttendance,
     slots: slots.map(({ inviteeId, envelopeHash, envelope }) => ({
       inviteeId,
       envelopeHash,
@@ -1292,7 +1289,7 @@ async function evaluationAuthorityClaim(value, config, now) {
   };
 }
 async function evaluate(value, config, now) {
-  const { eventId, policy, document, batchHash, slots } = await normalizeEvaluationRequest(value, config, now);
+  const { eventId, policy, document, batchHash, revealAttendance, slots } = await normalizeEvaluationRequest(value, config, now);
   const inviteeIds = document.members.map(({ id }) => id);
   const responses = await openValidPrivateResponses(
     slots.filter(
@@ -1329,7 +1326,7 @@ async function evaluate(value, config, now) {
     evaluatorKeyId: config.keyId
   };
   if (resolution.status === "not_confirmed") {
-    return { ...base, status: "not_confirmed" };
+    return { ...base, status: "not_confirmed", revealAttendance };
   }
   const attendingMemberIds = resolution.attendingMemberIds;
   if (!Array.isArray(attendingMemberIds) || attendingMemberIds[0] !== "host" || attendingMemberIds.some(
@@ -1337,11 +1334,7 @@ async function evaluate(value, config, now) {
   ) || new Set(attendingMemberIds).size !== attendingMemberIds.length || attendingMemberIds.slice(1).some((memberId) => !inviteeIds.includes(memberId))) {
     serviceUnavailable();
   }
-  return {
-    ...base,
-    status: "confirmed",
-    attendingMemberIds
-  };
+  return revealAttendance ? { ...base, status: "confirmed", revealAttendance, attendingMemberIds } : { ...base, status: "confirmed", revealAttendance };
 }
 function jsonResponse(body, status) {
   return new Response(JSON.stringify(body), {
@@ -1403,6 +1396,5 @@ export {
   evaluationAuthorityClaim,
   handleEvaluationRequest,
   jsonResponse,
-  loadConfig,
-  validateCanonicalPolicyDocumentForSigning
+  loadConfig
 };

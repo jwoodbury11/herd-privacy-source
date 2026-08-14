@@ -8,6 +8,12 @@ enum AccountDeletionOutcome: Equatable {
     case failed
 }
 
+protocol SessionStoring {
+    func load() throws -> AuthSession?
+    func save(_ session: AuthSession) throws
+    func delete() throws
+}
+
 @MainActor
 @Observable
 final class AuthStore {
@@ -20,8 +26,8 @@ final class AuthStore {
     private(set) var errorMessage: String?
 
     private let apiClient: APIClient
-    private let sessionStore: KeychainSessionStore
-    private let accountKeyStore: AccountKeyStore
+    private let sessionStore: any SessionStoring
+    private let accountKeyStore: any AccountKeyStoring
     private var session: AuthSession?
     private var desiredSession: AuthSession?
     private var challengeInviteToken: String?
@@ -30,8 +36,8 @@ final class AuthStore {
 
     init(
         apiClient: APIClient,
-        sessionStore: KeychainSessionStore = KeychainSessionStore(),
-        accountKeyStore: AccountKeyStore = AccountKeyStore()
+        sessionStore: any SessionStoring = KeychainSessionStore(),
+        accountKeyStore: any AccountKeyStoring = AccountKeyStore()
     ) {
         self.apiClient = apiClient
         self.sessionStore = sessionStore
@@ -421,7 +427,7 @@ final class AuthStore {
     }
 }
 
-struct KeychainSessionStore {
+struct KeychainSessionStore: SessionStoring {
     private let service: String
     private let account = "herd-auth-session"
 

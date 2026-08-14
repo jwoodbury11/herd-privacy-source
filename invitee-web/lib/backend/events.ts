@@ -22,9 +22,15 @@ import type {
   CanonicalEvent,
   CanonicalInvitee,
   CanonicalRequiredGroup,
+  EventResolution,
   HerdUser,
   PublicEvent,
 } from "./types";
+
+export type InviteeResponseHistory = {
+  missedConfirmedEvents: number;
+  totalConfirmedEvents: number;
+};
 
 type EventRow = {
   id: string;
@@ -36,6 +42,7 @@ type EventRow = {
   locationName: string;
   locationAddress: string;
   minimumParticipants: number;
+  allowsAttendeesToAddGuests: number | boolean;
   rsvpDeadline: string | null;
   eventDescription: string;
   invitationsSent: number | boolean;
@@ -77,6 +84,7 @@ const EVENT_SELECT = `SELECT
   location_name AS locationName,
   location_address AS locationAddress,
   minimum_participants AS minimumParticipants,
+  allows_attendees_to_add_guests AS allowsAttendeesToAddGuests,
   rsvp_deadline AS rsvpDeadline,
   event_description AS eventDescription,
   invitations_sent AS invitationsSent,
@@ -208,6 +216,14 @@ export function validateCanonicalEvent(
     2,
     50,
   );
+  const allowsAttendeesToAddGuests = input.allowsAttendeesToAddGuests ?? true;
+  if (typeof allowsAttendeesToAddGuests !== "boolean") {
+    throw new ApiError(
+      400,
+      "invalid_event",
+      "event.allowsAttendeesToAddGuests must be boolean.",
+    );
+  }
   if (invitees.length > 0 && minimumParticipants > invitees.length + 1) {
     throw new ApiError(
       400,
@@ -304,6 +320,7 @@ export function validateCanonicalEvent(
     locationAddress,
     invitees,
     minimumParticipants,
+    allowsAttendeesToAddGuests,
     requiredGroups,
     rsvpDeadline,
     eventDescription,
@@ -384,6 +401,7 @@ async function hydrateEvents(
     locationAddress: event.locationAddress,
     invitees: inviteesByEvent.get(event.id) ?? [],
     minimumParticipants: event.minimumParticipants,
+    allowsAttendeesToAddGuests: Boolean(event.allowsAttendeesToAddGuests),
     requiredGroups: [...(groupsByEvent.get(event.id)?.values() ?? [])],
     rsvpDeadline: event.rsvpDeadline,
     eventDescription: event.eventDescription,
@@ -453,7 +471,11 @@ export async function getEventsForUser(
            invitees.token_nonce AS tokenNonce,
            invitees.token_storage_version AS tokenStorageVersion,
            response_envelopes.id AS responseEnvelopeId,
-           response_envelopes.revision AS responseRevision
+           response_envelopes.revision AS responseRevision,
+           response_transparency_entries.receipt_signature AS responseReceiptSignature,
+           response_transparency_entries.signed_at AS responseSignedAt,
+           response_transparency_heads.signature AS responseHeadSignature,
+           response_transparency_heads.generated_at AS responseHeadGeneratedAt
          FROM invitees
          JOIN events ON events.id = invitees.event_id
          LEFT JOIN response_envelopes
@@ -464,6 +486,10 @@ export async function getEventsForUser(
              ORDER BY latest.revision DESC, latest.created_at DESC
              LIMIT 1
            )
+         LEFT JOIN response_transparency_entries
+           ON response_transparency_entries.envelope_id = response_envelopes.id
+         LEFT JOIN response_transparency_heads
+           ON response_transparency_heads.log_index = response_transparency_entries.log_index
          WHERE invitees.phone_hash = ?
            AND events.invitations_sent = 1
          ORDER BY events.event_date ASC
@@ -479,6 +505,10 @@ export async function getEventsForUser(
         tokenStorageVersion: number | null;
         responseEnvelopeId: string | null;
         responseRevision: number | null;
+        responseReceiptSignature: string | null;
+        responseSignedAt: string | null;
+        responseHeadSignature: string | null;
+        responseHeadGeneratedAt: string | null;
       }>(),
   ]);
   const hostedIds = new Set(hosted.map((event) => event.id));
@@ -528,6 +558,14 @@ export async function getEventsForUser(
                   ),
           hasResponse: Boolean(access.responseEnvelopeId),
           responseRevision: access.responseRevision,
+          responseCertificationStatus: access.responseEnvelopeId
+            ? access.responseReceiptSignature &&
+                access.responseSignedAt &&
+                access.responseHeadSignature &&
+                access.responseHeadGeneratedAt
+              ? ("certified" as const)
+              : ("pending" as const)
+            : null,
           accountKeyEpochId: accountKeyEpoch.id,
           accountKeyCommitment: accountKeyEpoch.keyCommitment,
         };
@@ -555,7 +593,97 @@ export async function getEventById(
   return { ...event, hostUserId: row.hostUserId };
 }
 
-export function toPublicEvent(event: CanonicalEvent): PublicEvent {
+export async function getInviteeResponseHistories(
+  db: D1Database,
+  events: Array<{
+    id: string;
+    invitees: Array<{ id: string; isCurrentUser?: boolean }>;
+    resolution?: EventResolution | null;
+  }>,
+  nowIso = new Date().toISOString(),
+): Promise<Map<string, InviteeResponseHistory>> {
+  const invitees = events.flatMap((event) =>
+    event.invitees.map((invitee) => ({ eventId: event.id, invitee })),
+  ).filter(({ eventId, invitee }) =>
+    events.some((event) =>
+      event.id === eventId
+        && event.resolution?.status === "confirmed"
+        && event.resolution.attendanceRevealed,
+    ) || invitee.isCurrentUser,
+  );
+  const phoneHashByInviteeId = new Map<string, string>();
+  const uniqueInviteeIds = [...new Set(invitees.map(({ invitee }) => invitee.id))];
+  for (let offset = 0; offset < uniqueInviteeIds.length; offset += 100) {
+    const chunk = uniqueInviteeIds.slice(offset, offset + 100);
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = await db
+      .prepare(
+        `SELECT id, phone_hash AS phoneHash
+         FROM invitees
+         WHERE id IN (${placeholders})`,
+      )
+      .bind(...chunk)
+      .all<{ id: string; phoneHash: string }>();
+    for (const row of rows.results) phoneHashByInviteeId.set(row.id, row.phoneHash);
+  }
+  const phoneEntries = invitees.flatMap(({ eventId, invitee }) => {
+    const phoneHash = phoneHashByInviteeId.get(invitee.id);
+    return phoneHash ? [{ key: `${eventId}:${invitee.id}`, phoneHash }] : [];
+  });
+  const uniquePhoneHashes = [...new Set(phoneEntries.map(({ phoneHash }) => phoneHash))];
+  const historiesByPhoneHash = new Map<string, InviteeResponseHistory>();
+
+  for (let offset = 0; offset < uniquePhoneHashes.length; offset += 100) {
+    const chunk = uniquePhoneHashes.slice(offset, offset + 100);
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = await db
+      .prepare(
+        `SELECT invitees.phone_hash AS phoneHash,
+                COUNT(*) AS totalConfirmedEvents,
+                SUM(
+                  CASE WHEN NOT EXISTS (
+                    SELECT 1
+                    FROM response_envelopes
+                    WHERE response_envelopes.invitee_id = invitees.id
+                  ) THEN 1 ELSE 0 END
+                ) AS missedConfirmedEvents
+         FROM invitees
+         JOIN events ON events.id = invitees.event_id
+         JOIN event_resolutions ON event_resolutions.event_id = invitees.event_id
+         WHERE invitees.phone_hash IN (${placeholders})
+           AND event_resolutions.status = 'confirmed'
+           AND events.rsvp_deadline IS NOT NULL
+           AND events.rsvp_deadline <= ?
+         GROUP BY invitees.phone_hash`,
+      )
+      .bind(...chunk, nowIso)
+      .all<{
+        phoneHash: string;
+        missedConfirmedEvents: number;
+        totalConfirmedEvents: number;
+      }>();
+    for (const row of rows.results) {
+      historiesByPhoneHash.set(row.phoneHash, {
+        missedConfirmedEvents: Number(row.missedConfirmedEvents),
+        totalConfirmedEvents: Number(row.totalConfirmedEvents),
+      });
+    }
+  }
+
+  return new Map(phoneEntries.map(({ key, phoneHash }) => [
+    key,
+    historiesByPhoneHash.get(phoneHash) ?? {
+      missedConfirmedEvents: 0,
+      totalConfirmedEvents: 0,
+    },
+  ]));
+}
+
+export function toPublicEvent(
+  event: CanonicalEvent,
+): PublicEvent {
   const { invitationDelivery, ...publicEvent } = event;
   void invitationDelivery;
   return {
@@ -708,6 +836,7 @@ export async function putHostedEvent(
              location_name = ?,
              location_address = ?,
              minimum_participants = ?,
+             allows_attendees_to_add_guests = ?,
              rsvp_deadline = ?,
              event_description = ?,
              invitations_sent = ?,
@@ -725,6 +854,7 @@ export async function putHostedEvent(
           event.locationName,
           event.locationAddress,
           event.minimumParticipants,
+          event.allowsAttendeesToAddGuests ? 1 : 0,
           event.rsvpDeadline,
           event.eventDescription,
           event.invitationsSent ? 1 : 0,
@@ -739,9 +869,10 @@ export async function putHostedEvent(
         .prepare(
           `INSERT INTO events
             (id, host_user_id, title, event_date, end_date, host_name, location_name,
-             location_address, minimum_participants, rsvp_deadline, event_description,
+             location_address, minimum_participants, allows_attendees_to_add_guests,
+             rsvp_deadline, event_description,
              invitations_sent, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           event.id,
@@ -753,6 +884,7 @@ export async function putHostedEvent(
           event.locationName,
           event.locationAddress,
           event.minimumParticipants,
+          event.allowsAttendeesToAddGuests ? 1 : 0,
           event.rsvpDeadline,
           event.eventDescription,
           event.invitationsSent ? 1 : 0,
@@ -963,4 +1095,179 @@ export async function deleteHostedEvent(
   if ((result.meta.changes ?? 0) === 0) {
     throw new ApiError(404, "event_not_found", "The event was not found.");
   }
+}
+
+export async function addEventAttendees(
+  db: D1Database,
+  bindings: Parameters<typeof getAuthConfig>[0],
+  user: Pick<HerdUser, "id" | "phoneNumber">,
+  eventId: string,
+  input: unknown,
+): Promise<void> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new ApiError(400, "invalid_attendees", "The attendee request must be an object.");
+  }
+  const additions = (input as Record<string, unknown>).invitees;
+  if (!Array.isArray(additions) || additions.length === 0) {
+    throw new ApiError(400, "invalid_attendees", "Choose at least one attendee to add.");
+  }
+
+  const stored = await getEventById(db, eventId);
+  if (!stored) throw new ApiError(404, "event_not_found", "The event was not found.");
+
+  const config = getAuthConfig(bindings);
+  const callerPhoneHash = await pepperedHash(config.pepper, "phone", user.phoneNumber);
+  const isHost = stored.hostUserId === user.id;
+  const isAttendee = isHost
+    ? false
+    : Boolean(await db
+        .prepare("SELECT 1 AS found FROM invitees WHERE event_id = ? AND phone_hash = ?")
+        .bind(eventId, callerPhoneHash)
+        .first<{ found: number }>());
+  if (!isHost && !isAttendee) {
+    throw new ApiError(404, "event_not_found", "The event was not found.");
+  }
+  if (!isHost && !stored.allowsAttendeesToAddGuests) {
+    throw new ApiError(
+      403,
+      "attendee_additions_disabled",
+      "The host isn’t allowing attendees to add guests for this event.",
+    );
+  }
+
+  const { hostUserId, privateResponsePolicy, invitationDelivery, ...editable } = stored;
+  void hostUserId;
+  void privateResponsePolicy;
+  void invitationDelivery;
+  const candidate = validateCanonicalEvent(
+    { ...editable, invitees: [...stored.invitees, ...additions] },
+    eventId,
+  );
+  const newInviteeIds = new Set(
+    candidate.invitees.slice(stored.invitees.length).map((invitee) => invitee.id),
+  );
+  const newInvitees = candidate.invitees.filter((invitee) => newInviteeIds.has(invitee.id));
+  const hostPhoneNumber = normalizePhoneNumber(user.phoneNumber);
+  const actualHostPhone = isHost
+    ? hostPhoneNumber
+    : normalizePhoneNumber((await db
+        .prepare(
+          `SELECT users.phone_number AS phoneNumber
+           FROM events JOIN users ON users.id = events.host_user_id
+           WHERE events.id = ?`,
+        )
+        .bind(eventId)
+        .first<{ phoneNumber: string }>())!.phoneNumber);
+  if (newInvitees.some((invitee) => invitee.phoneNumber === actualHostPhone)) {
+    throw new ApiError(
+      400,
+      "host_cannot_be_invited",
+      "The host cannot also be invited to the same event.",
+    );
+  }
+
+  if (!stored.invitationsSent) {
+    if (!isHost) {
+      throw new ApiError(403, "event_not_sent", "Only the host can change a draft event.");
+    }
+    await putHostedEvent(db, bindings, user, eventId, candidate);
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  if (!stored.rsvpDeadline || stored.rsvpDeadline <= nowIso) {
+    throw new ApiError(409, "rsvp_closed", "Attendees can’t be added after replies close.");
+  }
+  const response = await db
+    .prepare("SELECT 1 AS found FROM response_envelopes WHERE event_id = ? LIMIT 1")
+    .bind(eventId)
+    .first<{ found: number }>();
+  if (response) {
+    throw new ApiError(
+      409,
+      "event_policy_in_use",
+      "Attendees can’t be added after private replies have started.",
+    );
+  }
+  assertInvitationDeliveryReady(bindings, { invitees: newInvitees });
+
+  if (newInvitees.length > 0) {
+    const placeholders = newInvitees.map(() => "?").join(", ");
+    const collision = await db
+      .prepare(
+        `SELECT id FROM invitees
+         WHERE id IN (${placeholders}) AND event_id <> ?
+         LIMIT 1`,
+      )
+      .bind(...newInvitees.map((invitee) => invitee.id), eventId)
+      .first<{ id: string }>();
+    if (collision) {
+      throw new ApiError(
+        409,
+        "invitee_id_conflict",
+        "An attendee ID is already used by another event.",
+      );
+    }
+  }
+
+  const epochFence = await requireEvaluatorEpochPolicyFence(db, bindings, new Date(nowIso));
+  const nextEvent: CanonicalEvent = {
+    ...stored,
+    invitees: candidate.invitees,
+    allowsAttendeesToAddGuests: candidate.allowsAttendeesToAddGuests,
+    privateResponsePolicy: null,
+    invitationDelivery: null,
+  };
+  const nextPolicy = await buildPrivateResponsePolicy(nextEvent, config, nowIso, bindings);
+  const statements: D1PreparedStatement[] = [];
+  for (const invitee of newInvitees) {
+    const phoneHash = await pepperedHash(config.pepper, "phone", invitee.phoneNumber);
+    const inviteToken = await createSealedInviteToken(config.pepper, eventId, invitee.id);
+    statements.push(
+      db.prepare(
+        `INSERT INTO invitees
+          (id, event_id, user_id, display_name, phone_number, phone_hash, token_hash,
+           token_ciphertext, token_nonce, token_storage_version, created_at, updated_at)
+         VALUES (
+           ?, ?, (SELECT id FROM users WHERE phone_hash = ? LIMIT 1),
+           ?, ?, ?, ?, ?, ?, ?, ?, ?
+         )`,
+      ).bind(
+        invitee.id,
+        eventId,
+        phoneHash,
+        invitee.displayName,
+        invitee.phoneNumber,
+        phoneHash,
+        inviteToken.tokenHash,
+        inviteToken.tokenCiphertext,
+        inviteToken.tokenNonce,
+        inviteToken.tokenStorageVersion,
+        nowIso,
+        nowIso,
+      ),
+    );
+  }
+  statements.push(
+    db.prepare(
+      `DELETE FROM event_resolutions
+       WHERE event_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM response_envelopes WHERE response_envelopes.event_id = ?
+         )`,
+    ).bind(eventId, eventId),
+    db.prepare(
+      `DELETE FROM event_policies
+       WHERE event_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM response_envelopes WHERE response_envelopes.event_id = ?
+         )`,
+    ).bind(eventId, eventId),
+    db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(nowIso, eventId),
+    ...prepareInvitationDeliveryStatements(db, bindings, nextEvent, nowIso),
+    prepareInsertPrivateResponsePolicy(db, eventId, nextPolicy, epochFence),
+    prepareInsertPendingEventResolution(db, eventId, nextPolicy.policyHash, nowIso),
+  );
+  await db.batch(statements);
+  await dispatchEventInvitations(db, bindings, eventId);
 }

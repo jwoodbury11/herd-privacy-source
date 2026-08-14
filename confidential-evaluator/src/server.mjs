@@ -19,6 +19,18 @@ import { FirestoreTransparencyStore } from "./transparency-store.mjs";
 // deliberately much larger than a direct evaluation request.
 const MAXIMUM_HTTP_BODY_BYTES = 437_391;
 
+// Startup failures happen before the HTTP health endpoint exists. Keep this
+// deliberately small and payload-free so Confidential Space operators can
+// distinguish configuration, key-access, and durable-state failures without
+// exposing exception text, credentials, key material, or user data.
+let startupStage = "configuration";
+const STARTUP_FAILURE = Object.freeze({
+  configuration: { delayMs: 2_000, exitCode: 2 },
+  key_access: { delayMs: 5_000, exitCode: 3 },
+  durable_state: { delayMs: 8_000, exitCode: 4 },
+  listener: { delayMs: 11_000, exitCode: 5 },
+});
+
 async function incomingBody(request) {
   if (request.method === "GET" || request.method === "HEAD") return undefined;
   const chunks = [];
@@ -57,6 +69,7 @@ function writeResponse(nodeResponse, response) {
 
 async function start() {
   const deploymentConfig = await loadDeploymentConfig();
+  startupStage = "key_access";
   const decryptor = new GoogleKmsBundleDecryptor({
     socketPath: deploymentConfig.attestationSocket,
     workloadIdentityProvider: deploymentConfig.workloadIdentityProvider,
@@ -74,7 +87,7 @@ async function start() {
   });
   const config = bindAttestedImageDigest(
     deploymentConfig,
-    keyStore.evaluatorConfig.measurement,
+    keyStore.attestedImageDigest,
   );
   const attestationProvider = new ConfidentialSpaceAttestationProvider({
     socketPath: config.attestationSocket,
@@ -82,7 +95,7 @@ async function start() {
   const accessTokenProvider = new ConfidentialSpaceFederatedAccessTokenProvider({
     socketPath: config.attestationSocket,
     workloadIdentityProvider: config.workloadIdentityProvider,
-    expectedImageDigest: config.evaluatorMeasurement,
+    expectedImageDigest: config.attestedImageDigest,
   });
   const transparencyStore = new FirestoreTransparencyStore({
     projectId: config.transparencyStateProjectId,
@@ -96,6 +109,7 @@ async function start() {
   });
   // Do not advertise or accept traffic until the attested WIF principal has
   // demonstrated read access to the durable non-equivocation state.
+  startupStage = "durable_state";
   await transparencyAuthority.checkReady();
   const app = createEvaluatorApp({
     config,
@@ -121,10 +135,18 @@ async function start() {
   server.headersTimeout = 10_000;
   server.keepAliveTimeout = 5_000;
   server.maxRequestsPerSocket = 100;
+  startupStage = "listener";
   server.listen(config.port, "0.0.0.0");
 }
 
-start().catch(() => {
-  process.stderr.write("confidential evaluator failed closed during startup\n");
-  process.exitCode = 1;
+start().catch(async () => {
+  const diagnostic = STARTUP_FAILURE[startupStage];
+  process.stderr.write(
+    `confidential evaluator failed closed during startup stage=${startupStage}\n`,
+  );
+  // Workload log redirection is forbidden by the image launch policy. A small,
+  // fixed stage-specific delay makes the launcher's public execution-duration
+  // counter actionable without disclosing the exception or any workload data.
+  await new Promise((resolve) => setTimeout(resolve, diagnostic.delayMs));
+  process.exitCode = diagnostic.exitCode;
 });

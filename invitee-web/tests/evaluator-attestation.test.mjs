@@ -168,6 +168,8 @@ const audience = "https://herd.test/attestation";
 const projectId = "herd-attestation-test-project";
 const serviceAccount = "evaluator@herd-attestation-test.iam.gserviceaccount.com";
 const imageDigest = `sha256:${"a".repeat(64)}`;
+const rolloutImageDigest = `sha256:${"c".repeat(64)}`;
+const policyMeasurement = `sha256:${"c".repeat(64)}`;
 const swVersion = "260600";
 const keyBinding = {
   protocolVersion: 1,
@@ -203,12 +205,12 @@ async function fingerprint(certificate) {
 }
 
 function installTrustEnvironment(root = trustedChain.root) {
-  process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "production";
-  process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR = "false";
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_AUDIENCE = audience;
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_PROJECT_ID = projectId;
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_SERVICE_ACCOUNT = serviceAccount;
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST = imageDigest;
+  process.env.NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGESTS = imageDigest;
+  process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT = policyMeasurement;
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_ROOT_CERTIFICATE = root.toString("pem");
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_SWVERSIONS = swVersion;
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_MAX_AGE_SECONDS = "300";
@@ -231,67 +233,6 @@ function installTrustEnvironment(root = trustedChain.root) {
     keyBinding.keys.transparencySigning.publicKey;
 }
 
-test("software evaluator exception is isolated to an exactly pinned QA build", async () => {
-  installTrustEnvironment();
-  process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "test";
-  process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR = "true";
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT = imageDigest;
-  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), true);
-  let fetchCalled = false;
-  globalThis.fetch = async () => {
-    fetchCalled = true;
-    throw new Error("hardware attestation must not be requested by QA");
-  };
-  await assert.doesNotReject(attestationModule.attestEvaluatorForPolicy(policy));
-  assert.equal(fetchCalled, false);
-
-  for (const mismatch of [
-    { releaseId: "another-release" },
-    { evaluatorKeyId: "another-evaluator-key" },
-    { evaluatorPublicKey: keyBinding.keys.evaluationResultSigning.publicKey },
-    { evaluatorMeasurement: `sha256:${"c".repeat(64)}` },
-  ]) {
-    await assert.rejects(
-      attestationModule.attestEvaluatorForPolicy({ ...policy, ...mismatch }),
-      attestationModule.EvaluatorAttestationError,
-    );
-  }
-  const policySigningKeyId =
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID;
-  const policySigningPublicKey =
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY;
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID =
-    keyBinding.keys.responseDecryption.keyId;
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY =
-    keyBinding.keys.responseDecryption.publicKey;
-  await assert.rejects(
-    attestationModule.attestEvaluatorForPolicy(policy),
-    attestationModule.EvaluatorAttestationError,
-  );
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID =
-    policySigningKeyId;
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY =
-    policySigningPublicKey;
-  process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "production";
-  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), false);
-  await assert.rejects(
-    attestationModule.attestEvaluatorForPolicy(policy),
-    attestationModule.EvaluatorAttestationError,
-  );
-  delete process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE;
-  await assert.rejects(
-    attestationModule.attestEvaluatorForPolicy(policy),
-    attestationModule.EvaluatorAttestationError,
-  );
-  process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE = "test";
-  process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR = "TRUE";
-  assert.equal(attestationModule.softwareQaEvaluatorModeEnabled(), false);
-  await assert.rejects(
-    attestationModule.attestEvaluatorForPolicy(policy),
-    attestationModule.EvaluatorAttestationError,
-  );
-});
-
 const policy = {
   protocolVersion: 1,
   cipherSuite: "P256_HKDF_SHA256_AES256_GCM",
@@ -299,7 +240,7 @@ const policy = {
   canonicalDocument: "{}",
   evaluatorKeyId: keyBinding.keys.responseDecryption.keyId,
   evaluatorPublicKey: keyBinding.keys.responseDecryption.publicKey,
-  evaluatorMeasurement: imageDigest,
+  evaluatorMeasurement: policyMeasurement,
   releaseId,
   paddedPlaintextBytes: 4_096,
   frozenAt: "2026-08-02T00:00:00.000Z",
@@ -388,8 +329,14 @@ async function attestationResponse(nonce, mutation = {}) {
   };
 }
 
-async function verifyScenario(mutation = {}, root = trustedChain.root) {
+async function verifyScenario(
+  mutation = {},
+  root = trustedChain.root,
+  allowedImageDigests = [imageDigest],
+) {
   installTrustEnvironment(root);
+  process.env.NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGESTS =
+    allowedImageDigests.join(",");
   process.env.NEXT_PUBLIC_HERD_ATTESTATION_ROOT_FINGERPRINT =
     await fingerprint(root);
   globalThis.fetch = async (url, init) => {
@@ -412,6 +359,45 @@ test("RS256 Google-PKI evaluator attestation is certificate- and release-bound",
     await assert.doesNotReject(verifyScenario());
   });
 
+  await t.test("second exact rollout image passes", async () => {
+    await assert.doesNotReject(
+      verifyScenario(
+        {
+          claims(claims) {
+            claims.submods.container.image_digest = rolloutImageDigest;
+          },
+        },
+        trustedChain.root,
+        [imageDigest, rolloutImageDigest],
+      ),
+    );
+  });
+
+  await t.test("omitted empty container overrides pass", async () => {
+    await assert.doesNotReject(
+      verifyScenario({
+        claims(claims) {
+          delete claims.submods.container.env_override;
+          delete claims.submods.container.cmd_override;
+        },
+      }),
+    );
+  });
+
+  await t.test("expired Herd session requests authentication instead of masking it", async () => {
+    installTrustEnvironment(trustedChain.root);
+    globalThis.fetch = async () => new Response(
+      JSON.stringify({ error: { code: "unauthorized" } }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    );
+    await assert.rejects(
+      attestationModule.attestEvaluatorForPolicy(policy),
+      (error) =>
+        error instanceof attestationModule.EvaluatorAuthenticationError &&
+        error.message === "Your session expired. Sign in again to continue.",
+    );
+  });
+
   const adversarialClaims = [
     ["wrong nonce", (claims) => { claims.eat_nonce[0] = base64Url(new Uint8Array(32)); }],
     ["wrong image", (claims) => { claims.submods.container.image_digest = `sha256:${"b".repeat(64)}`; }],
@@ -422,9 +408,10 @@ test("RS256 Google-PKI evaluator attestation is certificate- and release-bound",
     ["wrong hardware model", (claims) => { claims.hwmodel = "GCP_AMD_SEV"; }],
     ["fractional OEM ID", (claims) => { claims.oemid = 11_129.5; }],
     ["extra attester TCB", (claims) => { claims.attester_tcb = ["INTEL", "UNREVIEWED"]; }],
-    ["missing command override", (claims) => { delete claims.submods.container.cmd_override; }],
     ["wrong command override shape", (claims) => { claims.submods.container.cmd_override = {}; }],
+    ["non-empty command override", (claims) => { claims.submods.container.cmd_override = ["override"]; }],
     ["wrong environment override shape", (claims) => { claims.submods.container.env_override = []; }],
+    ["non-empty environment override", (claims) => { claims.submods.container.env_override = { SECRET: "override" }; }],
     ["extra monitoring mode", (claims) => {
       claims.submods.confidential_space.monitoring_enabled = {
         memory: false,

@@ -455,6 +455,7 @@
       "required": [
         "platform",
         "imageDigest",
+        "policyMeasurement",
         "measurements",
         "attestationProvider",
         "attestationClaimPolicy",
@@ -463,6 +464,7 @@
       "properties": {
         "platform": { "const": "gcp-confidential-space" },
         "imageDigest": { "$ref": "#/$defs/digest" },
+        "policyMeasurement": { "$ref": "#/$defs/digest" },
         "measurements": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/digest" } },
         "attestationProvider": { "const": "google-pki-attestation-token" },
         "attestationClaimPolicy": {
@@ -479,6 +481,7 @@
             "keyBindingHashEncoding",
             "keyBindingHash",
             "imageDigest",
+            "allowedImageDigests",
             "projectId",
             "serviceAccount",
             "hwmodel",
@@ -506,6 +509,18 @@
                 { "$ref": "#/$defs/digest" },
                 { "type": "object", "properties": { "algorithm": { "const": "sha256" } } }
               ]
+            },
+            "allowedImageDigests": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "allOf": [
+                  { "$ref": "#/$defs/digest" },
+                  { "type": "object", "properties": { "algorithm": { "const": "sha256" } } }
+                ]
+              }
             },
             "projectId": { "type": "string", "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$" },
             "serviceAccount": { "type": "string", "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$" },

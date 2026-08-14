@@ -5,6 +5,8 @@ import test from "node:test";
 import { makeReleaseFixture } from "../../release/tests/fixture.mjs";
 import {
   assertReleaseContinuity,
+  operationalAlert,
+  operationalFailureClass,
   ReleaseMonitorCoordinator,
   runChecks,
   sitesAuthorizedFetch,
@@ -13,6 +15,50 @@ import {
 const LOG_ID = "herd-response-log-v1";
 const LOG_HEAD_DOMAIN = "HERD-TRANSPARENCY-LOG-HEAD-SIGNATURE-V1";
 const GENESIS_HASH = Buffer.alloc(32).toString("base64url");
+
+test("operational diagnostics expose only bounded failure classes", () => {
+  assert.equal(
+    operationalFailureClass(new TypeError("live evaluator attestation image digest changed")),
+    "evaluator_attestation",
+  );
+  assert.equal(
+    operationalFailureClass(new TypeError("response-transparency log fork detected")),
+    "response_transparency",
+  );
+  assert.equal(
+    operationalFailureClass(new TypeError("monitored resource returned HTTP 503")),
+    "availability",
+  );
+  assert.equal(
+    operationalFailureClass(new TypeError("signed release manifest predecessor changed")),
+    "release_integrity",
+  );
+  assert.equal(
+    operationalFailureClass(new TypeError("STATUS_KV mirror storage failed")),
+    "monitor_storage",
+  );
+  assert.equal(operationalFailureClass(new TypeError("unexpected condition")), "unknown");
+
+  const alert = operationalAlert({
+    ok: false,
+    checkedAt: "2026-08-13T12:00:00.000Z",
+    targets: [{
+      target: "herd-production",
+      ok: false,
+      durationMs: 123,
+      failureClass: "availability",
+      error: "request for invite token secret-token returned HTTP 503",
+    }],
+  });
+  assert.deepEqual(alert.targets, [{
+    target: "herd-production",
+    ok: false,
+    durationMs: 123,
+    failureClass: "availability",
+    releaseId: null,
+  }]);
+  assert.equal(JSON.stringify(alert).includes("secret-token"), false);
+});
 
 test("Sites bypass authorization is confined to the exact configured web origin", async () => {
   const calls = [];
@@ -299,6 +345,10 @@ test("last-good response/deployment witness survives 503 and rejects the followi
   try {
     const first = await coordinator.fetch(new Request("https://coordinator/check", { method: "POST" }));
     assert.equal(first.status, 200);
+    const firstStatus = await first.clone().json();
+    assert.equal(firstStatus.targets[0].failureClass, undefined);
+    assert.ok(Number.isSafeInteger(firstStatus.targets[0].durationMs));
+    assert.ok(firstStatus.targets[0].durationMs >= 0);
     const witnessEntry = [...storage.values.entries()].find(([key]) => key.includes("last-good"));
     assert.ok(witnessEntry);
     assert.equal(witnessEntry[1].responseTransparency.witnessedEntryHash, entries[2].entryHash);
@@ -306,7 +356,10 @@ test("last-good response/deployment witness survives 503 and rejects the followi
     mode = "down";
     const unavailable = await coordinator.fetch(new Request("https://coordinator/check", { method: "POST" }));
     assert.equal(unavailable.status, 503);
-    assert.match((await unavailable.json()).targets[0].error, /returned HTTP 503/u);
+    const unavailableStatus = await unavailable.json();
+    assert.match(unavailableStatus.targets[0].error, /returned HTTP 503/u);
+    assert.equal(unavailableStatus.targets[0].failureClass, "availability");
+    assert.ok(Number.isSafeInteger(unavailableStatus.targets[0].durationMs));
     assert.equal(storage.values.get(witnessEntry[0]).responseTransparency.witnessedEntryHash, entries[2].entryHash);
 
     mode = "fork";

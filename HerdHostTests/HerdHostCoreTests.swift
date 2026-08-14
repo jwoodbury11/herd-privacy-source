@@ -3,50 +3,6 @@ import Security
 import XCTest
 @testable import HerdHost
 
-final class SoftwareQAEvaluatorIsolationTests: XCTestCase {
-    func testSoftwareEvaluatorRequiresTestProfileAndExactPins() throws {
-        let privateKey = P256.KeyAgreement.PrivateKey()
-        let publicKey = privateKey.publicKey.x963Representation.base64URLEncodedString()
-        let policy = PrivateResponsePolicyV1(
-            protocolVersion: 1,
-            cipherSuite: "P256_HKDF_SHA256_AES256_GCM",
-            policyHash: Data(repeating: 0, count: 32).base64URLEncodedString(),
-            canonicalDocument: "{}",
-            evaluatorKeyId: "qa-evaluator-v1",
-            evaluatorPublicKey: publicKey,
-            evaluatorMeasurement: "software-reference-sha384:test",
-            releaseId: "qa-release-v1",
-            paddedPlaintextBytes: 4_096,
-            frozenAt: "2026-08-03T00:00:00.000Z",
-            policySigningKeyId: nil,
-            policySignature: nil
-        )
-        var settings = [
-            "HERD_ALLOW_SOFTWARE_QA_EVALUATOR": "true",
-            "HERD_DEPLOYMENT_PROFILE": "test",
-            "HERD_RELEASE_ID": policy.releaseId,
-            "HERD_EVALUATOR_KEY_ID": policy.evaluatorKeyId,
-            "HERD_EVALUATOR_PUBLIC_KEY": policy.evaluatorPublicKey,
-            "HERD_EVALUATOR_MEASUREMENT": policy.evaluatorMeasurement,
-        ]
-        XCTAssertTrue(try EvaluatorAttestationVerifier.allowsSoftwareQAEvaluator(
-            policy: policy,
-            settings: settings
-        ))
-        settings["HERD_DEPLOYMENT_PROFILE"] = "production"
-        XCTAssertThrowsError(try EvaluatorAttestationVerifier.allowsSoftwareQAEvaluator(
-            policy: policy,
-            settings: settings
-        ))
-        settings["HERD_DEPLOYMENT_PROFILE"] = "test"
-        settings["HERD_EVALUATOR_MEASUREMENT"] = "different"
-        XCTAssertThrowsError(try EvaluatorAttestationVerifier.allowsSoftwareQAEvaluator(
-            policy: policy,
-            settings: settings
-        ))
-    }
-}
-
 final class AccountKeyDeletionTests: XCTestCase {
     func testDeletingAnAccountRemovesEveryLocalRootSecretItem() async throws {
         let service = "com.herd.tests.account-deletion.\(UUID().uuidString.lowercased())"
@@ -270,6 +226,120 @@ final class PrivateResponseInteropTests: XCTestCase {
 }
 
 final class HerdHostBusinessRuleTests: XCTestCase {
+    func testNewEventDefaultsChooseSaturdayAndThursdayDeadline() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let tuesday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 4, hour: 9))
+        )
+        let tuesdayDraft = HerdEvent.newDraft(now: tuesday, calendar: calendar)
+        let tuesdayEvent = try XCTUnwrap(tuesdayDraft.eventDate)
+        let tuesdayDeadline = try XCTUnwrap(tuesdayDraft.rsvpDeadline)
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day, .hour, .minute], from: tuesdayEvent),
+            DateComponents(year: 2026, month: 8, day: 8, hour: 19, minute: 0)
+        )
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day, .hour, .minute], from: tuesdayDeadline),
+            DateComponents(year: 2026, month: 8, day: 6, hour: 23, minute: 59)
+        )
+
+        let wednesday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 5, hour: 9))
+        )
+        let wednesdayDraft = HerdEvent.newDraft(now: wednesday, calendar: calendar)
+        let wednesdayEvent = try XCTUnwrap(wednesdayDraft.eventDate)
+        let wednesdayDeadline = try XCTUnwrap(wednesdayDraft.rsvpDeadline)
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day, .hour, .minute], from: wednesdayEvent),
+            DateComponents(year: 2026, month: 8, day: 15, hour: 19, minute: 0)
+        )
+        XCTAssertEqual(
+            calendar.dateComponents([.year, .month, .day, .hour, .minute], from: wednesdayDeadline),
+            DateComponents(year: 2026, month: 8, day: 13, hour: 23, minute: 59)
+        )
+    }
+
+    func testLocationSuggestionsUseOnlyANonemptyProfileAddressBeforeSearch() {
+        XCTAssertEqual(
+            LocationSearchSuggestions.profileAddress(from: "  219 Cumberland St  "),
+            "219 Cumberland St"
+        )
+        XCTAssertNil(LocationSearchSuggestions.profileAddress(from: " \n "))
+    }
+
+    func testParticipantCountAlwaysIncludesTheHost() {
+        var event = HerdEvent.newDraft()
+        XCTAssertEqual(event.participantCount, 1)
+
+        event.invitees = [
+            Invitee(displayName: "First Guest", phoneNumber: "+1 415 555 0101"),
+            Invitee(displayName: "Second Guest", phoneNumber: "+1 415 555 0102"),
+        ]
+
+        XCTAssertEqual(event.participantCount, 3)
+    }
+
+    func testHomeSectionsSeparateUnconfirmedAndPastEvents() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let eventDate = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 7, hour: 19))
+        )
+        let deadline = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 6, hour: 23))
+        )
+        let eventDay = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 7, hour: 23))
+        )
+        let followingDay = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 8, hour: 0))
+        )
+
+        var event = makeDraft(eventDate: eventDate, endDate: nil, deadline: deadline)
+        event.role = .invitee
+        event.invitationsSent = true
+        event.resolution = EventResolution(status: .confirmed)
+        XCTAssertEqual(event.homeSection(at: eventDay, calendar: calendar), .invites)
+        XCTAssertEqual(event.homeSection(at: followingDay, calendar: calendar), .past)
+
+        event.resolution = EventResolution(status: .notConfirmed)
+        XCTAssertEqual(event.homeSection(at: eventDay, calendar: calendar), .unconfirmed)
+        XCTAssertEqual(event.homeSection(at: followingDay, calendar: calendar), .unconfirmed)
+    }
+
+    func testManuallyAddedHerdContactsPersistAndDeduplicateByPhoneNumber() throws {
+        let suiteName = "com.herd.tests.saved-contacts.\(UUID().uuidString.lowercased())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let firstService = ContactStoreService(defaults: defaults)
+        let firstContact = firstService.saveManualContact(
+            ContactCandidate(
+                id: "manual-contact-one",
+                displayName: "Manual Guest",
+                phoneNumber: "4155550199"
+            )
+        )
+
+        let reloadedService = ContactStoreService(defaults: defaults)
+        XCTAssertEqual(reloadedService.candidates, [firstContact])
+
+        let updatedContact = reloadedService.saveManualContact(
+            ContactCandidate(
+                id: "manual-contact-two",
+                displayName: "Updated Guest",
+                phoneNumber: "(415) 555-0199"
+            )
+        )
+
+        XCTAssertEqual(updatedContact.id, firstContact.id)
+        XCTAssertEqual(updatedContact.displayName, "Updated Guest")
+        XCTAssertEqual(reloadedService.candidates, [updatedContact])
+        XCTAssertEqual(ContactStoreService(defaults: defaults).candidates, [updatedContact])
+    }
+
     func testDeadlineSuggestionsAndSubmissionBoundary() throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let eventDate = now.addingTimeInterval(60 * 60)
@@ -671,6 +741,52 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
         )
     }
 
+    func testSecondRolloutImageDigestVerifies() throws {
+        let rolloutDigest = "sha256:" + String(repeating: "c", count: 64)
+        let fixture = try makeAttestationFixture(
+            allowedImageDigests: [Self.imageDigest, rolloutDigest],
+            attestedImageDigest: rolloutDigest
+        )
+
+        XCTAssertNoThrow(
+            try fixture.verifier.verify(
+                fixture.response,
+                nonce: fixture.nonce,
+                policy: fixture.policy,
+                now: fixture.now
+            )
+        )
+    }
+
+    func testOmittedEmptyContainerOverridesVerify() throws {
+        let fixture = try makeAttestationFixture()
+        var claims = fixture.validClaims
+        var submods = claims["submods"] as! [String: Any]
+        var container = submods["container"] as! [String: Any]
+        container.removeValue(forKey: "env_override")
+        container.removeValue(forKey: "cmd_override")
+        submods["container"] = container
+        claims["submods"] = submods
+        let response = EvaluatorAttestationResponse(
+            protocolVersion: fixture.response.protocolVersion,
+            tokenType: fixture.response.tokenType,
+            audience: fixture.response.audience,
+            nonce: fixture.response.nonce,
+            keyBinding: fixture.response.keyBinding,
+            keyBindingHash: fixture.response.keyBindingHash,
+            attestationToken: try signedToken(claims: claims)
+        )
+
+        XCTAssertNoThrow(
+            try fixture.verifier.verify(
+                response,
+                nonce: fixture.nonce,
+                policy: fixture.policy,
+                now: fixture.now
+            )
+        )
+    }
+
     func testSignedAdversarialAttestationClaimsFailClosed() throws {
         let fixture = try makeAttestationFixture()
 
@@ -704,8 +820,14 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
         try assertRejected(fixture, caseName: "wrong command override shape") { claims in
             self.setContainerClaim("cmd_override", to: [String: String](), in: &claims)
         }
+        try assertRejected(fixture, caseName: "non-empty command override") { claims in
+            self.setContainerClaim("cmd_override", to: ["override"], in: &claims)
+        }
         try assertRejected(fixture, caseName: "wrong environment override shape") { claims in
             self.setContainerClaim("env_override", to: [String](), in: &claims)
+        }
+        try assertRejected(fixture, caseName: "non-empty environment override") { claims in
+            self.setContainerClaim("env_override", to: ["SECRET": "override"], in: &claims)
         }
         try assertRejected(fixture, caseName: "extra monitoring mode") { claims in
             self.setConfidentialSpaceClaim(
@@ -769,7 +891,12 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
         )
     }
 
-    private func makeAttestationFixture() throws -> NativeAttestationFixture {
+    private func makeAttestationFixture(
+        allowedImageDigests: Set<String>? = nil,
+        attestedImageDigest: String? = nil
+    ) throws -> NativeAttestationFixture {
+        let acceptedDigests = allowedImageDigests ?? [Self.imageDigest]
+        let claimedDigest = attestedImageDigest ?? Self.imageDigest
         let rootCertificate = try XCTUnwrap(
             Data(base64Encoded: Self.rootCertificateBase64)
         )
@@ -817,6 +944,8 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
             projectID: Self.projectID,
             serviceAccount: Self.serviceAccount,
             imageDigest: Self.imageDigest,
+            allowedImageDigests: acceptedDigests,
+            policyMeasurement: Self.policyMeasurement,
             rootCertificate: rootCertificate,
             rootFingerprint: sha256Hex(rootCertificate),
             allowedSWVersions: [Self.swVersion],
@@ -830,18 +959,19 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
             canonicalDocument: "{}",
             evaluatorKeyId: binding.keys.responseDecryption.keyId,
             evaluatorPublicKey: binding.keys.responseDecryption.publicKey,
-            evaluatorMeasurement: Self.imageDigest,
+            evaluatorMeasurement: Self.policyMeasurement,
             releaseId: Self.releaseID,
             paddedPlaintextBytes: PrivateResponseProtocol.paddedPlaintextBytes,
             frozenAt: "2026-08-03T03:25:00.000Z",
             policySigningKeyId: nil,
             policySignature: nil
         )
-        let claims = validClaims(
+        var claims = validClaims(
             now: now,
             nonce: nonce,
             keyBindingHash: bindingHash
         )
+        setContainerClaim("image_digest", to: claimedDigest, in: &claims)
         let response = EvaluatorAttestationResponse(
             protocolVersion: PrivateResponseProtocol.version,
             tokenType: "google-pki",
@@ -1008,6 +1138,7 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
     private static let serviceAccount =
         "evaluator@herd-native-attestation-test.iam.gserviceaccount.com"
     private static let imageDigest = "sha256:" + String(repeating: "a", count: 64)
+    private static let policyMeasurement = "sha256:" + String(repeating: "c", count: 64)
     private static let releaseID = "native-attestation-release-v1"
     private static let swVersion = "260600"
     private static let rootCertificateBase64 = "MIIDTDCCAjSgAwIBAgIUcd5Yea49u193cR+/IHNtkiQir+IwDQYJKoZIhvcNAQELBQAwLDEqMCgGA1UEAwwhSGVyZCBOYXRpdmUgQXR0ZXN0YXRpb24gVGVzdCBSb290MB4XDTI2MDgwMzAzMjIxMloXDTM2MDczMTAzMjIxMlowLDEqMCgGA1UEAwwhSGVyZCBOYXRpdmUgQXR0ZXN0YXRpb24gVGVzdCBSb290MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1bGMHfS1ySQDbfZUXq6ln3yLQNC+DLe1DRcyRySlJ0hWVv7Riqk+hBm521LggAdvZfL6yRccHfGLgQVoO3T3jdEpp1eKApuE4cD8LpBLWynWU7RE9KSvfbPjLQkNBbNvW7klJcnA2i8pCMBTPSWqpm5uCb55TuOtuxsomKOpcHGic93ZcRnTX5ecDElFsSWQRdpQ4T2BE+yRk4rcTjq1+LazRxuAXcjCaGLV+K7rnV/wrAAalzHingj1IPKD8t4kIomhXv/GeFD1mpMhgqwX/oz/2Ibucndo1Eg+P4o/6n1Ox5l8quJf7obYkZW/aqDyCkCrgIHR+8RXuCkxtDyt9wIDAQABo2YwZDAdBgNVHQ4EFgQU8DRivfOyjL0ZgpVyqs5pOWVdc4kwHwYDVR0jBBgwFoAU8DRivfOyjL0ZgpVyqs5pOWVdc4kwEgYDVR0TAQH/BAgwBgEB/wIBATAOBgNVHQ8BAf8EBAMCAQYwDQYJKoZIhvcNAQELBQADggEBAJyKFcehF41sDrpwnKXAX3GLAljemm2F8B7lBuP0Wt9qpcD/Fzj+a9jVKQWmqQlptqzSGiqbl8z2YAQBzP00AX7IGTMKRkWRKFiZLndTtpynPhmJBVzAhUUw2V4R3OsE4ICMuzhtcjNYXV3129sVrRq1ojN0crWIwzIFHAWRQVd6aGSEHrI+B95YbGKxinmzOPRVuadlcwfx0ZuOTQ8ME1toVkAtC1Qixx1cpFJvS3SepNFciMyDxM+r0xEnUY5Rndqp+WzVL8uKS9xo7nmJOcP3y8FdWKRUS7YGoMLyGvCM/4MnCsurotvkGVNIgpn1zrKB1MQ5t0j+y5uP14bqa4k="

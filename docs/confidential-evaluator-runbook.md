@@ -52,8 +52,9 @@ Suggested alerts:
 4. Fetch `GET /healthz`; require 200, `no-store`, the expected release ID, four
    unique keys, and the pinned key-binding hash.
 5. Fetch `GET /readyz`; require 200. Readiness performs an authenticated read
-   of the durable Firestore tail and its matching immutable entry; a missing,
-   inaccessible, or inconsistent state is an outage.
+   of the durable Firestore tail and its matching immutable entry, then proves
+   the instance can still use its in-memory transparency signing key; a
+   missing, inaccessible, inconsistent, or unusable state is an outage.
 6. Do not treat health as trust evidence. Confirm the separately operated
    monitor sent a fresh random 32-byte challenge directly to public
    `POST /api/v1/attestation`, without the ordinary-backend bearer, and
@@ -75,8 +76,8 @@ The production image has no direct evaluation endpoint.
 
 The service starts listening only after the exact STS subject token passes its
 local production-claim checks (including restart policy `Always`), STS/WIP and
-KMS authorization succeed, the image digest is bound into runtime policy
-configuration, both independent KMS plaintext CRC32Cs are verified, four unique
+KMS authorization succeed, the exact attested image digest is bound to runtime
+resource access, both independent KMS plaintext CRC32Cs are verified, four unique
 keys are imported, both decryptions report the same attested image digest, and
 the same attested WIF principal can read the Firestore transparency tail. If all
 instances churn or stay unhealthy, compare only public configuration:
@@ -92,10 +93,11 @@ instances churn or stay unhealthy, compare only public configuration:
    service account, and production claims.
 5. Both KMS wrapping keys contain the principal set for that digest in the key
    project number, not the workload project number.
-6. `deployment.json` contains both exact KMS resources and the WIP resource and
-   matches the evaluator-epoch bundle's legacy `releaseId`. It must not contain
-   an image/source measurement; the runtime value comes from the STS-accepted
-   token.
+6. `deployment.json` contains both exact KMS resources and the WIP resource,
+   matches the evaluator-epoch bundle's legacy `releaseId`, and contains the
+   reviewed stable `policyMeasurement` for that epoch. This compatibility value
+   is not attestation evidence. The exact artifact digest still comes only from
+   the STS-accepted token and must independently match the WIP/IAM rollout set.
 7. Both binary KMS ciphertexts are present and non-empty in the image. The
    transparency ciphertext decrypts to the fixed `herd-response-log-v1` bundle
    and approved lifetime-global key ID/point.
@@ -183,11 +185,9 @@ evaluation endpoint, or "continue without transparency" mode.
   late-missing disposition above permits bounded local reconciliation.
 - **response key/revision conflict:** do not reset the authority document or
   invent a revision. Confirm the client receipt includes the exact Ed25519
-  public key/signature, retains the enrolled account-key epoch, and has revision
-  1 or previous + 1. After an Account
-  Root Secret reset, an already answered active invitation is intentionally
-  locked; only its exact old envelope retry is valid. Unanswered/new invitations
-  may enroll a first key.
+  public key/signature and has revision 1 or previous + 1. Within an epoch the
+  response key must remain unchanged. A phone-verified device switch must rotate
+  the account-key epoch and response key together; changing only one is invalid.
 - **deadline/consumption conflict:** new receipts are forbidden after the
   authority clock deadline and after canonical batch consumption. An exact
   already committed receipt retry remains valid. Do not change the deadline or
@@ -240,8 +240,40 @@ global log identity are four different lifecycles:
 - The **global transparency identity** never rotates in place for
   `herd-response-log-v1`.
 
-Use a serving-off cutover for artifact or epoch changes. Do not authorize old
-and new image digests as concurrent Firestore writers:
+Use the bounded zero-unavailable procedure below only for an artifact-only
+release that reuses the byte-identical encrypted epoch and global bundles and
+the identical `releaseId`, `policyMeasurement`, four key IDs, four public keys,
+and key-binding hash. Any uncertainty or any epoch/global-identity change uses
+the serving-off procedure that follows.
+
+Artifact-only same-epoch rollout:
+
+1. Capture the old digest, D1 tail, Firestore tail, public head, and independent
+   witness head; require exact agreement. Build and approve the new immutable
+   image and prove its embedded ciphertext hashes and stable policy identity
+   equal the old release.
+2. Add a new `evaluator_slots` entry (alternate `blue` and `green`) with the new
+   digest, three instances, and `serve_traffic = false`. Do not edit or remove
+   the serving slot. Review that the plan creates a separate template and MIG,
+   leaves it detached from the public backend, and authorizes exactly the old
+   and new digests.
+3. Apply while continuously probing `/readyz`. Prove every candidate instance
+   through a temporary, access-restricted validation path, then require its
+   exact attestation digest. A failed candidate must leave the serving MIG
+   untouched; remove only the candidate slot and grants. Never attach a new
+   digest while released clients still pin only the old digest.
+4. After released clients accept both exact digests, set the candidate's
+   `serve_traffic` to true in a reviewed apply and require both slots healthy.
+   In the next reviewed apply, set the old slot's `serve_traffic` to false and
+   then its `instance_count` to zero. Require the candidate to remain healthy
+   throughout. In a later apply, remove the empty old slot and revoke its
+   digest. Reconfirm tails, witnesses, policy creation, response certification,
+   and evaluation after every phase.
+5. Never change a slot's digest in place, remove the serving slot while creating
+   its candidate, or use two slots to bridge an epoch change. Two authorized
+   digests are a short-lived, explicitly reviewed maximum.
+
+Evaluator-key epoch or uncertain transition (serving off):
 
 1. Freeze new submissions and policy creation. Capture the D1 tail, Firestore
    tail, public head, and independent witness head and require exact agreement.
@@ -253,10 +285,11 @@ and new image digests as concurrent Firestore writers:
 3. Remove serving traffic, scale the old MIG to zero, wait for every old instance
    to terminate, and revoke the old digest's WIP/KMS/Firestore grants. Revoking
    KMS alone cannot erase keys already loaded in a running TEE.
-4. Build and approve the new immutable artifact. For an artifact-only release,
-   embed the existing epoch and global ciphertexts. For an epoch change, generate
-   only the three new epoch keys and bearer token, but embed the existing global
-   transparency ciphertext.
+4. Build and approve the new immutable artifact. For an uncertain artifact-only
+   release, embed the existing epoch and global ciphertexts. For an epoch change,
+   generate only the three new epoch keys and bearer token, but embed the
+   existing global transparency ciphertext and assign the new reviewed stable
+   policy measurement.
 5. Authorize only the new exact image digest, deploy it, and require startup
    readiness to verify the existing Firestore tail under the same global log
    key. Compare fresh attestation, artifact release ID, epoch ID, all four public
@@ -267,10 +300,9 @@ and new image digests as concurrent Firestore writers:
    wrapping-key history. Never retain plaintext JWKs or destroy old epoch
    recovery material before its retention gate passes.
 
-The Terraform KMS/Firestore IAM members intentionally do not use
-`create_before_destroy`. Availability pauses during this ceremony; preserving a
-single authorized writer identity is more important than a zero-downtime
-cutover.
+Availability deliberately pauses during the epoch ceremony. Never use blue/
+green slots to bridge two evaluator-key epochs: revoking KMS does not remove key
+material already loaded in a running TEE.
 
 ### Global transparency-key compromise
 

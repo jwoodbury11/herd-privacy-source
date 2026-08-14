@@ -38,14 +38,20 @@ struct LocationSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var locationName: String
     @Binding private var locationAddress: String
+    private let profileAddress: String?
 
     @StateObject private var searchModel: LocationSearchModel
     @State private var selectedName: String
     @State private var selectedAddress: String
 
-    init(locationName: Binding<String>, locationAddress: Binding<String>) {
+    init(
+        locationName: Binding<String>,
+        locationAddress: Binding<String>,
+        profileAddress: String
+    ) {
         _locationName = locationName
         _locationAddress = locationAddress
+        self.profileAddress = LocationSearchSuggestions.profileAddress(from: profileAddress)
 
         let initialQuery = locationAddress.wrappedValue.isEmpty
             ? locationName.wrappedValue
@@ -71,7 +77,26 @@ struct LocationSearchView: View {
                         )
                     }
 
-                    if !searchModel.results.isEmpty {
+                    if searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if let profileAddress {
+                            LocationGroup(title: "Suggestions") {
+                                Button {
+                                    selectedName = profileAddress
+                                    selectedAddress = profileAddress
+                                    searchModel.query = profileAddress
+                                } label: {
+                                    LocationResultRow(
+                                        icon: "house",
+                                        title: profileAddress,
+                                        subtitle: "Your profile address",
+                                        isSelected: selectedAddress == profileAddress
+                                    )
+                                }
+                                .buttonStyle(LocationRowButtonStyle())
+                                .accessibilityIdentifier("profile-address-suggestion")
+                            }
+                        }
+                    } else if !searchModel.results.isEmpty {
                         LocationGroup(title: "Suggestions") {
                             ForEach(Array(searchModel.results.enumerated()), id: \.offset) { index, result in
                             Button {
@@ -133,6 +158,13 @@ struct LocationSearchView: View {
                 selectedAddress = ""
             }
         }
+    }
+}
+
+enum LocationSearchSuggestions {
+    static func profileAddress(from address: String) -> String? {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

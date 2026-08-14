@@ -1,4 +1,13 @@
 export const PRIVATE_RESPONSE_PROTOCOL_VERSION = 1 as const;
+
+export function publicRuntimeValue(key: string): string | undefined {
+  if (typeof window !== "undefined") {
+    return (window as Window & {
+      __HERD_PUBLIC_RUNTIME_CONFIG__?: Record<string, string>;
+    }).__HERD_PUBLIC_RUNTIME_CONFIG__?.[key];
+  }
+  return process.env[`NEXT_PUBLIC_${key}`];
+}
 export const PRIVATE_RESPONSE_CIPHER_SUITE =
   "P256_HKDF_SHA256_AES256_GCM" as const;
 

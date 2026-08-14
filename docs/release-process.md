@@ -4,6 +4,14 @@ This process stages evidence only until an authorized maintainer deliberately
 publishes and deploys it. Private signing material never belongs in the source
 tree or uploaded build artifact.
 
+## Release surface lockstep
+
+Every product release is one source revision rendered across the iPhone simulator,
+TestFlight, and the production web app. Build and publish all three from the same
+merged Git revision, then record the revision beside the TestFlight build number
+and web deployment version. Disposable local acceptance tests may use mocks and
+temporary databases, but there is no deployed QA product or second backend.
+
 ## 1. Freeze source and tools
 
 Use the exact Node, npm, Xcode, Swift, iPhoneOS SDK, Wrangler, runner, locale,
@@ -186,19 +194,15 @@ key, and runs `verifyReleaseContinuity` against the protected template before
 provenance is generated.
 
 The one-time production bootstrap must use a newly provisioned, empty D1
-database. Production and QA use different database IDs, projects, bindings,
-origins, keys, and secrets. Apply every migration through the release snapshot
+database. Apply every migration through the release snapshot
 to that empty database, bind it to the candidate runtime, and call the
 authenticated evaluator-epoch status endpoint before opening user traffic. It
 must initialize generation 1 as `active` with `runtimeMatchesState: true`.
 
-Never promote, clone into production, or reuse a preview/QA/software-evaluator
-database containing frozen policies, resolutions, or response-transparency
-records. Those rows predate the signed epoch-descriptor fence and cannot be
-safely rebound. The runtime deliberately refuses to bootstrap such a database;
-there is no legacy backfill override. Provision and migrate a fresh database
-instead, and retain or dispose of the old isolated database under its existing
-data-retention policy.
+Never import an obsolete preview or software-evaluator database containing
+frozen policies, resolutions, or response-transparency records. Those rows
+predate the signed epoch-descriptor fence and cannot be safely rebound. The
+runtime deliberately refuses to bootstrap such a database.
 
 Evaluator-epoch reuse requires the live v2 D1 status to be `active`, to match
 the runtime descriptor digest, and to equal the template's exact epoch tuple.
@@ -210,7 +214,29 @@ zero-count snapshot is insufficient. The generated v2 epoch-transition record
 and, for successors, the release-continuity record are both subjects of the
 signed release-assembly provenance and artifacts in the production manifest.
 
-## 5. Bind the deployment
+## 5. Prove the live deployment can create private events
+
+A provider reporting a successful deployment and an HTTP 200 from the public
+site are necessary but not sufficient release checks. After every production
+source or environment change, run the authenticated live-readiness gate against
+the final public origin:
+
+```sh
+HERD_SCHEDULER_TOKEN=... node release/verify-live-readiness.mjs \
+  --origin https://app.herdprivacy.com/ \
+  --artifact-release-id <signed-release-id> \
+  --evaluator-image-digest sha256:<signed-image-digest>
+```
+
+The gate calls the exact evaluator-epoch fence used by private event creation,
+requires the runtime to match the active D1 epoch, pins the signed artifact and
+evaluator image identities, and samples multiple deployment isolates. Any
+non-200 response or disagreement is a failed deployment. Do not invite testers,
+send a production SMS smoke test, or upload a matching iOS build until this gate
+passes. Environment-only changes are production releases and must use the same
+gate.
+
+## 6. Bind the deployment
 
 After each provider returns immutable deployment IDs, fill a deployment input
 with web, ordinary-API, evaluator, and scheduler IDs; the release artifact hash
@@ -255,7 +281,7 @@ create a new artifact release ID and evidence chain. The `.well-known` pointer
 also publishes the signed predecessor and evaluator-key epoch so an external
 witness can enforce continuity across updates.
 
-## 6. Independent verification and claims
+## 7. Independent verification and claims
 
 Deploy the monitor under separate credentials and, preferably, a separate
 account/operator. Configure the persistent release pin, allowed evidence

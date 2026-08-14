@@ -535,6 +535,9 @@ async function verifyToken(response, expectedNonce, configuration, currentTime) 
   const commandOverride = container.cmd_override === undefined
     ? []
     : container.cmd_override;
+  const allowedImageDigests = new Set(
+    policy.allowedImageDigests.map(({ algorithm, value }) => `${algorithm}:${value}`),
+  );
   if (
     claims.iss !== GOOGLE_ATTESTATION_ISSUER ||
     claims.aud !== policy.audience ||
@@ -555,8 +558,7 @@ async function verifyToken(response, expectedNonce, configuration, currentTime) 
     gce.project_id !== policy.projectId ||
     serviceAccounts.length !== 1 ||
     serviceAccounts[0] !== policy.serviceAccount ||
-    container.image_digest !==
-      `sha256:${configuration.manifest.trust.workload.imageDigest.value}` ||
+    !allowedImageDigests.has(container.image_digest) ||
     container.restart_policy !== "Always" ||
     Object.keys(environmentOverride).length !== 0 ||
     !Array.isArray(commandOverride) ||
@@ -567,6 +569,7 @@ async function verifyToken(response, expectedNonce, configuration, currentTime) 
   ) {
     fail("The live evaluator does not match the signed confidential-compute policy.");
   }
+  return container.image_digest;
 }
 
 function attestationUrl(origin) {
@@ -660,12 +663,12 @@ export async function verifyLiveEvaluatorAttestation(
   ) {
     fail("The live evaluator attestation is not bound to the signed release keys.");
   }
-  await verifyToken(attestation, nonce, configuration, currentTime);
+  const imageDigest = await verifyToken(attestation, nonce, configuration, currentTime);
   return {
     verifiedAt: currentTime.toISOString(),
     origin: configuration.origin,
     audience: attestation.audience,
-    imageDigest: `sha256:${configuration.manifest.trust.workload.imageDigest.value}`,
+    imageDigest,
     keyBindingHash: expectedBindingHash,
     rootFingerprint:
       configuration.manifest.trust.workload.attestationRootFingerprint.value,

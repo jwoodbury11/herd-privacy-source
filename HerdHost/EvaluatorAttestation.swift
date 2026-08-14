@@ -79,70 +79,13 @@ struct EvaluatorAttestationVerifier: Sendable {
     let projectID: String
     let serviceAccount: String
     let imageDigest: String
+    let allowedImageDigests: Set<String>
+    let policyMeasurement: String
     let rootCertificate: Data
     let rootFingerprint: String
     let allowedSWVersions: Set<String>
     let maximumAge: TimeInterval
     let keyBinding: EvaluatorKeyBinding
-
-#if DEBUG
-    static func allowsSoftwareQAEvaluator(
-        policy: PrivateResponsePolicyV1,
-        bundle: Bundle = .main
-    ) throws -> Bool {
-        let keys = [
-            "HERD_ALLOW_SOFTWARE_QA_EVALUATOR",
-            "HERD_DEPLOYMENT_PROFILE",
-            "HERD_RELEASE_ID",
-            "HERD_EVALUATOR_KEY_ID",
-            "HERD_EVALUATOR_PUBLIC_KEY",
-            "HERD_EVALUATOR_MEASUREMENT",
-        ]
-        return try allowsSoftwareQAEvaluator(
-            policy: policy,
-            settings: Dictionary(uniqueKeysWithValues: keys.compactMap { key in
-                guard let value = bundle.object(forInfoDictionaryKey: key) as? String else {
-                    return nil
-                }
-                return (key, value)
-            })
-        )
-    }
-
-    static func allowsSoftwareQAEvaluator(
-        policy: PrivateResponsePolicyV1,
-        settings: [String: String]
-    ) throws -> Bool {
-        let enabled = settings["HERD_ALLOW_SOFTWARE_QA_EVALUATOR"]
-        guard enabled == "true" else {
-            if let enabled, !enabled.isEmpty, enabled != "false" {
-                throw EvaluatorAttestationVerificationError.invalidRelease
-            }
-            return false
-        }
-        guard
-            settings["HERD_DEPLOYMENT_PROFILE"] == "test",
-            let releaseID = settings["HERD_RELEASE_ID"],
-            let keyID = settings["HERD_EVALUATOR_KEY_ID"],
-            let publicKey = settings["HERD_EVALUATOR_PUBLIC_KEY"],
-            let measurement = settings["HERD_EVALUATOR_MEASUREMENT"],
-            PinnedEvaluator.isValidKeyID(releaseID),
-            PinnedEvaluator.isValidKeyID(keyID),
-            let publicKeyData = Data(base64URLEncoded: publicKey),
-            publicKeyData.count == 65,
-            publicKeyData.first == 0x04,
-            publicKeyData.base64URLEncodedString() == publicKey,
-            !measurement.isEmpty
-        else { throw EvaluatorAttestationVerificationError.invalidRelease }
-        guard
-            policy.releaseId == releaseID,
-            policy.evaluatorKeyId == keyID,
-            policy.evaluatorPublicKey == publicKey,
-            policy.evaluatorMeasurement == measurement
-        else { throw EvaluatorAttestationVerificationError.untrustedWorkload }
-        return true
-    }
-#endif
 
     static func configured(bundle: Bundle = .main) throws -> EvaluatorAttestationVerifier {
         func value(_ key: String) throws -> String {
@@ -226,6 +169,26 @@ struct EvaluatorAttestationVerifier: Sendable {
             of: "^sha256:[0-9a-f]{64}$",
             options: .regularExpression
         ) != nil else { throw EvaluatorAttestationVerificationError.invalidRelease }
+        let configuredDigestList = (bundle.object(
+            forInfoDictionaryKey: "HERD_ATTESTATION_IMAGE_DIGESTS"
+        ) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digestListValue = configuredDigestList.flatMap { $0.isEmpty ? nil : $0 } ?? imageDigest
+        let imageDigests = digestListValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard
+            (1...2).contains(imageDigests.count),
+            imageDigests.first == imageDigest,
+            Set(imageDigests).count == imageDigests.count,
+            imageDigests.allSatisfy({
+                $0.range(of: "^sha256:[0-9a-f]{64}$", options: .regularExpression) != nil
+            })
+        else { throw EvaluatorAttestationVerificationError.invalidRelease }
+        let policyMeasurement = try value("HERD_EVALUATOR_MEASUREMENT")
+        guard policyMeasurement.range(
+            of: "^sha256:[0-9a-f]{64}$",
+            options: .regularExpression
+        ) != nil else { throw EvaluatorAttestationVerificationError.invalidRelease }
         let versions = try value("HERD_ATTESTATION_SWVERSIONS")
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -255,6 +218,8 @@ struct EvaluatorAttestationVerifier: Sendable {
             projectID: try value("HERD_ATTESTATION_PROJECT_ID"),
             serviceAccount: try value("HERD_ATTESTATION_SERVICE_ACCOUNT"),
             imageDigest: imageDigest,
+            allowedImageDigests: Set(imageDigests),
+            policyMeasurement: policyMeasurement,
             rootCertificate: rootCertificate,
             rootFingerprint: rootFingerprint,
             allowedSWVersions: Set(versions),
@@ -292,7 +257,7 @@ struct EvaluatorAttestationVerifier: Sendable {
             policy.releaseId == keyBinding.releaseId,
             policy.evaluatorKeyId == keyBinding.keys.responseDecryption.keyId,
             policy.evaluatorPublicKey == keyBinding.keys.responseDecryption.publicKey,
-            policy.evaluatorMeasurement == imageDigest
+            policy.evaluatorMeasurement == policyMeasurement
         else { throw EvaluatorAttestationVerificationError.untrustedWorkload }
         try verifyToken(
             response.attestationToken,
@@ -399,7 +364,8 @@ struct EvaluatorAttestationVerifier: Sendable {
             let gce = submods["gce"] as? [String: Any],
             gce["project_id"] as? String == projectID,
             let container = submods["container"] as? [String: Any],
-            container["image_digest"] as? String == imageDigest,
+            let attestedImageDigest = container["image_digest"] as? String,
+            allowedImageDigests.contains(attestedImageDigest),
             container["restart_policy"] as? String == "Always",
             emptyEnvironmentOverride(container["env_override"]),
             emptyCommandOverride(container["cmd_override"]),
@@ -427,11 +393,13 @@ struct EvaluatorAttestationVerifier: Sendable {
     }
 
     private func emptyCommandOverride(_ value: Any?) -> Bool {
+        if value == nil { return true }
         guard let values = value as? [Any] else { return false }
         return values.isEmpty
     }
 
     private func emptyEnvironmentOverride(_ value: Any?) -> Bool {
+        if value == nil { return true }
         guard let values = value as? [String: Any] else { return false }
         return values.isEmpty
     }

@@ -906,7 +906,7 @@ async function normalizeWellKnown(value) {
   if (value.schemaVersion !== 1) throw new TypeError("well-known release schema is unsupported.");
   exactKeys(value.protocol, ["version", "cipherSuite", "paddedPlaintextBytes", "payloadFrameBytes", "userWrapBytes", "evaluatorWrapBytes"], "well-known protocol");
   exactKeys(value.web, ["publicOrigin", "entryDocumentSha256", "assetManifestSha256"], "well-known web");
-  exactKeys(value.evaluator, ["evaluatorKeyEpochId", "encryptionKeyId", "resultSigningKeyId", "policySigningKeyId", "receiptTransparencySigningKeyId", "workloadImageDigest", "measurements", "attestationProvider", "attestationClaimPolicy", "attestationRootFingerprint"], "well-known evaluator");
+  exactKeys(value.evaluator, ["evaluatorKeyEpochId", "encryptionKeyId", "resultSigningKeyId", "policySigningKeyId", "receiptTransparencySigningKeyId", "workloadImageDigest", "policyMeasurement", "measurements", "attestationProvider", "attestationClaimPolicy", "attestationRootFingerprint"], "well-known evaluator");
   exactKeys(value.responseTransparency, ["protocolVersion", "logId", "url", "signingKey", "dataPolicy", "entryFields"], "well-known responseTransparency");
   if (
     value.responseTransparency.protocolVersion !== 1 ||
@@ -1044,16 +1044,21 @@ async function normalizeCriticalManifest(value, requireProduction) {
     throw new TypeError("release manifest trust purposes do not use distinct keys.");
   }
   const workload = value.trust.workload;
-  exactKeys(workload, ["platform", "imageDigest", "measurements", "attestationProvider", "attestationClaimPolicy", "attestationRootFingerprint"], "release manifest workload");
+  exactKeys(workload, ["platform", "imageDigest", "policyMeasurement", "measurements", "attestationProvider", "attestationClaimPolicy", "attestationRootFingerprint"], "release manifest workload");
   if (workload.platform !== "gcp-confidential-space" || workload.attestationProvider !== "google-pki-attestation-token") {
     throw new TypeError("release manifest workload is not Google Confidential Space.");
   }
   const imageDigest = normalizeDigest(workload.imageDigest, "release manifest workload.imageDigest", { sha256Only: true });
+  const policyMeasurement = normalizeDigest(
+    workload.policyMeasurement,
+    "release manifest workload.policyMeasurement",
+    { sha256Only: true },
+  );
   if (!Array.isArray(workload.measurements) || workload.measurements.length === 0) throw new TypeError("release manifest workload measurements are empty.");
   const measurements = workload.measurements.map((item, index) => normalizeDigest(item, `release manifest workload.measurements[${index}]`));
   normalizeDigest(workload.attestationRootFingerprint, "release manifest workload.attestationRootFingerprint", { sha256Only: true });
   const claim = workload.attestationClaimPolicy;
-  exactKeys(claim, ["policyId", "issuer", "audience", "maxAgeSeconds", "challengeNonceRequired", "keyBindingDomain", "keyBindingHashAlgorithm", "keyBindingHashEncoding", "keyBindingHash", "imageDigest", "projectId", "serviceAccount", "hwmodel", "secboot", "dbgstat", "swname", "allowedSwversions", "oemid", "attesterTcb", "envOverrideAllowed", "cmdOverrideAllowed"], "release manifest attestationClaimPolicy");
+  exactKeys(claim, ["policyId", "issuer", "audience", "maxAgeSeconds", "challengeNonceRequired", "keyBindingDomain", "keyBindingHashAlgorithm", "keyBindingHashEncoding", "keyBindingHash", "imageDigest", "allowedImageDigests", "projectId", "serviceAccount", "hwmodel", "secboot", "dbgstat", "swname", "allowedSwversions", "oemid", "attesterTcb", "envOverrideAllowed", "cmdOverrideAllowed"], "release manifest attestationClaimPolicy");
   if (
     claim.issuer !== GOOGLE_ISSUER ||
     claim.challengeNonceRequired !== true ||
@@ -1080,6 +1085,26 @@ async function normalizeCriticalManifest(value, requireProduction) {
   claim.allowedSwversions.forEach((version, index) => string(version, `release manifest allowedSwversions[${index}]`, { minimum: 6, maximum: 6, pattern: /^[0-9]{6}$/u }));
   if (!sameJson(normalizeDigest(claim.imageDigest, "release manifest attestation imageDigest", { sha256Only: true }), imageDigest)) {
     throw new TypeError("release manifest attestation image digest is inconsistent.");
+  }
+  if (
+    !Array.isArray(claim.allowedImageDigests) ||
+    claim.allowedImageDigests.length === 0 ||
+    claim.allowedImageDigests.length > 2
+  ) {
+    throw new TypeError("release manifest attestation image allowlist must contain one or two digests.");
+  }
+  const allowedImageDigests = claim.allowedImageDigests.map((digest, index) =>
+    normalizeDigest(digest, `release manifest allowedImageDigests[${index}]`, {
+      sha256Only: true,
+    }));
+  const allowedImageDigestValues = allowedImageDigests.map(
+    ({ algorithm, value: digest }) => `${algorithm}:${digest}`,
+  );
+  if (new Set(allowedImageDigestValues).size !== allowedImageDigestValues.length) {
+    throw new TypeError("release manifest attestation image allowlist contains duplicates.");
+  }
+  if (!sameJson(allowedImageDigests[0], imageDigest)) {
+    throw new TypeError("release manifest primary image digest is not first in its allowlist.");
   }
   const bindingPayload = {
     protocolVersion: 1,
@@ -1245,7 +1270,24 @@ async function normalizeCriticalManifest(value, requireProduction) {
     createdAt,
     sourceDateEpoch,
     protocol,
-    trust: { evaluatorEncryption, resultSigning, policySigning, receiptTransparencySigning, releaseManifestSigning, workload: { ...workload, imageDigest, measurements } },
+    trust: {
+      evaluatorEncryption,
+      resultSigning,
+      policySigning,
+      receiptTransparencySigning,
+      releaseManifestSigning,
+      workload: {
+        ...workload,
+        imageDigest,
+        policyMeasurement,
+        measurements,
+        attestationClaimPolicy: {
+          ...claim,
+          imageDigest,
+          allowedImageDigests,
+        },
+      },
+    },
     source,
     artifacts,
     evidence,
@@ -1699,6 +1741,7 @@ export async function verifyTarget(
     policySigningKeyId: manifest.trust.policySigning.keyId,
     receiptTransparencySigningKeyId: manifest.trust.receiptTransparencySigning.keyId,
     workloadImageDigest: manifest.trust.workload.imageDigest,
+    policyMeasurement: manifest.trust.workload.policyMeasurement,
     measurements: manifest.trust.workload.measurements,
     attestationProvider: manifest.trust.workload.attestationProvider,
     attestationClaimPolicy: manifest.trust.workload.attestationClaimPolicy,

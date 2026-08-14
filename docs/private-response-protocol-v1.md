@@ -44,10 +44,11 @@ canonical unsigned-envelope JSON. The API reconstructs that object before
 hashing or storing it. Extra and malformed fields are rejected.
 
 `revision` starts at one and uses compare-and-swap. A replacement must have the
-current revision plus one and retain the exact first revision's account-key
-epoch and response-signing public key. An SMS-authenticated account reset
-creates a new `accountKeyEpochId` without changing the phone-linked account or
-invitations, but it cannot replace an already answered invitation.
+current revision plus one. Within one account-key epoch it must retain the
+previous response-signing public key. After fresh phone verification, a device
+switch creates a new `accountKeyEpochId`; the next revision must rotate both the
+account-key epoch and response-signing public key together. Changing only one
+identity is rejected.
 
 ## Cryptographic context
 
@@ -144,9 +145,12 @@ base64url(SHA-256("HERD-ARS-COMMITMENT-V1" || 0x00 || ARS))
 
 The API stores the 32-byte commitment but never the ARS. A client with a local
 ARS must reproduce the commitment. If the epoch is already initialized and the
-device has no matching local ARS, it must not silently generate another secret;
-it must use trusted-device pairing (when implemented) or the explicit reset
-flow. Response upload is refused until the active epoch is initialized.
+device has no matching local ARS, it must not silently generate another secret.
+It must use trusted-device pairing (when implemented) or explicitly switch
+private replies to this device after fresh phone verification. A switch starts
+a new epoch and the next reply replaces the active reply; it does not recover
+the old ciphertext. Response upload is refused until the active epoch is
+initialized.
 
 ## Evaluator key wrap
 
@@ -247,7 +251,7 @@ previous-entry hash, entry hash, and transparency signing-key ID. The
 confidential authority atomically advances the member revision, policy state,
 log entry, and signed log head before certifying the receipt. An exact retry of
 an already certified envelope returns that same certification, including after
-the deadline or an account reset.
+the deadline or a verified switch to a new account-key epoch.
 
 A reservation that is absent from the authority when its deadline closes is
 not accepted late. Only after all response authorization, revision, policy, and
@@ -317,22 +321,24 @@ After freezing, a host cannot modify any policy field or return
 `invitationsSent` to false. A changed event requires a new event and new explicit
 responses.
 
-## Reset behavior
+## Device-switch behavior
 
-If an authenticated device cannot open the active epoch, the user may start over
-after fresh SMS verification. Herd supersedes the old epoch, creates a new epoch,
-revokes other server sessions, and retains the stable phone-linked user and
-invitations. The new ARS derives different response-signing keys. It may enroll
-the first response for a never-answered invitation or a new event, but it may
-not create a later revision for an invitation whose first response was pinned
-under the old epoch. The exact old signed envelope remains safely retryable if
-the device or caller still has it. Old criteria remain cryptographically
-unavailable to the reset device.
+If an authenticated device cannot open the active epoch, the user may switch
+private replies to that device after fresh SMS verification. Herd supersedes
+the old epoch, creates a new epoch, revokes other server sessions, and retains
+the stable phone-linked user and invitations. The new ARS derives different
+response-signing keys. It may enroll a first response or submit the next
+revision for an already answered invitation; that new revision replaces the
+active response. The exact old signed envelope remains safely retryable as an
+idempotent historical revision. Old criteria remain cryptographically
+unavailable to the switching device.
 
 Protocol v1 does not yet define trusted-device pairing. Consequently, a second
-browser or iPhone without the active ARS must start over even if the first device
-still exists. Pairing can later add an ARS wrap for a newly approved device
+browser or iPhone without the active ARS must switch the account epoch even if
+the first device still exists. Pairing can later add an ARS wrap for a newly approved device
 without changing the response-envelope format.
 
 Protocol v1 knowingly accepts the SIM-swap and recycled-number takeover risk for
-this reset path. That risk must remain disclosed until stronger recovery ships.
+this device-switch path. A verified phone takeover can replace an active reply,
+although it still cannot decrypt the previous reply. That risk must remain
+disclosed until stronger recovery ships.

@@ -11,19 +11,18 @@ import {
 
 import { getAuthenticatedSession } from "./auth";
 import { getAuthConfig } from "./config";
-import { pepperedHash, randomToken } from "./crypto";
-import { requireEvaluatorEpochPolicyFence } from "./evaluator-epoch";
+import { pepperedHash } from "./crypto";
 import { verifyStoredEventPolicyCertification } from "./evaluator-trust";
-import { getEventById, toPublicEvent } from "./events";
+import {
+  getEventById,
+  getInviteeResponseHistories,
+  toPublicEvent,
+} from "./events";
 import {
   ApiError,
   requireString,
 } from "./http";
-import { maskPhoneNumber, normalizePhoneNumber } from "./phone";
-import {
-  buildPrivateResponsePolicy,
-  prepareInsertPrivateResponsePolicy,
-} from "./policy";
+import { maskPhoneNumber } from "./phone";
 import {
   getLatestValidResponseEnvelope,
   parseResponseEnvelope,
@@ -32,272 +31,8 @@ import {
   type ResponseEnvelopeRow,
 } from "./response-envelopes";
 import { ensurePrivateResponseReceipt } from "./response-transparency";
-import {
-  getEventResolutionForRead,
-  prepareInsertPendingEventResolution,
-} from "./resolutions";
+import { getEventResolutionForRead } from "./resolutions";
 import type { InviteAccess } from "./types";
-
-const POKER_EVENT_ID = "10000000-0000-4000-8000-000000000001";
-const POKER_INVITEE_IDS = {
-  jeff: "20000000-0000-4000-8000-000000000001",
-  alex: "20000000-0000-4000-8000-000000000002",
-  maya: "20000000-0000-4000-8000-000000000003",
-  daniel: "20000000-0000-4000-8000-000000000004",
-  cody: "20000000-0000-4000-8000-000000000005",
-  chase: "20000000-0000-4000-8000-000000000006",
-  lucas: "20000000-0000-4000-8000-000000000007",
-  matt: "20000000-0000-4000-8000-000000000008",
-} as const;
-const POKER_GROUP_ID = "30000000-0000-4000-8000-000000000001";
-
-function futureFixtureDates(now = new Date()) {
-  const eventDate = new Date(now.getTime() + 7 * 86_400_000);
-  eventDate.setUTCMinutes(0, 0, 0);
-  const endDate = new Date(eventDate.getTime() + 3 * 3_600_000);
-  const rsvpDeadline = new Date(eventDate.getTime() - 2 * 86_400_000);
-  return {
-    eventDate: eventDate.toISOString(),
-    endDate: endDate.toISOString(),
-    rsvpDeadline: rsvpDeadline.toISOString(),
-  };
-}
-
-async function ensureFixturePolicy(
-  db: D1Database,
-  bindings: HerdBindings,
-  config: ReturnType<typeof getAuthConfig>,
-): Promise<void> {
-  const event = await getEventById(db, POKER_EVENT_ID);
-  if (!event || event.privateResponsePolicy) return;
-  const { hostUserId, ...canonicalEvent } = event;
-  void hostUserId;
-  const policy = await buildPrivateResponsePolicy(
-    canonicalEvent,
-    config,
-    new Date().toISOString(),
-    bindings,
-  );
-  const epochFence = await requireEvaluatorEpochPolicyFence(db, bindings);
-  await db.batch([
-    prepareInsertPrivateResponsePolicy(db, event.id, policy, epochFence),
-    prepareInsertPendingEventResolution(
-      db,
-      event.id,
-      policy.policyHash,
-      policy.frozenAt,
-    ),
-  ]);
-}
-
-async function ensureTestHost(
-  db: D1Database,
-  bindings: HerdBindings,
-  pepper: string,
-  nowIso: string,
-): Promise<string> {
-  const hostPhone = normalizePhoneNumber(
-    bindings.HERD_TEST_HOST_PHONE_E164 ?? "+14155550111",
-  );
-  const hostPhoneHash = await pepperedHash(pepper, "phone", hostPhone);
-  await db
-    .prepare(
-      `INSERT INTO users
-        (id, phone_number, phone_hash, name, address, created_at, updated_at)
-       VALUES ('fixture_user_james', ?, ?, 'James', '', ?, ?)
-       ON CONFLICT(phone_number) DO UPDATE SET
-         phone_hash = excluded.phone_hash,
-         name = CASE WHEN users.name = '' THEN 'James' ELSE users.name END,
-         updated_at = excluded.updated_at`,
-    )
-    .bind(hostPhone, hostPhoneHash, nowIso, nowIso)
-    .run();
-  const host = await db
-    .prepare("SELECT id FROM users WHERE phone_number = ?")
-    .bind(hostPhone)
-    .first<{ id: string }>();
-  if (!host) {
-    throw new ApiError(500, "fixture_unavailable", "The poker-party fixture is unavailable.");
-  }
-  return host.id;
-}
-
-export async function ensurePokerPartyFixture(
-  db: D1Database,
-  bindings: HerdBindings,
-): Promise<void> {
-  const config = getAuthConfig(bindings);
-  if (!config.testBypassEnabled || !config.testPhoneNumber) {
-    throw new ApiError(404, "invite_not_found", "The invitation was not found.");
-  }
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const hostUserId = await ensureTestHost(db, bindings, config.pepper, nowIso);
-  const testPhone = config.testPhoneNumber!;
-  const testPhoneHash = await pepperedHash(config.pepper, "phone", testPhone);
-  const fixtureTokenHash = await pepperedHash(
-    config.pepper,
-    "invite-token",
-    "poker-party",
-  );
-  const existing = await db
-    .prepare(
-      `SELECT event_date AS eventDate,
-              location_name AS locationName,
-              (SELECT phone_hash FROM invitees WHERE id = ?) AS fixturePhoneHash
-       FROM events WHERE id = ?`,
-    )
-    .bind(POKER_INVITEE_IDS.jeff, POKER_EVENT_ID)
-    .first<{
-      eventDate: string | null;
-      locationName: string;
-      fixturePhoneHash: string | null;
-    }>();
-
-  if (!existing) {
-    const dates = futureFixtureDates(now);
-    const fixtureInvitees = [
-      [POKER_INVITEE_IDS.jeff, "Jeff Wilson", testPhone, fixtureTokenHash],
-      [POKER_INVITEE_IDS.alex, "Alex Smith", "+14155550112", null],
-      [POKER_INVITEE_IDS.maya, "Maya Patel", "+16285550175", null],
-      [POKER_INVITEE_IDS.daniel, "Daniel Stratton", "+14155550123", null],
-      [POKER_INVITEE_IDS.cody, "Cody Morgan", "+15105550129", null],
-      [POKER_INVITEE_IDS.chase, "Chase Haddleton", "+16505550153", null],
-      [POKER_INVITEE_IDS.lucas, "Lucas Harrington", "+14155550162", null],
-      [POKER_INVITEE_IDS.matt, "Matt Krisiloff", "+15105550190", null],
-    ] as const;
-    const statements: D1PreparedStatement[] = [
-      db
-        .prepare(
-          `INSERT INTO events
-            (id, host_user_id, title, event_date, end_date, host_name, location_name,
-             location_address, minimum_participants, rsvp_deadline, event_description,
-             invitations_sent, created_at, updated_at)
-           VALUES (
-             ?, ?, 'Poker night', ?, ?, 'James',
-             'James’s place', 'San Francisco, CA', 4, ?,
-             'A low-stakes poker night with pizza, drinks, and a firm ban on taking the game too seriously.',
-             1, ?, ?
-           )`,
-        )
-        .bind(
-          POKER_EVENT_ID,
-          hostUserId,
-          dates.eventDate,
-          dates.endDate,
-          dates.rsvpDeadline,
-          nowIso,
-          nowIso,
-        ),
-    ];
-    for (const [id, displayName, rawPhone, fixedTokenHash] of fixtureInvitees) {
-      const phoneNumber = normalizePhoneNumber(rawPhone);
-      const phoneHash = await pepperedHash(config.pepper, "phone", phoneNumber);
-      const tokenHash =
-        fixedTokenHash ??
-        (await pepperedHash(config.pepper, "invite-token", randomToken(32)));
-      statements.push(
-        db
-          .prepare(
-            `INSERT INTO invitees
-              (id, event_id, user_id, display_name, phone_number, phone_hash, token_hash,
-               created_at, updated_at)
-             VALUES (
-               ?, ?,
-               (SELECT id FROM users WHERE phone_hash = ? LIMIT 1),
-               ?, ?, ?, ?, ?, ?
-             )`,
-          )
-          .bind(
-            id,
-            POKER_EVENT_ID,
-            phoneHash,
-            displayName,
-            phoneNumber,
-            phoneHash,
-            tokenHash,
-            nowIso,
-            nowIso,
-          ),
-      );
-    }
-    statements.push(
-      db
-        .prepare(
-          `INSERT INTO groups (id, event_id, position)
-           VALUES (?, ?, 0)`,
-        )
-        .bind(POKER_GROUP_ID, POKER_EVENT_ID),
-      db
-        .prepare(
-          `INSERT INTO group_members (group_id, invitee_id, position)
-           VALUES (?, ?, 0)`,
-        )
-        .bind(POKER_GROUP_ID, POKER_INVITEE_IDS.alex),
-    );
-    await db.batch(statements);
-    await ensureFixturePolicy(db, bindings, config);
-    return;
-  }
-
-  const eventTimestamp = existing.eventDate ? Date.parse(existing.eventDate) : 0;
-  const fixturePolicyChanged =
-    !Number.isFinite(eventTimestamp) ||
-    eventTimestamp <= now.getTime() + 86_400_000 ||
-    existing.locationName !== "James’s place" ||
-    existing.fixturePhoneHash !== testPhoneHash;
-  if (fixturePolicyChanged) {
-    const dates = futureFixtureDates(now);
-    await db.batch([
-      db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(POKER_EVENT_ID),
-      db.prepare("DELETE FROM response_envelopes WHERE event_id = ?").bind(POKER_EVENT_ID),
-      db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(POKER_EVENT_ID),
-      db
-        .prepare(
-          `UPDATE events
-           SET event_date = ?, end_date = ?, rsvp_deadline = ?,
-               location_name = 'James’s place', updated_at = ?
-           WHERE id = ?`,
-        )
-        .bind(
-          dates.eventDate,
-          dates.endDate,
-          dates.rsvpDeadline,
-          nowIso,
-          POKER_EVENT_ID,
-        ),
-    ]);
-  }
-  await db
-    .prepare(
-      `UPDATE invitees
-       SET phone_number = ?,
-           phone_hash = ?,
-           token_hash = ?,
-           user_id = (SELECT id FROM users WHERE phone_hash = ? LIMIT 1),
-           updated_at = ?
-       WHERE id = ? AND event_id = ?`,
-    )
-    .bind(
-      testPhone,
-      testPhoneHash,
-      fixtureTokenHash,
-      testPhoneHash,
-      nowIso,
-      POKER_INVITEE_IDS.jeff,
-      POKER_EVENT_ID,
-    )
-    .run();
-  await db
-    .prepare(
-      `UPDATE events
-       SET location_name = 'James’s place', updated_at = ?
-       WHERE id = ?`,
-    )
-    .bind(nowIso, POKER_EVENT_ID)
-    .run();
-  await ensureFixturePolicy(db, bindings, config);
-}
 
 async function findInviteAccess(
   db: D1Database,
@@ -320,6 +55,36 @@ async function findInviteAccess(
     .first<InviteAccess>();
 }
 
+async function responseCertificationStatus(
+  db: D1Database,
+  envelopeId: string,
+): Promise<"certified" | "pending"> {
+  const certification = await db
+    .prepare(
+      `SELECT entries.receipt_signature AS receiptSignature,
+              entries.signed_at AS signedAt,
+              heads.signature AS headSignature,
+              heads.generated_at AS headGeneratedAt
+       FROM response_transparency_entries AS entries
+       LEFT JOIN response_transparency_heads AS heads
+         ON heads.log_index = entries.log_index
+       WHERE entries.envelope_id = ?`,
+    )
+    .bind(envelopeId)
+    .first<{
+      receiptSignature: string | null;
+      signedAt: string | null;
+      headSignature: string | null;
+      headGeneratedAt: string | null;
+    }>();
+  return certification?.receiptSignature &&
+    certification.signedAt &&
+    certification.headSignature &&
+    certification.headGeneratedAt
+    ? "certified"
+    : "pending";
+}
+
 export async function getInviteByToken(
   request: Request,
   db: D1Database,
@@ -331,7 +96,6 @@ export async function getInviteByToken(
     throw new ApiError(404, "invite_not_found", "The invitation was not found.");
   }
   const config = getAuthConfig(bindings);
-  if (token === "poker-party") await ensurePokerPartyFixture(db, bindings);
   const tokenHash = await pepperedHash(config.pepper, "invite-token", token);
   const access = await findInviteAccess(db, tokenHash);
   if (!access) throw new ApiError(404, "invite_not_found", "The invitation was not found.");
@@ -373,6 +137,9 @@ export async function getInviteByToken(
     canRespond
       ? await getLatestValidResponseEnvelope(db, access.inviteeId)
       : null;
+  const certificationStatus = responseEnvelope
+    ? await responseCertificationStatus(db, responseEnvelope.envelopeId)
+    : null;
   const { hostUserId, ...canonicalEvent } = event;
   void hostUserId;
   const publicEvent = toPublicEvent(canonicalEvent);
@@ -381,8 +148,7 @@ export async function getInviteByToken(
     bindings,
     canonicalEvent,
   );
-  return {
-    event: {
+  const projectedEvent = {
       ...publicEvent,
       resolution,
       invitees: publicEvent.invitees.map((invitee) => ({
@@ -397,10 +163,20 @@ export async function getInviteByToken(
         ? {
             hasResponse: Boolean(responseEnvelope),
             responseRevision: responseEnvelope?.revision ?? null,
+            responseCertificationStatus: certificationStatus,
             accountKeyEpochId: session.accountKeyEpochId,
             accountKeyCommitment: session.accountKeyCommitment,
           }
         : {}),
+  };
+  const responseHistories = await getInviteeResponseHistories(db, [projectedEvent]);
+  return {
+    event: {
+      ...projectedEvent,
+      invitees: projectedEvent.invitees.map((invitee) => ({
+        ...invitee,
+        responseHistory: responseHistories.get(`${projectedEvent.id}:${invitee.id}`),
+      })),
     },
     inviteMetadata: {
       id: access.inviteeId,
@@ -416,6 +192,7 @@ export async function getInviteByToken(
             hasResponse: Boolean(responseEnvelope),
             responseRevision: responseEnvelope?.revision ?? null,
             responseEnvelope,
+            responseCertificationStatus: certificationStatus,
           }
         : {}),
     },
@@ -508,7 +285,6 @@ export async function putInviteRsvp(
   }
   const envelope = normalizeSubmittedEnvelope(payload);
   const config = getAuthConfig(bindings);
-  if (token === "poker-party") await ensurePokerPartyFixture(db, bindings);
   const tokenHash = await pepperedHash(config.pepper, "invite-token", token);
   const access = await findInviteAccess(db, tokenHash);
   if (!access) throw new ApiError(404, "invite_not_found", "The invitation was not found.");
@@ -571,9 +347,6 @@ export async function putInviteRsvp(
 
   const event = await getEventById(db, access.eventId);
   if (!event) throw new ApiError(404, "invite_not_found", "The invitation was not found.");
-  if (event.rsvpDeadline && event.rsvpDeadline <= new Date().toISOString()) {
-    throw new ApiError(409, "rsvp_closed", "The reply deadline has passed.");
-  }
   if (!event.privateResponsePolicy) {
     throw new ApiError(
       409,
@@ -644,17 +417,18 @@ export async function putInviteRsvp(
       { expectedRevision },
     );
   }
-  if (
+  const accountEpochChanged = Boolean(
+    revisionRow && revisionRow.accountKeyEpochId !== envelope.accountKeyEpochId,
+  );
+  const responseSignerChanged = Boolean(
     revisionRow &&
-    (
-      revisionRow.accountKeyEpochId !== envelope.accountKeyEpochId ||
-      revisionRow.responseSigningPublicKey !== envelope.responseSigningPublicKey
-    )
-  ) {
+      revisionRow.responseSigningPublicKey !== envelope.responseSigningPublicKey,
+  );
+  if (revisionRow && accountEpochChanged !== responseSignerChanged) {
     throw new ApiError(
       409,
       "response_authorization_locked",
-      "This reply is locked to the account key that authorized its first saved revision. Starting over cannot replace it.",
+      "The response key and private-reply key must switch together.",
     );
   }
 
@@ -682,11 +456,9 @@ export async function putInviteRsvp(
              AND invitees.phone_hash = ?
              AND invitees.user_id = ?
              AND events.invitations_sent = 1
-             AND events.rsvp_deadline > ?
              AND event_policies.policy_hash = ?
              AND event_policies.evaluator_key_id = ?
              AND event_resolutions.policy_hash = event_policies.policy_hash
-             AND event_resolutions.status = 'pending'
              AND account_key_epochs.user_id = invitees.user_id
              AND account_key_epochs.superseded_at IS NULL
              AND account_key_epochs.key_commitment = ?
@@ -701,8 +473,13 @@ export async function putInviteRsvp(
                FROM response_envelopes AS previous_response
                WHERE previous_response.invitee_id = ?
                  AND previous_response.revision = ? - 1
-                 AND previous_response.account_key_epoch_id = ?
-                 AND previous_response.response_signing_public_key = ?
+                 AND (
+                   (previous_response.account_key_epoch_id = ?
+                     AND previous_response.response_signing_public_key = ?)
+                   OR
+                   (previous_response.account_key_epoch_id <> ?
+                     AND previous_response.response_signing_public_key <> ?)
+                 )
              )
            )
          ON CONFLICT DO NOTHING`,
@@ -730,7 +507,6 @@ export async function putInviteRsvp(
         access.eventId,
         access.phoneHash,
         session!.user.id,
-        nowIso,
         envelope.policyHash,
         envelope.evaluatorKeyId,
         session!.accountKeyCommitment,
@@ -739,6 +515,8 @@ export async function putInviteRsvp(
         envelope.revision,
         access.inviteeId,
         envelope.revision,
+        envelope.accountKeyEpochId,
+        envelope.responseSigningPublicKey,
         envelope.accountKeyEpochId,
         envelope.responseSigningPublicKey,
       )
@@ -768,8 +546,6 @@ export async function putInviteRsvp(
     const currentState = await db
       .prepare(
         `SELECT
-           events.rsvp_deadline AS rsvpDeadline,
-           event_resolutions.status AS resolutionStatus,
            account_key_epochs.id AS activeAccountKeyEpochId,
            COALESCE(
              (SELECT MAX(revision) FROM response_envelopes WHERE invitee_id = ?),
@@ -783,17 +559,11 @@ export async function putInviteRsvp(
       )
       .bind(access.inviteeId, session!.user.id, access.eventId)
       .first<{
-        rsvpDeadline: string | null;
-        resolutionStatus: string | null;
         activeAccountKeyEpochId: string | null;
         latestRevision: number;
       }>();
-    if (
-      !currentState?.rsvpDeadline ||
-      currentState.rsvpDeadline <= nowIso ||
-      currentState.resolutionStatus !== "pending"
-    ) {
-      throw new ApiError(409, "rsvp_closed", "The reply deadline has passed.");
+    if (!currentState) {
+      throw new ApiError(404, "invite_not_found", "The invitation was not found.");
     }
     if (currentState.activeAccountKeyEpochId !== envelope.accountKeyEpochId) {
       throw new ApiError(
@@ -826,6 +596,26 @@ export async function putInviteRsvp(
       "The encrypted response could not be saved.",
     );
   }
+  await db
+    .prepare(
+      `UPDATE event_resolutions
+       SET status = 'pending',
+           batch_hash = NULL,
+           attending_member_ids = NULL,
+           resolved_at = NULL,
+           evaluation_lease_id = NULL,
+           evaluation_lease_expires_at = NULL,
+           evaluation_request_hash = NULL,
+           result_attestation_protocol_version = NULL,
+           result_attestation_signing_key_id = NULL,
+           result_attestation_evaluated_at = NULL,
+           result_attestation_canonical_document = NULL,
+           result_attestation_signature = NULL,
+           updated_at = ?
+       WHERE event_id = ? AND policy_hash = ?`,
+    )
+    .bind(nowIso, access.eventId, envelope.policyHash)
+    .run();
   return {
     responseEnvelope: saved,
     receipt: await ensurePrivateResponseReceipt(db, bindings, saved),

@@ -6,13 +6,11 @@ import {
 } from "@/lib/privacy/protocol";
 
 import { ApiError } from "./http";
-import { normalizePhoneNumber } from "./phone";
 
 export type AuthConfig = {
   pepper: string;
-  testBypassEnabled: boolean;
-  qaBypassGeneration: string | null;
-  testPhoneNumber: string | null;
+  testAccountAccessEnabled: boolean;
+  testAccountAccessGeneration: string | null;
   challengeTtlSeconds: number;
   resendSeconds: number;
   maxCodeAttempts: number;
@@ -182,7 +180,8 @@ function p256SigningPublicKey(value: string | undefined, bindingName: string): s
 
 export function getDeploymentProfile(bindings: HerdBindings): DeploymentProfile {
   const value = bindings.HERD_DEPLOYMENT_PROFILE?.trim().toLowerCase();
-  if (value === "production" || value === "test") return value;
+  if (value === "production" || !value) return "production";
+  if (value === "test") return "test";
   if (value) {
     throw new ApiError(
       500,
@@ -190,11 +189,7 @@ export function getDeploymentProfile(bindings: HerdBindings): DeploymentProfile 
       "HERD_DEPLOYMENT_PROFILE must be production or test.",
     );
   }
-  // Local harnesses carry an explicit QA marker. Anything else is production,
-  // so a missing profile can never silently enable a weaker evaluator path.
-  return bindings.HERD_TEST_BYPASS_ENABLED?.trim().toLowerCase() === "true"
-    ? "test"
-    : "production";
+  return "production";
 }
 
 function optionalBoolean(value: string | undefined, name: string): boolean {
@@ -205,39 +200,19 @@ function optionalBoolean(value: string | undefined, name: string): boolean {
   throw new ApiError(500, "server_misconfigured", `${name} must be true or false.`);
 }
 
-function qaTestBypassConfig(bindings: HerdBindings): {
+function testAccountAccessConfig(bindings: HerdBindings): {
   enabled: boolean;
   generation: string | null;
 } {
   const enabled = optionalBoolean(
-    bindings.HERD_TEST_BYPASS_ENABLED,
-    "HERD_TEST_BYPASS_ENABLED",
+    bindings.HERD_TEST_ACCOUNT_ACCESS_ENABLED,
+    "HERD_TEST_ACCOUNT_ACCESS_ENABLED",
   );
-  if (
-    enabled &&
-    !optionalBoolean(
-      bindings.HERD_ALLOW_INSECURE_QA_BYPASS,
-      "HERD_ALLOW_INSECURE_QA_BYPASS",
-    )
-  ) {
-    throw new ApiError(
-      500,
-      "server_misconfigured",
-      "The QA authentication bypass requires a second explicit safety acknowledgement.",
-    );
-  }
-  if (enabled && getDeploymentProfile(bindings) !== "test") {
-    throw new ApiError(
-      500,
-      "server_misconfigured",
-      "The QA authentication bypass is forbidden in the production deployment profile.",
-    );
-  }
   if (!enabled) return { enabled: false, generation: null };
 
   const generation = requiredBounded(
-    bindings.HERD_QA_BYPASS_GENERATION,
-    "HERD_QA_BYPASS_GENERATION",
+    bindings.HERD_TEST_ACCOUNT_ACCESS_GENERATION,
+    "HERD_TEST_ACCOUNT_ACCESS_GENERATION",
     120,
   );
   if (
@@ -247,7 +222,7 @@ function qaTestBypassConfig(bindings: HerdBindings): {
     throw new ApiError(
       500,
       "server_misconfigured",
-      "HERD_QA_BYPASS_GENERATION must be a unique identifier of at least 16 safe characters.",
+      "HERD_TEST_ACCOUNT_ACCESS_GENERATION must be a unique identifier of at least 16 safe characters.",
     );
   }
   return { enabled: true, generation };
@@ -601,23 +576,6 @@ export function getInvitationDeliveryConfig(
   };
 }
 
-export function qaInvitationSuppressionReason(
-  bindings: HerdBindings,
-  phoneNumber: string,
-): string | null {
-  if (!qaTestBypassConfig(bindings).enabled) return null;
-  if (/^\+1415555010[1-9]$/u.test(phoneNumber)) return "qa_alias";
-  if (/^\+1[2-9][0-9]{2}55501[0-9]{2}$/u.test(phoneNumber)) return "qa_fixture";
-  const configuredFixtures = [
-    bindings.HERD_TEST_PHONE_E164,
-    bindings.HERD_TEST_HOST_PHONE_E164,
-    "+14155550187",
-  ];
-  return configuredFixtures.some((value) => value?.trim() === phoneNumber)
-    ? "qa_fixture"
-    : null;
-}
-
 export function getAuthConfig(bindings: HerdBindings): AuthConfig {
   const pepper = required(bindings.HERD_AUTH_PEPPER, "HERD_AUTH_PEPPER");
   if (pepper.length < 32) {
@@ -628,14 +586,7 @@ export function getAuthConfig(bindings: HerdBindings): AuthConfig {
     );
   }
 
-  const qaBypass = qaTestBypassConfig(bindings);
-  const testBypassEnabled = qaBypass.enabled;
-  const testPhoneNumber =
-    testBypassEnabled
-      ? normalizePhoneNumber(
-          required(bindings.HERD_TEST_PHONE_E164, "HERD_TEST_PHONE_E164"),
-        )
-      : null;
+  const testAccountAccess = testAccountAccessConfig(bindings);
 
   const twilioValues = [
     bindings.TWILIO_API_KEY_SID,
@@ -689,9 +640,8 @@ export function getAuthConfig(bindings: HerdBindings): AuthConfig {
 
   return {
     pepper,
-    testBypassEnabled,
-    qaBypassGeneration: qaBypass.generation,
-    testPhoneNumber,
+    testAccountAccessEnabled: testAccountAccess.enabled,
+    testAccountAccessGeneration: testAccountAccess.generation,
     challengeTtlSeconds: boundedInteger(
       bindings.HERD_CHALLENGE_TTL_SECONDS,
       600,

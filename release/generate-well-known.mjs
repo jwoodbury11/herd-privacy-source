@@ -143,6 +143,7 @@ async function main() {
       policySigningKeyId: manifest.trust.policySigning.keyId,
       receiptTransparencySigningKeyId: manifest.trust.receiptTransparencySigning.keyId,
       workloadImageDigest: manifest.trust.workload.imageDigest,
+      policyMeasurement: manifest.trust.workload.policyMeasurement,
       measurements: manifest.trust.workload.measurements,
       attestationProvider: manifest.trust.workload.attestationProvider,
       attestationClaimPolicy: manifest.trust.workload.attestationClaimPolicy,

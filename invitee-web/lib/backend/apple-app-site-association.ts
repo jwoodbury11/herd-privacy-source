@@ -1,12 +1,9 @@
 import type { HerdBindings } from "@/db";
 
-import { getDeploymentProfile } from "./config";
 import { ApiError } from "./http";
 
-const QA_APP_ID = "R4UPN8ZDV8.com.jameswoodbury.HerdPrototype";
-
-function iosAppIdentifier(value: string | undefined, isTest: boolean): string {
-  const appId = value?.trim() || (isTest ? QA_APP_ID : "");
+function iosAppIdentifier(value: string | undefined): string {
+  const appId = value?.trim() ?? "";
   if (
     appId.length > 300 ||
     !/^[A-Z0-9]{10}\.[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/u.test(appId) ||
@@ -22,10 +19,7 @@ function iosAppIdentifier(value: string | undefined, isTest: boolean): string {
 }
 
 export function appleAppSiteAssociationResponse(bindings: HerdBindings): Response {
-  const appID = iosAppIdentifier(
-    bindings.HERD_IOS_APP_ID,
-    getDeploymentProfile(bindings) === "test",
-  );
+  const appID = iosAppIdentifier(bindings.HERD_IOS_APP_ID);
   return new Response(
     JSON.stringify({
       applinks: {

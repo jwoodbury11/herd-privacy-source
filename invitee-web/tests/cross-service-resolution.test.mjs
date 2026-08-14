@@ -22,6 +22,10 @@ const temporaryDirectory = await mkdtemp(
 );
 
 const HOST_PHONE = "+14155550187";
+const TWILIO_API_KEY_SID = `SK${"7".repeat(32)}`;
+const TWILIO_VERIFY_SERVICE_SID = `VA${"8".repeat(32)}`;
+const TWILIO_ACCOUNT_SID = `AC${"6".repeat(32)}`;
+const TWILIO_MESSAGING_SERVICE_SID = `MG${"5".repeat(32)}`;
 const TEST_PEPPER = "herd-cross-service-pepper-0123456789-abcdefghijklmnopqrstuvwxyz";
 const EVALUATOR_KEY_ID = "herd-cross-service-evaluator-v1";
 const EVALUATOR_MEASUREMENT = "cross-service-software-evaluator-sha384";
@@ -169,14 +173,6 @@ const evaluatorSigningPublicKey = protocol.bytesToBase64Url(
 const policySigning = await ecdsaSigningFixture(POLICY_SIGNING_KEY_ID);
 const transparencySigning = await ecdsaSigningFixture(
   TRANSPARENCY_SIGNING_KEY_ID,
-);
-const policySigningPrivateJwk = await crypto.subtle.exportKey(
-  "jwk",
-  policySigning.keyPair.privateKey,
-);
-const transparencySigningPrivateJwk = await crypto.subtle.exportKey(
-  "jwk",
-  transparencySigning.keyPair.privateKey,
 );
 assert.notEqual(policySigning.publicKey, transparencySigning.publicKey);
 process.env.NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID = EVALUATOR_KEY_ID;
@@ -485,6 +481,29 @@ function installEvaluatorTrustSigningTransport(fetchMock, signingRequests) {
 async function createBackendHarness(fetchMock, bindingOverrides = {}) {
   const trustSigningRequests = [];
   installEvaluatorTrustSigningTransport(fetchMock, trustSigningRequests);
+  const twilio = fetchMock.get("https://verify.twilio.com");
+  twilio
+    .intercept({
+      method: "POST",
+      path: `/v2/Services/${TWILIO_VERIFY_SERVICE_SID}/Verifications`,
+    })
+    .reply(201, { sid: `VE${"9".repeat(32)}`, status: "pending" })
+    .persist();
+  fetchMock
+    .get("https://api.twilio.com")
+    .intercept({
+      method: "POST",
+      path: `/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+    })
+    .reply(201, { sid: `SM${"4".repeat(32)}`, status: "accepted" })
+    .persist();
+  twilio
+    .intercept({
+      method: "POST",
+      path: `/v2/Services/${TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`,
+    })
+    .reply(200, { sid: `VE${"9".repeat(32)}`, status: "approved", valid: true })
+    .persist();
   const modulePaths = await javascriptModules(serverRoot);
   modulePaths.sort((left, right) => {
     const entry = path.join(serverRoot, "index.js");
@@ -505,16 +524,22 @@ async function createBackendHarness(fetchMock, bindingOverrides = {}) {
     },
     fetchMock,
     bindings: {
+      HERD_DEPLOYMENT_PROFILE: "test",
       HERD_AUTH_PEPPER: TEST_PEPPER,
-      HERD_TEST_BYPASS_ENABLED: "true",
-      HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-      HERD_QA_BYPASS_GENERATION: "herd-test-generation-v1",
-      HERD_TEST_PHONE_E164: HOST_PHONE,
+      HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+      HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-test-generation-v1",
       HERD_TEST_HOST_PHONE_E164: "+14155550111",
+      TWILIO_API_KEY_SID,
+      TWILIO_API_KEY_SECRET: "cross-service-twilio-secret",
+      TWILIO_VERIFY_SERVICE_SID,
+      TWILIO_ACCOUNT_SID,
+      TWILIO_MESSAGING_SERVICE_SID,
+      HERD_PUBLIC_APP_URL: "https://app.herdprivacy.com",
       HERD_EVALUATOR_KEY_ID: EVALUATOR_KEY_ID,
       HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
       HERD_EVALUATOR_MEASUREMENT: EVALUATOR_MEASUREMENT,
       HERD_RELEASE_ID: RELEASE_ID,
+      HERD_ARTIFACT_RELEASE_ID: "2026.08.12.cross-service",
       HERD_EVALUATOR_URL: EVALUATOR_PUBLIC_URL,
       HERD_EVALUATOR_TOKEN: EVALUATOR_TOKEN,
       HERD_EVALUATOR_RESULT_SIGNING_KEY_ID: EVALUATOR_SIGNING_KEY_ID,
@@ -715,45 +740,28 @@ function installEvaluatorRelayTransport(
 }
 
 async function authenticate(miniflare, phoneNumber) {
+  const fixedAccount = /^\+1415555010([1-9])$/u.exec(phoneNumber);
+  const alias = /^[1-9]$/u.test(phoneNumber) ? phoneNumber : fixedAccount?.[1];
+  const phoneInput = alias ?? phoneNumber;
   const response = await api(
     miniflare,
     "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber }),
+    jsonRequest("POST", { phoneNumber: phoneInput }),
   );
-  assert.equal(response.status, 200, await response.clone().text());
-  return response.json();
-}
-
-test("isolated QA can certify policy locally without evaluator-network access", async () => {
-  const fetchMock = createFetchMock();
-  const { miniflare, database, trustSigningRequests } = await createBackendHarness(
-    fetchMock,
-    {
-      HERD_SOFTWARE_QA_LOCAL_TRUST_SIGNER_ENABLED: "true",
-      HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK: JSON.stringify(
-        policySigningPrivateJwk,
-      ),
-      HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK: JSON.stringify(
-        transparencySigningPrivateJwk,
-      ),
-    },
-  );
-  try {
-    const session = await authenticate(miniflare, HOST_PHONE);
-    assert.equal(typeof session.accessToken, "string");
-    assert.deepEqual(trustSigningRequests, []);
-    const policy = await database
-      .prepare(
-        `SELECT policy_signing_key_id AS keyId, policy_signature AS signature
-         FROM event_policies LIMIT 1`,
-      )
-      .first();
-    assert.equal(policy?.keyId, policySigning.keyId);
-    assert.equal(Buffer.from(policy?.signature ?? "", "base64url").length, 64);
-  } finally {
-    await miniflare.dispose();
+  if (alias) {
+    assert.equal(response.status, 200, await response.clone().text());
+    return response.json();
   }
-});
+  assert.equal(response.status, 201, await response.clone().text());
+  const challenge = await response.json();
+  const verified = await api(
+    miniflare,
+    "/api/auth/verify-code",
+    jsonRequest("POST", { challengeId: challenge.challengeId, code: "1234" }),
+  );
+  assert.equal(verified.status, 200, await verified.clone().text());
+  return verified.json();
+}
 
 async function initializeAccountKey(miniflare, session) {
   const rootSecret = crypto.getRandomValues(new Uint8Array(32));
@@ -780,7 +788,7 @@ async function initializeAccountKey(miniflare, session) {
 function invitees(prefix) {
   return Array.from({ length: 9 }, (_, index) => ({
     id: `${prefix}000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-    displayName: `QA account ${index + 1}`,
+    displayName: `test account ${index + 1}`,
     phoneNumber: `+1415555010${index + 1}`,
   }));
 }
@@ -801,7 +809,7 @@ function eventPayload({
     eventDate,
     endDate: new Date(Date.parse(eventDate) + 3_600_000).toISOString(),
     hostName: "Cross-service host",
-    locationName: "Herd QA",
+    locationName: "Herd test",
     locationAddress: "San Francisco, CA",
     invitees: eventInvitees,
     minimumParticipants,
@@ -1741,8 +1749,12 @@ test(
         assert.deepEqual(resolved.resolution, {
           status: "confirmed",
           attendingMemberIds: ["host", invitee.id],
+          attendanceRevealed: true,
           resolvedAt: evaluationResponse.attestation.evaluatedAt,
           attestation: evaluationResponse.attestation,
+          guestStates: [
+            { memberId: invitee.id, status: "going", missedDeadline: false },
+          ],
         });
         assertNoPrivateResponseLeak(resolved);
 
@@ -2543,7 +2555,7 @@ test(
 );
 
 test(
-  "real backend and evaluator resolve all nine QA accounts without response leakage",
+  "real backend and evaluator resolve all nine test accounts without response leakage",
   { timeout: 45_000 },
   async (t) => {
     const evaluator = await startEvaluatorService();
@@ -2778,7 +2790,13 @@ test(
     assert.deepEqual(confirmed.resolution, {
       status: "confirmed",
       attendingMemberIds: expectedAttending,
+      attendanceRevealed: true,
       resolvedAt: confirmed.resolution.resolvedAt,
+      guestStates: confirmedInvitees.map(({ id }) => ({
+        memberId: id,
+        status: expectedAttending.includes(id) ? "going" : "cant_commit",
+        missedDeadline: false,
+      })),
     }, JSON.stringify(evaluatorResponses));
     assert.match(confirmed.resolution.resolvedAt, /^\d{4}-\d{2}-\d{2}T/u);
     assert.deepEqual(failed.resolution, {
@@ -2920,14 +2938,15 @@ test(
       )
       .first();
     assert.equal(initializedEpochs.count, 9);
-    const suppressedDeliveries = await database
+    const deliveryRows = await database
       .prepare(
-        `SELECT COUNT(*) AS count
-         FROM invitation_deliveries
-         WHERE status = 'suppressed' AND suppressed_reason = 'qa_alias'`,
+        `SELECT COUNT(*) AS count,
+                SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END) AS suppressedCount
+         FROM invitation_deliveries`,
       )
       .first();
-    assert.equal(suppressedDeliveries.count, 18);
+    assert.equal(deliveryRows.count, 18);
+    assert.equal(deliveryRows.suppressedCount, 0);
     assert.ok(
       trustSigningRequests.filter((kind) => kind === "policy").length >= 2,
     );
@@ -2939,7 +2958,7 @@ test(
 );
 
 test(
-  "all nine QA aliases complete the real invite and reply lifecycle through the built API",
+  "all nine test aliases complete the real invite and reply lifecycle through the built API",
   { timeout: 45_000 },
   async (t) => {
     const evaluator = await startEvaluatorService();
@@ -3033,6 +3052,7 @@ test(
     assert.deepEqual(storedInvitations, { count: 9, accountCount: 9 });
 
     const acceptedRevisions = [];
+    const lateRevisions = [];
     for (const [index, event] of inviteViews.entries()) {
       const publicOpen = await api(
         miniflare,
@@ -3173,9 +3193,12 @@ test(
         competingSecondWrites.map(({ status }) => status).sort((a, b) => a - b),
         [200, 409],
       );
+      const competingSecondPayloads = await Promise.all(
+        competingSecondWrites.map((response) => response.json()),
+      );
       const winningIndex = competingSecondWrites.findIndex(({ status }) => status === 200);
       const losingIndex = 1 - winningIndex;
-      const revised = await competingSecondWrites[winningIndex].json();
+      const revised = competingSecondPayloads[winningIndex];
       assert.equal(revised.responseEnvelope.revision, 2);
       acceptedRevisions[index] = {
         envelope: competingSecondSeals[winningIndex].envelope,
@@ -3187,7 +3210,7 @@ test(
         (pathname, init) => api(miniflare, String(pathname), init),
       );
       assert.equal(
-        (await competingSecondWrites[losingIndex].json()).error.code,
+        competingSecondPayloads[losingIndex].error.code,
         "response_revision_conflict",
       );
 
@@ -3284,8 +3307,11 @@ test(
           sessions[index].accessToken,
         ),
       );
-      assert.equal(expiredWrite.status, 409);
-      assert.equal((await expiredWrite.json()).error.code, "rsvp_closed");
+      assert.equal(expiredWrite.status, 200);
+      lateRevisions.push({
+        envelope: expiredEnvelope.envelope,
+        result: await expiredWrite.clone().json(),
+      });
     }
     assert.equal(
       await database
@@ -3296,7 +3322,7 @@ test(
         )
         .bind(eventId)
         .first("count"),
-      18,
+      27,
     );
 
     const resolvedHostRead = await api(
@@ -3315,13 +3341,19 @@ test(
     const expectedAttending = [
       "host",
       ...eventInvitees
-        .filter((_, index) => index % 2 === 1)
+        .filter((_, index) => index % 2 === 0)
         .map(({ id }) => id),
     ];
     assert.deepEqual(resolvedHostEvent.resolution, {
       status: "confirmed",
       attendingMemberIds: expectedAttending,
+      attendanceRevealed: true,
       resolvedAt: resolvedHostEvent.resolution.resolvedAt,
+      guestStates: eventInvitees.map(({ id }, index) => ({
+        memberId: id,
+        status: index % 2 === 0 ? "going" : "cant_commit",
+        missedDeadline: false,
+      })),
     });
     assert.match(resolvedHostEvent.resolution.resolvedAt, /^\d{4}-\d{2}-\d{2}T/u);
     assertNoPrivateResponseLeak(resolvedHostEvent);
@@ -3343,7 +3375,7 @@ test(
         resolvedHostEvent.resolution,
       );
       assert.equal(finalizedProjection.inviteMetadata.hasResponse, true);
-      assert.equal(finalizedProjection.inviteMetadata.responseRevision, 2);
+      assert.equal(finalizedProjection.inviteMetadata.responseRevision, 3);
       assertNoPrivateResponseLeak(finalizedProjection.event);
 
       // A device that lost the successful HTTP response must be able to retry
@@ -3353,14 +3385,14 @@ test(
         `/api/invites/${event.inviteToken}/rsvp`,
         jsonRequest(
           "PUT",
-          { envelope: acceptedRevisions[index].envelope },
+          { envelope: lateRevisions[index].envelope },
           sessions[index].accessToken,
         ),
       );
       assert.equal(finalizedExactRetry.status, 200);
       assert.deepEqual(
         await finalizedExactRetry.json(),
-        acceptedRevisions[index].result,
+        lateRevisions[index].result,
       );
     }
     assert.equal(evaluatorRequests.length, 1);
@@ -3373,7 +3405,7 @@ test(
         )
         .bind(eventId)
         .first("count"),
-      18,
+      27,
     );
     assert.equal(
       await database
@@ -3386,7 +3418,7 @@ test(
         )
         .bind(eventId)
         .first("count"),
-      18,
+      27,
     );
 
     const storedResolution = await database
@@ -3526,7 +3558,20 @@ test(
     assert.deepEqual(resolved.resolution, {
       status: "confirmed",
       attendingMemberIds: ["host", eventInvitees[1].id],
+      attendanceRevealed: true,
       resolvedAt: resolved.resolution.resolvedAt,
+      guestStates: [
+        {
+          memberId: eventInvitees[0].id,
+          status: "cant_commit",
+          missedDeadline: false,
+        },
+        {
+          memberId: eventInvitees[1].id,
+          status: "going",
+          missedDeadline: false,
+        },
+      ],
     });
     assertNoPrivateResponseLeak(resolved);
 
@@ -3540,6 +3585,7 @@ test(
       batchHash: evaluatorRequests[0].batchHash,
       evaluatorKeyId: EVALUATOR_KEY_ID,
       status: "confirmed",
+      revealAttendance: true,
       attendingMemberIds: ["host", eventInvitees[1].id],
     });
     assert.equal(

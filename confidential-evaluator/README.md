@@ -147,6 +147,13 @@ environment variables. The only Herd environment setting is the path to the
 non-secret deployment config; the image fixes it to
 `/app/config/deployment.json`.
 
+The config's `policyMeasurement` is a stable protocol identity for the current
+evaluator-key epoch. Artifact-only rebuilds preserve it so unresolved policies
+remain valid. It is never accepted as proof of the running artifact: KMS and
+Firestore access remain bound to the exact image digest extracted from the
+Google-attested launcher token, and that exact digest is kept separately from
+the policy-facing measurement at runtime.
+
 ## HTTP surface
 
 `GET /healthz` and `GET /readyz` return public key-binding metadata. Backend
@@ -180,8 +187,9 @@ Policy signing first-writes an immutable policy hash, deadline, ordered opaque
 member IDs, and evaluator commitments to the custodian Firestore database; no
 event or person display data is stored there. The transparency endpoint accepts
 one operation: atomically append a canonical, Ed25519-authorized response
-receipt to the durable tail. It pins the member's first response key, enforces
-exactly increasing revisions and the authority deadline, derives the matching
+receipt to the durable tail. It pins the member's response key within an
+account-key epoch, permits only paired epoch/key rotation for a device switch,
+enforces exactly increasing revisions and the authority deadline, derives the matching
 head, signs both, and CAS-commits the immutable entry, new tail, policy sequence,
 and latest member commitment together. Exact retries return the stored
 signatures even after the deadline or evaluation consumption, while forks,

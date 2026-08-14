@@ -1,6 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import {
+  PUBLIC_RUNTIME_CONFIG_KEYS,
+  type PublicRuntimeConfig,
+} from "@/lib/public-runtime-config";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -52,14 +58,29 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const publicRuntimeConfig = Object.fromEntries(
+    PUBLIC_RUNTIME_CONFIG_KEYS.flatMap((key) => {
+      const value = process.env[key];
+      return typeof value === "string" && value.length > 0 ? [[key, value]] : [];
+    }),
+  ) as PublicRuntimeConfig;
+  const serializedConfig = JSON.stringify(publicRuntimeConfig).replaceAll("<", "\\u003c");
+
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__HERD_PUBLIC_RUNTIME_CONFIG__=${serializedConfig};`,
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

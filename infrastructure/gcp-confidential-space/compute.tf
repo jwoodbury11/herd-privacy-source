@@ -39,11 +39,12 @@ resource "google_compute_health_check" "evaluator" {
 
 resource "google_compute_instance_template" "evaluator" {
   provider = google.workload
-  count    = var.runtime_enabled ? 1 : 0
+  for_each = var.runtime_enabled ? var.evaluator_slots : {}
 
   project        = var.workload_project_id
-  name_prefix    = "${var.name_prefix}-tdx-"
-  description    = "Production Confidential Space evaluator pinned to ${local.effective_image_digest}"
+  name           = lookup(var.imported_slot_template_names, each.key, null)
+  name_prefix    = contains(keys(var.imported_slot_template_names), each.key) ? null : "${var.name_prefix}-${each.key}-tdx-"
+  description    = each.key == "blue" ? "Production Confidential Space evaluator pinned to ${each.value.image_digest}" : "Production Confidential Space evaluator ${each.key} slot pinned to ${each.value.image_digest}"
   machine_type   = var.machine_type
   can_ip_forward = false
   tags           = ["${var.name_prefix}-backend"]
@@ -90,18 +91,13 @@ resource "google_compute_instance_template" "evaluator" {
     "enable-oslogin"               = "FALSE"
     "serial-port-enable"           = "false"
     "tee-container-log-redirect"   = "false"
-    "tee-image-reference"          = local.image_reference
+    "tee-image-reference"          = local.image_references[each.key]
     "tee-monitoring-memory-enable" = "false"
     "tee-restart-policy"           = "Always"
   }
 
   lifecycle {
     create_before_destroy = true
-
-    precondition {
-      condition     = startswith(var.machine_type, "c3-standard-")
-      error_message = "Intel TDX runtime requires a c3-standard-* machine type."
-    }
   }
 
   depends_on = [
@@ -120,25 +116,30 @@ resource "google_compute_instance_template" "evaluator" {
     google_dns_record_set.googleapis_wildcard,
     google_dns_record_set.pkg_dev_restricted,
     google_dns_record_set.pkg_dev_wildcard,
+    google_kms_crypto_key_iam_member.attested_decrypter,
+    google_kms_crypto_key_iam_member.attested_transparency_identity_decrypter,
+    google_project_iam_member.attested_transparency_writer,
   ]
 }
 
 resource "google_compute_region_instance_group_manager" "evaluator" {
   provider = google.workload
-  count    = var.runtime_enabled ? 1 : 0
+  for_each = var.runtime_enabled ? var.evaluator_slots : {}
 
-  project                   = var.workload_project_id
-  name                      = "${var.name_prefix}-mig"
-  base_instance_name        = "${var.name_prefix}-tdx"
+  project = var.workload_project_id
+  name    = each.key == "blue" ? "${var.name_prefix}-mig" : "${var.name_prefix}-mig-${each.key}"
+  # Every slot must remain inside the hostname namespace attested by the WIF
+  # condition. The slot suffix distinguishes independent groups without
+  # broadening identity acceptance beyond the established TDX prefix.
+  base_instance_name        = each.key == "blue" ? "${var.name_prefix}-tdx" : "${var.name_prefix}-tdx-${each.key}"
   region                    = var.region
   distribution_policy_zones = var.zones
-  target_size               = var.instance_count
+  target_size               = each.value.instance_count
   wait_for_instances        = true
   wait_for_instances_status = "UPDATED"
 
   version {
-    name              = "pinned-release"
-    instance_template = google_compute_instance_template.evaluator[0].id
+    instance_template = google_compute_instance_template.evaluator[each.key].id
   }
 
   named_port {
@@ -152,13 +153,15 @@ resource "google_compute_region_instance_group_manager" "evaluator" {
   }
 
   update_policy {
-    type                           = "PROACTIVE"
+    type                           = "OPPORTUNISTIC"
     minimal_action                 = "REPLACE"
     most_disruptive_allowed_action = "REPLACE"
-    max_surge_fixed                = length(var.zones)
-    max_unavailable_fixed          = 0
-    replacement_method             = "SUBSTITUTE"
-    instance_redistribution_type   = "PROACTIVE"
+    # Slot generations never roll in place. A candidate is a separate group;
+    # only a later reviewed apply scales the serving slot down.
+    max_surge_fixed              = 0
+    max_unavailable_fixed        = length(var.zones)
+    replacement_method           = "RECREATE"
+    instance_redistribution_type = "PROACTIVE"
   }
 
   lifecycle {

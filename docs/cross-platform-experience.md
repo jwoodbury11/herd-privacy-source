@@ -28,13 +28,13 @@ Both authentication renderers consume `authentication` from the shared
 experience file. The welcome and verification screens use the same:
 
 - brand, release status disclosure, headline, supporting copy, and action labels;
-- phone placeholder, validation readiness, and hidden single-digit QA aliases;
+- phone placeholder, validation readiness, and hidden single-digit test aliases;
 - legal consent copy and links;
 - masked phone-number treatment and four-cell verification-code entry;
 - horizontal padding, control sizing, corner radii, and action placement.
 
-The QA aliases are request behavior only. They remain absent from product copy
-and are accepted by the backend only when its QA bypass is explicitly enabled.
+The test aliases are request behavior only. They remain absent from product copy
+and, while enabled, bypass only SMS before entering the normal production path.
 
 ## Invitation-link contract
 
@@ -49,7 +49,7 @@ it.
 
 When either renderer carries an invitation into phone authentication, the
 backend hashes both values and requires the token and normalized phone to match
-the same invitee row before creating a challenge, granting a QA session, or
+the same invitee row before creating a challenge, granting a test-access session, or
 calling the SMS provider. A missing token and a different phone receive the
 same generic response with no event or phone details. The network request
 budget is consumed before this comparison; the phone/SMS resend budget is
@@ -78,7 +78,12 @@ Both home screens now:
 
 - show `Herd events` without a greeting or platform-only eyebrow;
 - use profile initials in the same circular control;
-- display hosted and invited events in one chronological list;
+- group current events into `Your invites` and `Your hosted events`;
+- move all other events into `Past events` at local midnight after the event date;
+- move events whose reply deadline has passed without confirmation into the final
+  `Events never confirmed` section, with a note that they automatically delete
+  five days after the reply deadline;
+- show section headings only when more than one event group is populated;
 - label cards `Hosting` or `Invited` consistently;
 - use the same event metrics, countdown states, spacing, card radius, and create-card height;
 - show the same `Host an event` card when the list is empty or populated.
@@ -101,7 +106,7 @@ Together they require both platforms to use the same:
 - dedicated guest-list screen with host and current-user markers;
 - privacy callout and full proof/limits screen;
 - reply selection and condition editing before an explicit submit action;
-- saved/locked response recovery language and account-key reset warning; and
+- unavailable-response language and the verified switch-to-this-device warning; and
 - successful-response summary and return actions.
 
 Selecting a reply is local editing state. It must never show `Responded` or

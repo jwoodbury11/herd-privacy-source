@@ -103,8 +103,7 @@
     { "path": "invitee-web/tests", "recursive": true },
     { "path": "invitee-web/worker", "recursive": true },
     { "path": "invitee-web/build", "recursive": true },
-    { "path": "invitee-web/scripts/live-scheduler-smoke.mjs" },
-    { "path": "invitee-web/scripts/browser-qa-harness.mjs" },
+    { "path": "invitee-web/scripts/browser-acceptance-harness.mjs" },
     { "path": "invitee-web/README.md" },
     { "path": "invitee-web/package.json" },
     { "path": "invitee-web/package-lock.json" },
@@ -117,7 +116,7 @@
     { "path": "invitee-web/vite.config.ts" },
     {
       "path": "invitee-web/.env.example",
-      "exampleSha256": "3408f47c1db9e692bb49cacd858c586b178e33241882c110b53688037b783be6"
+      "exampleSha256": "aa9f1e84484ac36ec194d0e38fdb90a18b0758034af81ac124cf00de3ce23d03"
     },
     {
       "path": "invitee-web/public/herd-icon.png",
@@ -188,7 +187,7 @@
     { "path": "evaluator-service/package-lock.json" },
     {
       "path": "evaluator-service/.env.example",
-      "exampleSha256": "5b43c784886c502781579a2ca3a0bb65c091d0d7fe9cbe0a859599b1fda758a5"
+      "exampleSha256": "06c8904e7a36c9f71ae2922eba1748fadfb2afe266ea16c1cd871ee509f2f9b2"
     },
     { "path": "evaluator-service/next.config.ts" },
     { "path": "evaluator-service/tsconfig.json" },

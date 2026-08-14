@@ -90,15 +90,39 @@ variable "container_image_name" {
   default     = "evaluator"
 }
 
-variable "image_digest" {
-  description = "Immutable workload image digest, including sha256:. Required when runtime_enabled is true."
-  type        = string
-  default     = null
-  nullable    = true
+variable "evaluator_slots" {
+  description = "Independently managed blue/green evaluator groups. Add and prove a candidate slot before scaling the serving slot to zero."
+  type = map(object({
+    image_digest   = string
+    instance_count = number
+    serve_traffic  = bool
+  }))
+  default = {}
 
   validation {
-    condition     = var.image_digest == null || can(regex("^sha256:[0-9a-f]{64}$", var.image_digest))
-    error_message = "image_digest must be null or an immutable sha256:<64 lowercase hex> digest."
+    condition = alltrue([
+      for name, slot in var.evaluator_slots :
+      can(regex("^[a-z][a-z0-9-]{0,19}$", name)) &&
+      can(regex("^sha256:[0-9a-f]{64}$", slot.image_digest)) &&
+      floor(slot.instance_count) == slot.instance_count &&
+      slot.instance_count >= 0 && slot.instance_count <= 100
+    ])
+    error_message = "Each evaluator slot needs a short lowercase name, an immutable sha256 digest, an integer instance_count from 0 through 100, and an explicit serve_traffic decision."
+  }
+}
+
+variable "imported_slot_template_names" {
+  description = "Exact existing template names used only while adopting a legacy slot into blue/green management. Remove an entry after that slot is retired."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for slot, name in var.imported_slot_template_names :
+      contains(keys(var.evaluator_slots), slot) &&
+      can(regex("^[a-z][a-z0-9-]{0,62}$", name))
+    ])
+    error_message = "Imported template names must reference configured slots and use valid Compute Engine resource names."
   }
 }
 

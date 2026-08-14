@@ -4,6 +4,7 @@ import {
   base64UrlToBytes,
   bytesToBase64Url,
   normalizeEvaluatorPublicKey,
+  publicRuntimeValue,
   PRIVATE_RESPONSE_PROTOCOL_VERSION,
   type PrivateResponsePolicyV1,
 } from "./protocol";
@@ -22,7 +23,13 @@ export type VerifiableEventResolution =
   | { status: "pending"; retrying?: boolean }
   | {
       status: "confirmed";
-      attendingMemberIds: string[];
+      attendingMemberIds?: string[];
+      attendanceRevealed: boolean;
+      guestStates?: Array<{
+        memberId: string;
+        status: "going" | "cant_commit" | "no_response";
+        missedDeadline: boolean;
+      }>;
       resolvedAt: string;
       attestation: EvaluationResultAttestationV1;
     }
@@ -120,10 +127,10 @@ function ownedArrayBuffer(value: Uint8Array): ArrayBuffer {
 
 export function configuredEvaluationResultSigningPin(): EvaluationResultSigningPin {
   const signingKeyId = canonicalIdentifier(
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_KEY_ID,
+    publicRuntimeValue("HERD_EVALUATOR_RESULT_SIGNING_KEY_ID"),
   );
   const configuredPublicKey =
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY;
+    publicRuntimeValue("HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY");
   if (typeof configuredPublicKey !== "string") invalidProof();
   let signingPublicKey: string;
   try {
@@ -154,7 +161,16 @@ export async function verifyEventResolutionProof(
   const resolution = exactRecord(
     value,
     (value as { status?: unknown } | null)?.status === "confirmed"
-      ? ["status", "attendingMemberIds", "resolvedAt", "attestation"]
+      ? [
+          "status",
+          ...("attendanceRevealed" in (value as object) ? ["attendanceRevealed"] : []),
+          ...(Array.isArray((value as { attendingMemberIds?: unknown }).attendingMemberIds)
+            ? ["attendingMemberIds"]
+            : []),
+          ...("guestStates" in (value as object) ? ["guestStates"] : []),
+          "resolvedAt",
+          "attestation",
+        ]
       : ["status", "resolvedAt", "attestation"],
   );
   if (resolution.status !== "confirmed" && resolution.status !== "not_confirmed") {
@@ -162,27 +178,58 @@ export async function verifyEventResolutionProof(
   }
   const status = resolution.status;
   const resolvedAt = canonicalTimestamp(resolution.resolvedAt);
-  if (
-    context.rsvpDeadline === null ||
-    resolvedAt < canonicalTimestamp(context.rsvpDeadline)
-  ) {
-    invalidProof();
-  }
+  if (context.rsvpDeadline === null) invalidProof();
+  const deadline = canonicalTimestamp(context.rsvpDeadline);
 
   let attendingMemberIds: string[] | undefined;
+  let guestStates: Array<{
+    memberId: string;
+    status: "going" | "cant_commit" | "no_response";
+    missedDeadline: boolean;
+  }> | undefined;
+  const attendanceRevealed = status === "confirmed"
+    ? typeof resolution.attendanceRevealed === "boolean"
+      ? resolution.attendanceRevealed
+      : resolvedAt >= deadline
+    : resolvedAt >= deadline;
   if (status === "confirmed") {
     if (
-      !Array.isArray(resolution.attendingMemberIds) ||
+      resolution.attendanceRevealed !== undefined &&
+      typeof resolution.attendanceRevealed !== "boolean"
+    ) invalidProof();
+    if (
+      attendanceRevealed &&
+      (!Array.isArray(resolution.attendingMemberIds) ||
       resolution.attendingMemberIds.length < 1 ||
       resolution.attendingMemberIds.some(
         (memberId) => typeof memberId !== "string" || memberId.length < 1,
       ) ||
       new Set(resolution.attendingMemberIds).size !==
-        resolution.attendingMemberIds.length
+        resolution.attendingMemberIds.length)
     ) {
       invalidProof();
     }
-    attendingMemberIds = resolution.attendingMemberIds as string[];
+    if (attendanceRevealed) {
+      attendingMemberIds = resolution.attendingMemberIds as string[];
+      if (resolution.guestStates !== undefined && !Array.isArray(resolution.guestStates)) {
+        invalidProof();
+      }
+      guestStates = Array.isArray(resolution.guestStates) ? resolution.guestStates.map((raw) => {
+        const state = exactRecord(raw, ["memberId", "status", "missedDeadline"]);
+        if (
+          typeof state.memberId !== "string" ||
+          !["going", "cant_commit", "no_response"].includes(state.status as string) ||
+          typeof state.missedDeadline !== "boolean"
+        ) {
+          invalidProof();
+        }
+        return state as {
+          memberId: string;
+          status: "going" | "cant_commit" | "no_response";
+          missedDeadline: boolean;
+        };
+      }) : undefined;
+    }
   }
 
   const attestation = exactRecord(
@@ -230,8 +277,16 @@ export async function verifyEventResolutionProof(
   const relayRequestHash = canonicalBase64Url(signedDocument.relayRequestHash, 32);
   const relayRequestId = canonicalUuid(signedDocument.relayRequestId);
   const leaseId = canonicalUuid(signedDocument.leaseId);
+  const rawSignedResult = signedDocument.result;
+  const legacyRevealedResult = Boolean(
+    attendanceRevealed &&
+      rawSignedResult &&
+      typeof rawSignedResult === "object" &&
+      !Array.isArray(rawSignedResult) &&
+      !("revealAttendance" in rawSignedResult),
+  );
   const signedResult = exactRecord(
-    signedDocument.result,
+    rawSignedResult,
     status === "confirmed"
       ? [
           "protocolVersion",
@@ -240,7 +295,8 @@ export async function verifyEventResolutionProof(
           "batchHash",
           "evaluatorKeyId",
           "status",
-          "attendingMemberIds",
+          ...(legacyRevealedResult ? [] : ["revealAttendance"]),
+          ...(attendanceRevealed ? ["attendingMemberIds"] : []),
         ]
       : [
           "protocolVersion",
@@ -249,6 +305,7 @@ export async function verifyEventResolutionProof(
           "batchHash",
           "evaluatorKeyId",
           "status",
+          ...(legacyRevealedResult ? [] : ["revealAttendance"]),
       ],
   );
   const batchHash = canonicalBase64Url(signedResult.batchHash, 32);
@@ -259,7 +316,10 @@ export async function verifyEventResolutionProof(
     batchHash,
     evaluatorKeyId: policy.evaluatorKeyId,
     status,
-    ...(status === "confirmed" ? { attendingMemberIds: attendingMemberIds! } : {}),
+    ...(legacyRevealedResult ? {} : { revealAttendance: attendanceRevealed }),
+    ...(status === "confirmed" && attendanceRevealed
+      ? { attendingMemberIds: attendingMemberIds! }
+      : {}),
   };
   const expectedCanonicalDocument = JSON.stringify({
     protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
@@ -315,7 +375,9 @@ export async function verifyEventResolutionProof(
   return status === "confirmed"
     ? {
         status,
-        attendingMemberIds: attendingMemberIds!,
+        ...(attendanceRevealed ? { attendingMemberIds: attendingMemberIds! } : {}),
+        attendanceRevealed,
+        ...(guestStates ? { guestStates } : {}),
         resolvedAt,
         attestation: normalizedAttestation,
       }

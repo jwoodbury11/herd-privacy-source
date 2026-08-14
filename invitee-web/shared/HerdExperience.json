@@ -2,15 +2,15 @@
   "authentication": {
     "brandName": "Herd",
     "releaseStatus": {
-      "label": "Release status",
-      "heading": "About this build",
-      "body": "Herd reports whether its signed release configuration and confidential evaluator are active. Test and unconfigured builds stay fail-closed and must not be treated as production.",
+      "label": "Pre-release alpha",
+      "heading": "Thanks for trying Herd",
+      "body": "You’re using Herd’s pre-release alpha. Right now, we’re focused entirely on testing functionality. The visual design hasn’t started yet. If you have feedback, please send it to jwoodbury11@gmail.com.",
       "dismissButton": "Got it"
     },
     "welcome": {
       "title": "Make plans happen.",
-      "body": "Sign in with your phone number.",
-      "phoneLabel": "Phone number",
+      "body": "Unlock more fun events with completely confidential replies.",
+      "phoneLabel": "Sign in with phone number",
       "phonePlaceholder": "+1 (555) 555-5555",
       "requestCodeButton": "Text me a code",
       "requestCodePendingButton": "Sending…"
@@ -50,6 +50,12 @@
   "home": {
     "title": "Herd events",
     "createEventTitle": "Host an event",
+    "invitesSectionTitle": "Your invites",
+    "hostedSectionTitle": "Your hosted events",
+    "unconfirmedSectionTitle": "Events never confirmed",
+    "unconfirmedSectionNote": "Auto-deletes 5 days after invite deadline",
+    "pastSectionTitle": "Past events",
+    "emptyInvitesMessage": "No invites yet.",
     "hostStatus": "Hosting",
     "inviteeStatus": "Invited",
     "dateNotSet": "Date not set",
@@ -59,11 +65,11 @@
       "useGenericIconWithoutName": true
     },
     "metrics": {
-      "invited": "invited",
+      "invited": "people",
       "minimum": "minimum",
       "leftToRespond": "left to respond",
       "noDeadline": "no deadline",
-      "responsesClosed": "responses closed"
+      "responsesClosed": "deadline passed"
     },
     "layout": {
       "horizontalPadding": 20,
@@ -90,7 +96,7 @@
     "phoneLabel": "Phone number",
     "addressLabel": "Address",
     "addressPlaceholder": "Street, city, state",
-    "syncNote": "Your profile and events sync across Herd on web and iPhone. Your phone number is never shown to other guests.",
+    "syncNote": "Your phone number and address are never shown to other guests.",
     "saveButton": "Save changes",
     "savedNotice": "Profile saved.",
     "logoutButton": "Log out",
@@ -120,22 +126,21 @@
     "dateNotSet": "Date not set",
     "locationNotSet": "Location not set",
     "hostPrefix": "Hosted by",
-    "hostMinimumNote": "The host counts toward the minimum.",
-    "replyByPrefix": "Reply by",
+    "replyByPrefix": "Reply deadline",
     "noReplyDeadline": "No reply deadline",
     "remainingSuffix": "remaining",
-    "responsesClosed": "Responses closed",
+    "responsesClosed": "Deadline passed — replies remain editable",
     "status": {
       "hosting": "Hosting",
       "responded": "Responded",
       "replyNeeded": "Reply needed",
-      "repliesOpen": "Replies open",
+      "unconfirmed": "Unconfirmed",
       "finalizing": "Finalizing",
       "confirmed": "Confirmed",
       "notConfirmed": "Not confirmed"
     },
     "metrics": {
-      "invited": "invited",
+      "invited": "people",
       "minimum": "minimum",
       "leftToRespond": "left to respond",
       "attending": "attending",
@@ -146,35 +151,68 @@
       "action": "See the full guest list"
     },
     "privacyCallout": {
-      "title": "Answer honestly without making your reply a group discussion.",
-      "body": "Your reply and conditions are encrypted on this device. Hosts and guests do not receive them; Herd still receives account and event metadata.",
+      "title": "Herd is thoughtfully designed to remove all downsides of answering honestly.",
+      "body": "Your conditions are encrypted before upload and never shown to Herd, hosts, or guests.",
       "action": "Prove it to me"
     },
+    "eventActions": {
+      "moreLabel": "More event actions",
+      "deleteButton": "Delete this event",
+      "deletionTitle": "Delete this event?",
+      "deletionBody": "This permanently deletes the event for you and everyone invited. This can’t be undone.",
+      "cancelButton": "Cancel",
+      "confirmButton": "Delete event",
+      "deletingButton": "Deleting…",
+      "failureTitle": "Couldn’t delete event",
+      "failureBody": "The event couldn’t be deleted. Please try again."
+    },
     "resolution": {
-      "pendingTitle": "Replies stay private until the deadline",
-      "pendingBody": "Herd will evaluate everyone’s conditions after replies close.",
+      "pendingTitle": "Not yet confirmed",
+      "pendingBody": "Herd checks the private conditions whenever a reply changes. Individual replies stay private until the deadline.",
       "confirmedTitle": "Event confirmed",
-      "confirmedBody": "The final group is:",
+      "confirmedBody": "The private conditions are currently met.",
       "notConfirmedTitle": "Event not confirmed",
       "notConfirmedBody": "The private conditions did not resolve to a group. No individual replies are revealed.",
-      "finalizedPrefix": "Finalized"
+      "finalizedPrefix": "Updated"
     },
     "unavailableTitle": "Invitation unavailable",
     "unavailableBody": "Refresh your events and try again."
   },
   "attendees": {
-    "navigationTitle": "Invited people",
-    "title": "Invited people",
+    "navigationTitle": "Attendees",
+    "title": "Attendees",
+    "statusDisclosure": "Attendance status appears only after the event is confirmed. Guests must send an encrypted reply before their status can be shown.",
     "hostLabel": "Host",
-    "invitedSuffix": "invited",
+    "invitedSuffix": "people",
     "currentUserLabel": "You",
-    "emptyMessage": "The host hasn’t shared the guest list."
+    "emptyMessage": "The host hasn’t shared the guest list.",
+    "addGuests": {
+      "button": "Add attendees",
+      "navigationTitle": "Add attendees",
+      "title": "Add guests",
+      "body": "Enter each guest’s name and phone number. New guests will receive an invitation.",
+      "nameLabel": "Name",
+      "namePlaceholder": "Guest name",
+      "phoneLabel": "Phone number",
+      "phonePlaceholder": "(555) 555-1234",
+      "addAnotherButton": "Add another guest",
+      "removeButton": "Remove guest",
+      "submitSingleButton": "Add guest",
+      "submitMultipleTemplate": "Add {count} guests",
+      "submittingButton": "Adding…",
+      "failureTitle": "Couldn’t add attendees",
+      "failureBody": "The attendees couldn’t be added. Please try again."
+    }
   },
   "reply": {
     "title": "Your reply",
     "privacyNote": "Your reply and conditions are sealed on this device before they leave it.",
     "openingSaved": "Opening your encrypted response on this device…",
-    "unreadable": "Your earlier response is still sealed and locked to the device key that authorized it. It cannot be replaced from this device.",
+    "unreadable": "Your active reply isn’t available on this device. To view or update your reply here, send a new one from this device. It will replace your current reply.",
+    "unavailableTitle": "Reply unavailable on this device",
+    "replaceButton": "Create a new reply on this device",
+    "goingCollapsedTitle": "I’m down if…",
+    "goingCollapsedBody": "Set your encrypted conditions",
     "goingPrefix": "I’m down if at least",
     "goingSuffix": "people go",
     "decreaseMinimum": "Decrease minimum",
@@ -190,102 +228,171 @@
     "removeCondition": "Remove required-person condition",
     "chooseButton": "Choose a reply",
     "submitButton": "Send my encrypted reply",
+    "sentButton": "Reply sent",
+    "updateButton": "Update my encrypted reply",
     "submittingButton": "Encrypting & saving…",
+    "previewButton": "Preview How Others Will See It",
+    "previewTitle": "See how your reply will show up to others",
+    "confirmedPreviewLabel": "If the event is confirmed:",
+    "confirmedPreviewBody": "Your attendance conditions are never shown to anyone.",
+    "noReplyHistoryTemplate": "This user has not responded to {missed} of {total} confirmed events they were invited to.",
+    "noReplySingleEventHistory": "This user has not responded to their only confirmed event invitation.",
+    "noReplyPreviewBody": "Avoid a no response at all costs. No responses are why fun events that could have happened don’t happen.",
+    "notConfirmedPreviewLabel": "If the event is not confirmed:",
+    "notConfirmedPreviewTitle": "This event was not confirmed",
+    "notConfirmedPreviewBody": "Zero information is shown to anybody.",
+    "previewDismissButton": "OK",
     "savedTitle": "Your private reply is saved",
     "unlockButton": "Unlock my saved reply",
     "closedMessage": "The reply deadline has passed.",
     "missingLinkMessage": "This invitation doesn’t have an active reply link.",
-    "reset": {
-      "title": "Start over with new private keys?",
-      "body": "This device can’t unlock the account’s existing private replies. Starting over keeps your invitations and secures future or unanswered replies, but every response already saved stays locked to its original key and its old criteria remain unreadable.",
+    "deviceSwitch": {
+      "title": "Switch private replies to this device?",
+      "replaceBody": "Confirm your phone number to create a new private-reply key on this device. Your new reply will permanently replace the current reply for this invitation, and other devices will be signed out.",
+      "newReplyBody": "Confirm your phone number to create a new private-reply key on this device and send this response. Other devices will be signed out.",
       "cancelButton": "Cancel",
-      "confirmButton": "Start over"
+      "confirmButton": "Switch to this device",
+      "requestingCode": "Sending a verification code to the phone number on this account…",
+      "requestFailed": "Herd couldn’t send the verification code. Try again to continue securely.",
+      "verificationPrefix": "Enter the four-digit code sent to",
+      "verificationSuffix": "to switch private replies to this device.",
+      "verifiedBody": "Your phone number is confirmed. Herd can now create a new private-reply key on this device and send your response.",
+      "verifyButton": "Verify and switch",
+      "verifyingButton": "Verifying…",
+      "switchingButton": "Switching…",
+      "retryButton": "Try switching again",
+      "failure": "Herd couldn’t switch private replies to this device. Try again."
     }
   },
   "privacy": {
     "navigationTitle": "Prove it to me",
-    "eyebrow": "Proof, not promises",
-    "title": "Don’t take our word for it",
-    "intro": "Here is what the current client enforces, what Herd still learns, and what must be verified outside the app.",
-    "statusEyebrow": "Status today",
-    "statusTitle": "Launch controls complete",
-    "builtLabel": "Production verified",
-    "builtTitle": "Encrypted before upload",
-    "builtBody": "This device encrypts and pads every private condition. Herd accepts only the sealed envelope, publishes a signed hash-only receipt, and accepts evaluation only from the exact signed policy and hardware-attested release it trusts.",
-    "pendingLabel": "Launch custody",
-    "pendingTitle": "Self-operated and publicly verifiable",
-    "pendingBody": "The production evaluator runs in hardware-confidential replicas and the release evidence is signed and public. At launch, James administers both cloud projects and the persistent monitor. That is disclosed self-custody, not independent governance; an outside custodian can reduce that remaining operator-trust risk later without changing the private-response protocol.",
-    "flowEyebrow": "What crosses the line",
-    "flowTitle": "Your response leaves as ciphertext",
-    "flowSourceTitle": "This device",
-    "flowSourceBody": "Readable while editing",
-    "flowEnvelopeTitle": "Encrypted payload",
-    "flowEnvelopeBody": "Always 4,124 bytes",
-    "flowDestinationTitle": "Herd storage",
-    "flowDestinationBody": "Ciphertext + metadata",
-    "flowNote": "The implementation keeps the readable answer, minimum, and required-person groups out of the ordinary response API and database. Evaluation is a separate trust boundary explained below.",
-    "answersEyebrow": "The honest answers",
-    "answersTitle": "Exactly who can see what",
-    "answersIntro": "Expand each answer. The limits are part of the privacy model, not fine print.",
+    "eyebrow": "Privacy, step by step",
+    "title": "Your conditions take one sealed path",
+    "intro": "Herd separates the service that stores your reply from the private evaluator that checks the group. Here is the whole path.",
+    "flowTitle": "From your answer to the event result",
+    "flowPrivacyLabel": "Your minimum and required-person conditions are never shown to the host or guests.",
+    "flowSteps": [
+      {
+        "title": "You answer on your device",
+        "body": "Your choice, minimum, and required-person conditions are readable here."
+      },
+      {
+        "title": "Your device seals everything",
+        "body": "Before upload, Herd encrypts and pads the reply into one fixed-size envelope."
+      },
+      {
+        "title": "Herd stores only the sealed reply",
+        "body": "Herd’s servers store only ciphertext and account-linked delivery metadata. Not even Herd’s own servers can read your reply."
+      },
+      {
+        "title": "A private evaluator returns one result",
+        "body": "Inside isolated hardware, it checks the group and returns confirmed or not confirmed—and attending members only when confirmed."
+      }
+    ],
+    "answersEyebrow": "For the curious",
+    "answersTitle": "Go deeper",
+    "sourceURL": "https://github.com/jwoodbury11/herd-privacy-source",
+    "releaseEvidenceURL": "https://app.herdprivacy.com/.well-known/herd-release.json",
     "sections": [
       {
-        "title": "What does this device check?",
+        "title": "What’s the layman’s TL;DR?",
         "paragraphs": [
-          "Before sending, this client recomputes the frozen event-policy hash, requires the protocol and payload size it supports, and requires the evaluator key ID and public key embedded in this release. It then encrypts the response into an exact envelope; extra or legacy plaintext fields are rejected by the current API.",
-          "These identifiers help the client detect a mismatch. Values displayed by the app are not independent proof that the app itself is honest."
-        ]
+          "Your phone or browser locks your full reply before it sends anything. Herd stores the sealed package, but not even Herd’s own servers can read it.",
+          "At the deadline, a separate private evaluator checks everyone’s rules together and releases only the event result. Your host and the other guests never receive your minimum or required-person conditions."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
       },
       {
-        "title": "What can Herd still see?",
+        "title": "Who can see my private reply?",
+        "paragraphs": [
+          "You can reopen your latest saved reply on a device that still holds your account secret. The host and other guests cannot read the sealed contents, and not even Herd’s own servers can read them.",
+          "The approved confidential evaluator can decrypt replies transiently inside isolated hardware for one purpose: calculate the allowed event result. It does not return the conditions."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
+      },
+      {
+        "title": "What information is never shown from my reply?",
+        "paragraphs": [
+          "Your private minimum and required-person conditions are never returned to the host or guests, and not even Herd’s own servers can read them. They are not included in the final result.",
+          "Before the deadline, your individual answer is not shown to the group. Herd’s response API and database reject readable answer or condition fields."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
+      },
+      {
+        "title": "What information from my reply can be shown?",
+        "paragraphs": [
+          "Everyone can see the final event result: confirmed or not confirmed. If the event is confirmed, the signed result can include the attending members. If it is not confirmed, no individual reply list is released.",
+          "Event details, the guest list, and whether you have submitted a response are separate account-linked product data. They are not hidden by the private-response envelope."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
+      },
+      {
+        "title": "Can anyone get my condition set?",
+        "paragraphs": [
+          "No. Your host and other guests cannot access your condition set, and not even Herd’s own servers can read it. Only a device holding your account secret can reopen your saved reply for you.",
+          "Your phone number signs you into the account, but it is not the decryption key. The approved confidential evaluator briefly opens conditions inside isolated hardware to calculate the result, then returns no condition data. A compromised device can still expose what is visible on that device."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
+      },
+      {
+        "title": "What can Herd still learn?",
         "paragraphs": [
           "Your submission is account-linked, not anonymous to Herd. Herd can access your phone and profile, event and guest membership, account and invitation IDs, the response slot, frozen policy, ciphertext hash and revision, plus IP, device, timing, delivery, and security metadata.",
-          "The SMS provider receives the destination phone number, verification message, and delivery metadata. Host and guest product views receive event details and the guest list, not your individual reply or conditions."
-        ]
+          "The SMS provider receives the destination phone number, verification message, and delivery metadata. Encryption protects reply contents; it does not hide account or network metadata."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
       },
       {
-        "title": "Who can decrypt a response?",
+        "title": "How can I verify the code and release?",
         "paragraphs": [
-          "This device can reopen your latest response while its local account secret remains available. That secret is protected by platform security and is not uploaded to Herd.",
-        "The approved evaluator can decrypt criteria transiently to compute only the permitted result. The production release binds the separate keys, hardware-attested Confidential Space image, and verified client configuration to public signed evidence."
-        ]
+          "Herd publishes its privacy-critical source under the Apache 2.0 license. A deterministic source archive, signed release manifest, software inventory, assembly provenance, deployment statement, and public release pointer bind reviewable source and exact release artifacts into one evidence chain.",
+          "The clients verify signed policies, receipts, log entries, evaluator identity, and final results. A monitor can compare served web assets, verify hashes and signatures, and challenge the live evaluator’s hardware attestation.",
+          "This makes changes detectable, but it is not the same as an independent audit or a mathematical proof that every delivered client came from the published source. At launch, James administers the cloud projects and monitor; that is disclosed self-custody, not independent governance."
+        ],
+        "showsPolicyIdentifiers": true,
+        "showsVerificationLinks": true
       },
       {
-        "title": "Can this app prove its own code?",
+        "title": "What does the private evaluator verify?",
         "paragraphs": [
-          "No. A delivered client can change its code and this explanation together. Public source by itself would not prove which code a person received.",
-        "Herd publishes a licensed source export and signed release-assembly evidence binding the reviewed source snapshot and exact artifacts into one release. A persistent release and response-log monitor witnesses continuity under the same launch owner. That evidence does not by itself prove every component was built from the published source, it is not an independent audit, and it cannot absolutely rule out targeted delivery to one person."
-        ]
+          "Before sending, the client recomputes the frozen event-policy hash, requires the supported protocol and fixed payload size, and requires the evaluator identity embedded in the release. It encrypts the response into an exact envelope; the API rejects legacy or extra readable reply fields.",
+          "At evaluation, the confidential workload verifies the committed response batch and frozen policy, applies the group rules, and signs the limited result. iOS and web verify that signature and its event, policy, evaluator, attendee set, and time before displaying a final answer."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
       },
       {
         "title": "What if I lose this device?",
         "paragraphs": [
-          "A fresh phone verification can start over with a new account-key epoch without requiring another invitation. Future and unanswered invitations can use the new key; a response already saved stays locked to the key that authorized its first revision.",
-          "The phone code recovers account access; it is not the encryption key. This version knowingly accepts SIM-swap and recycled-number takeover risk for the start-over path."
-        ]
+          "A fresh phone verification can switch private replies to the current device without requiring another invitation. Herd creates a new private-reply key and a new response on this device can replace the reply previously saved for an active invitation.",
+          "The phone code confirms account ownership; it is not the encryption key. Switching signs out other devices, does not recover the previous reply’s contents, and knowingly accepts SIM-swap and recycled-number takeover risk."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
       },
       {
-        "title": "What can encryption not prevent?",
+        "title": "What can this protection not do?",
         "paragraphs": [
-          "A compromised device, browser extension with access, screenshot, or someone watching the screen can expose what you see. A host may also infer a condition from a small group, the final outcome, repeated events, or real-world knowledge.",
-          "Encryption protects the response contents. It does not hide the account and network metadata listed above, prevent denial of service, or make every inference impossible."
-        ]
+          "A compromised device, browser extension with access, screenshot, or someone watching the screen can expose what you see.",
+          "Encryption does not hide account and network metadata, prevent service outages, recover an old device key, or turn source publication into an independent audit."
+        ],
+        "showsPolicyIdentifiers": false,
+        "showsVerificationLinks": false
       }
     ]
   },
   "success": {
     "title": "Thanks for responding",
     "body": "Your latest reply is saved.",
-    "savedReplyLabel": "Saved reply",
-    "savedReplyTitle": "Your latest answer",
-    "goingLabel": "Going",
-    "cantCommitLabel": "Can’t commit",
-    "goingPrivacy": "Your minimum and required-person conditions remain private.",
-    "cantCommitPrivacy": "No additional response details are shared.",
-    "visibilityLabel": "Visibility",
-    "visibilityTitle": "Sealed for this device",
-    "visibilityBody": "This device can reopen it. Under the current response protocol, ordinary Herd services receive a sealed envelope and account-linked metadata, not readable criteria.",
-    "changeWithDeadlinePrefix": "You can change your reply until",
-    "changeWithoutDeadline": "You can change your reply while responses are open.",
+    "replyPreviewTitle": "This is how your reply will show up to others",
+    "changeWithDeadlinePrefix": "The accountability deadline is",
+    "changeWithoutDeadline": "You can change your reply at any time.",
     "viewInvitationButton": "View invitation",
     "homeButton": "Back to Herd events"
   }

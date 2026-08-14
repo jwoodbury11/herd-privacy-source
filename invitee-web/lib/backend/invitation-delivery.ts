@@ -1,10 +1,6 @@
 import type { HerdBindings } from "@/db";
 
-import {
-  getAuthConfig,
-  getInvitationDeliveryConfig,
-  qaInvitationSuppressionReason,
-} from "./config";
+import { getAuthConfig, getInvitationDeliveryConfig } from "./config";
 import { randomUuid } from "./crypto";
 import { ApiError } from "./http";
 import { openSealedInviteToken } from "./invite-tokens";
@@ -100,10 +96,7 @@ export function assertInvitationDeliveryReady(
   bindings: HerdBindings,
   event: Pick<CanonicalEvent, "invitees">,
 ): void {
-  const hasRealRecipient = event.invitees.some(
-    (invitee) => !qaInvitationSuppressionReason(bindings, invitee.phoneNumber),
-  );
-  if (hasRealRecipient && !getInvitationDeliveryConfig(bindings)) {
+  if (event.invitees.length > 0 && !getInvitationDeliveryConfig(bindings)) {
     throw new ApiError(
       503,
       "invitation_delivery_unavailable",
@@ -119,10 +112,6 @@ export function prepareInvitationDeliveryStatements(
   nowIso: string,
 ): D1PreparedStatement[] {
   return event.invitees.map((invitee) => {
-    const suppressedReason = qaInvitationSuppressionReason(
-      bindings,
-      invitee.phoneNumber,
-    );
     return db
       .prepare(
         `INSERT INTO invitation_deliveries
@@ -136,8 +125,8 @@ export function prepareInvitationDeliveryStatements(
         randomUuid(),
         event.id,
         invitee.id,
-        suppressedReason ? "suppressed" : "pending",
-        suppressedReason,
+        "pending",
+        null,
         nowIso,
         nowIso,
       );

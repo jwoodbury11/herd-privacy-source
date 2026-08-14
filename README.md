@@ -2,6 +2,11 @@
 
 Herd helps groups make plans that depend on enough people—and sometimes the right combination of people—being able to attend. This repository keeps the iPhone and web experiences together on one authenticated backend.
 
+## Start here
+
+Use [`CURRENT_BUILDS.md`](CURRENT_BUILDS.md) as the single view of the latest
+shared source, production web app, and production-configured Xcode project.
+
 ## Repository layout
 
 - `HerdHost/` and `HerdHost.xcodeproj/`: native SwiftUI app with phone sign-in and server-backed event sync
@@ -81,14 +86,15 @@ still required before launch claims are appropriate.
 The iPhone and web apps render with native SwiftUI and React components, but
 shared product decisions belong in `invitee-web/shared/HerdExperience.json`. Both builds
 consume that file directly, so changing a shared home-screen label or layout
-value changes both experiences. The home feed uses one event order, one card
-language, one profile treatment, and one empty state on both platforms.
+value changes both experiences. The home feed uses the same current, unconfirmed,
+and past event grouping, card language, profile treatment, and empty state on
+both platforms.
 
 The only intentional home-screen capability difference is event creation: the
 iPhone opens the native event editor, while the same web card opens the iPhone
 handoff. See `docs/cross-platform-experience.md` for the parity rule.
 
-Live verification is delivered through Twilio Verify. One-time event invitations use a separate Twilio Messaging Service and a durable delivery outbox; QA aliases remain visible in the app without generating carrier traffic. An optional hidden QA phone can bypass verification when explicitly enabled in server configuration; it is never disclosed in the product interface. Confidential evaluator deployment and verifiable releases remain separate production rollout steps.
+Live verification is delivered through Twilio Verify. One-time event invitations use a separate Twilio Messaging Service and a durable delivery outbox. Internal test-account access changes only the initial SMS challenge; authenticated accounts then use the exact production database, messaging, privacy, and product paths. Confidential evaluator deployment and verifiable releases remain separate production rollout steps.
 
 ## License
 

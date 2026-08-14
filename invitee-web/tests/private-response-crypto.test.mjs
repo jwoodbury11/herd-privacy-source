@@ -480,7 +480,7 @@ test("web client seals a fixed-size response that both the user and evaluator ca
       policy,
     }),
     (error) => {
-      assert.equal(error.canStartOver, true);
+      assert.equal(error.canSwitchDevice, true);
       assert.match(error.message, /not authorized by this device/u);
       return true;
     },
@@ -508,7 +508,11 @@ test("browser flow persists only a non-exportable local key and sends only an en
     readFile(join(projectRoot, "app/page.tsx"), "utf8"),
     readFile(join(projectRoot, "lib/privacy/device-vault.ts"), "utf8"),
   ]);
-  assert.match(page, /body: JSON\.stringify\(\{ envelope: sealed\.envelope \}\)/u);
+  assert.match(page, /body: JSON\.stringify\(\{ envelope \}\)/u);
+  assert.match(
+    page,
+    /pendingReplySubmissionRef\.current = \{[\s\S]*?envelope,[\s\S]*?\};/u,
+  );
   assert.doesNotMatch(page, /body: JSON\.stringify\(\{\s*response:/u);
   assert.match(page, /\/api\/account\/key-epoch\/initialize/u);
   assert.match(page, /\/api\/account\/key-epoch\/reset/u);

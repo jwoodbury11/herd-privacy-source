@@ -5,21 +5,19 @@ import { getAuthConfig } from "./config";
 import { pepperedHash, randomId, randomToken } from "./crypto";
 import { ApiError } from "./http";
 import { normalizePhoneNumber } from "./phone";
+import {
+  isTestAccountPhoneNumber,
+  testAccountNameForPhoneNumber,
+  testAccountPhoneNumberForAlias,
+} from "./test-accounts.mjs";
 import { checkTwilioVerification, sendTwilioVerification } from "./twilio";
 import type { AuthenticatedSession, HerdUser } from "./types";
 import { upsertUserForVerifiedChallenge } from "./verified-user-guard.mjs";
 
 export const SESSION_COOKIE_NAME = "herd_session";
 
-const QA_ACCOUNT_PHONE_PREFIX = "+1415555010";
-
-function qaAccountPhoneNumber(input: unknown): string | null {
-  if (typeof input !== "string" || !/^[1-9]$/.test(input.trim())) return null;
-  return `${QA_ACCOUNT_PHONE_PREFIX}${input.trim()}`;
-}
-
-export function isQaAccountPhoneNumber(phoneNumber: string): boolean {
-  return /^\+1415555010[1-9]$/.test(phoneNumber);
+function testAccountPhoneNumber(input: unknown): string | null {
+  return typeof input === "string" ? testAccountPhoneNumberForAlias(input) : null;
 }
 
 type ChallengeRow = {
@@ -224,14 +222,34 @@ export async function requestAuthCode(
   db?: D1Database,
   bindings?: HerdBindings,
   inviteToken?: string,
+  currentSession?: AuthenticatedSession | null,
 ) {
   db ??= await getD1();
   bindings ??= await getBindings();
   const config = getAuthConfig(bindings);
-  const qaPhoneNumber = config.testBypassEnabled
-    ? qaAccountPhoneNumber(phoneInput)
+  const requestedTestAlias = config.testAccountAccessEnabled
+    ? testAccountPhoneNumber(phoneInput)
     : null;
-  const phoneNumber = qaPhoneNumber ?? normalizePhoneNumber(phoneInput);
+  let testPhoneNumber = requestedTestAlias;
+  const normalizedInput = testPhoneNumber ?? normalizePhoneNumber(phoneInput);
+  // Test aliases are intentionally the only signed-out bypass. Once a valid
+  // test session exists, internal reauthentication flows use the account's
+  // canonical 555 number; allow that same authenticated account to refresh its
+  // test session instead of sending an impossible Twilio SMS to the fake line.
+  if (
+    !testPhoneNumber &&
+    config.testAccountAccessEnabled &&
+    currentSession?.authMode === "test" &&
+    currentSession.user.phoneNumber === normalizedInput &&
+    isTestAccountPhoneNumber(normalizedInput)
+  ) {
+    testPhoneNumber = normalizedInput;
+  }
+  const isAuthenticatedTestReverification =
+    requestedTestAlias === null &&
+    testPhoneNumber !== null &&
+    currentSession?.authMode === "test";
+  const phoneNumber = normalizedInput;
   const now = Date.now();
   const createdAt = new Date(now).toISOString();
   const expiresAt = isoAfter(config.challengeTtlSeconds, now);
@@ -244,12 +262,14 @@ export async function requestAuthCode(
     requestIp(request),
   );
 
-  await consumeIpRequestBudget(
-    db,
-    requestIpHash,
-    now,
-    config.ipRequestsPerHour,
-  );
+  if (!isAuthenticatedTestReverification) {
+    await consumeIpRequestBudget(
+      db,
+      requestIpHash,
+      now,
+      config.ipRequestsPerHour,
+    );
+  }
 
   // A carried invitation is an authentication constraint, not UI context.
   // Perform this lookup only after the network abuse budget has been consumed
@@ -265,19 +285,22 @@ export async function requestAuthCode(
       phoneHash,
     );
   }
-  await consumePhoneRequestBudget(
-    db,
-    phoneHash,
-    now,
-    config.resendSeconds,
-    config.phoneRequestsPerHour,
-  );
+  // An authenticated test session re-verifies its own canonical fake number
+  // during private-key recovery. No SMS is sent, so the SMS resend cooldown
+  // must not strand the device-switch flow immediately after login or a switch
+  // on another device. Keep normal alias logins and real phone numbers on both
+  // abuse budgets; only an already authenticated internal session skips them.
+  if (!isAuthenticatedTestReverification) {
+    await consumePhoneRequestBudget(
+      db,
+      phoneHash,
+      now,
+      config.resendSeconds,
+      config.phoneRequestsPerHour,
+    );
+  }
 
-  const usesBypass =
-    config.testBypassEnabled &&
-    (phoneNumber === config.testPhoneNumber ||
-      Boolean(qaPhoneNumber) ||
-      isQaAccountPhoneNumber(phoneNumber));
+  const usesBypass = config.testAccountAccessEnabled && Boolean(testPhoneNumber);
   if (usesBypass) {
     await db
       .prepare(
@@ -300,7 +323,7 @@ export async function requestAuthCode(
       config.sessionTtlSeconds,
       user,
       "test",
-      config.qaBypassGeneration,
+      config.testAccountAccessGeneration,
       createdAt,
     );
   }
@@ -416,6 +439,8 @@ async function upsertVerifiedUser(
     .bind(phoneHash)
     .first<{ displayName: string }>();
   const userId = randomId("user");
+  const testAccountName = testAccountNameForPhoneNumber(phoneNumber);
+  const suggestedName = testAccountName ?? suggestedProfile?.displayName ?? "";
   let user: HerdUser | null;
   if (challengeGuard) {
     user = (await upsertUserForVerifiedChallenge(db, {
@@ -423,7 +448,7 @@ async function upsertVerifiedUser(
       phoneNumber,
       phoneHash,
       userId,
-      suggestedName: suggestedProfile?.displayName ?? "",
+      suggestedName,
       nowIso,
     })) as HerdUser | null;
     if (!user) {
@@ -441,15 +466,17 @@ async function upsertVerifiedUser(
          VALUES (?, ?, ?, ?, '', ?, ?)
          ON CONFLICT(phone_number) DO UPDATE SET
            phone_hash = excluded.phone_hash,
+           name = CASE WHEN ? = 1 THEN excluded.name ELSE users.name END,
            updated_at = excluded.updated_at`,
       )
       .bind(
         userId,
         phoneNumber,
         phoneHash,
-        suggestedProfile?.displayName ?? "",
+        suggestedName,
         nowIso,
         nowIso,
+        testAccountName === null ? 0 : 1,
       )
       .run();
 
@@ -487,7 +514,7 @@ async function createUserSession(
   sessionTtlSeconds: number,
   user: HerdUser,
   authMode: "twilio" | "test",
-  qaBypassGeneration: string | null,
+  testAccessGeneration: string | null,
   nowIso = new Date().toISOString(),
 ) {
   const accountKeyEpoch = await ensureActiveAccountKeyEpoch(db, user.id, nowIso);
@@ -498,7 +525,7 @@ async function createUserSession(
   await db
     .prepare(
       `INSERT INTO sessions
-        (id, user_id, token_hash, auth_mode, qa_bypass_generation,
+        (id, user_id, token_hash, auth_mode, test_access_generation,
          created_at, expires_at, last_seen_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -507,7 +534,7 @@ async function createUserSession(
       user.id,
       tokenHash,
       authMode,
-      authMode === "test" ? qaBypassGeneration : null,
+      authMode === "test" ? testAccessGeneration : null,
       nowIso,
       expiresAt,
       nowIso,
@@ -730,7 +757,7 @@ export async function getAuthenticatedSession(
          sessions.id AS sessionId,
          sessions.token_hash AS tokenHash,
          sessions.auth_mode AS authMode,
-         sessions.qa_bypass_generation AS qaBypassGeneration,
+         sessions.test_access_generation AS testAccessGeneration,
          sessions.created_at AS createdAt,
          sessions.expires_at AS expiresAt,
          account_key_epochs.id AS accountKeyEpochId,
@@ -753,7 +780,7 @@ export async function getAuthenticatedSession(
       sessionId: string;
       tokenHash: string;
       authMode: "twilio" | "test";
-      qaBypassGeneration: string | null;
+      testAccessGeneration: string | null;
       createdAt: string;
       expiresAt: string;
       accountKeyEpochId: string;
@@ -767,14 +794,13 @@ export async function getAuthenticatedSession(
     session &&
       (session.authMode === "twilio" ||
         (session.authMode === "test" &&
-          config.testBypassEnabled &&
-          session.qaBypassGeneration === config.qaBypassGeneration &&
-          (session.phoneNumber === config.testPhoneNumber ||
-            isQaAccountPhoneNumber(session.phoneNumber)))),
+          config.testAccountAccessEnabled &&
+          session.testAccessGeneration === config.testAccountAccessGeneration &&
+          isTestAccountPhoneNumber(session.phoneNumber))),
   );
   if (
     session?.authMode === "test" &&
-    session.qaBypassGeneration !== config.qaBypassGeneration
+    session.testAccessGeneration !== config.testAccountAccessGeneration
   ) {
     await db
       .prepare(

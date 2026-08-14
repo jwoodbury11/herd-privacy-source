@@ -1,11 +1,11 @@
 "use client";
 
 import type { X509Certificate } from "@peculiar/x509";
-
 import {
   base64UrlToBytes,
   bytesToBase64Url,
   normalizeEvaluatorPublicKey,
+  publicRuntimeValue,
   type PrivateResponsePolicyV1,
 } from "./protocol";
 
@@ -48,6 +48,8 @@ type AttestationConfig = {
   projectId: string;
   serviceAccount: string;
   imageDigest: string;
+  allowedImageDigests: string[];
+  policyMeasurement: string;
   rootCertificate: string;
   rootFingerprint: string;
   releaseId: string;
@@ -60,6 +62,13 @@ export class EvaluatorAttestationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "EvaluatorAttestationError";
+  }
+}
+
+export class EvaluatorAuthenticationError extends EvaluatorAttestationError {
+  constructor() {
+    super("Your session expired. Sign in again to continue.");
+    this.name = "EvaluatorAuthenticationError";
   }
 }
 
@@ -144,26 +153,26 @@ function evaluatorKeyBinding(releaseId: string): EvaluatorKeyBinding {
     releaseId,
     keys: {
       responseDecryption: p256Key(
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID,
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY,
+        publicRuntimeValue("HERD_EVALUATOR_KEY_ID"),
+        publicRuntimeValue("HERD_EVALUATOR_PUBLIC_KEY"),
         "ECDH_P256",
         "response-decryption",
       ),
       evaluationResultSigning: p256Key(
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_KEY_ID,
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY,
+        publicRuntimeValue("HERD_EVALUATOR_RESULT_SIGNING_KEY_ID"),
+        publicRuntimeValue("HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY"),
         "ECDSA_P256_SHA256",
         "evaluation-result signing",
       ),
       policySigning: p256Key(
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID,
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY,
+        publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_KEY_ID"),
+        publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY"),
         "ECDSA_P256_SHA256",
         "policy signing",
       ),
       transparencySigning: p256Key(
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID,
-        process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY,
+        publicRuntimeValue("HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID"),
+        publicRuntimeValue("HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY"),
         "ECDSA_P256_SHA256",
         "transparency signing",
       ),
@@ -181,7 +190,7 @@ function evaluatorKeyBinding(releaseId: string): EvaluatorKeyBinding {
 
 function loadAttestationConfig(): AttestationConfig {
   const maxAgeSeconds = Number(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_MAX_AGE_SECONDS ?? "300",
+    publicRuntimeValue("HERD_ATTESTATION_MAX_AGE_SECONDS") ?? "300",
   );
   if (!Number.isInteger(maxAgeSeconds) || maxAgeSeconds < 30 || maxAgeSeconds > 900) {
     throw new EvaluatorAttestationError(
@@ -189,7 +198,7 @@ function loadAttestationConfig(): AttestationConfig {
     );
   }
   const allowedSwVersions = requiredBuildValue(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_SWVERSIONS,
+    publicRuntimeValue("HERD_ATTESTATION_SWVERSIONS"),
     "Confidential Space OS version",
   )
     .split(",")
@@ -205,12 +214,12 @@ function loadAttestationConfig(): AttestationConfig {
     );
   }
   const releaseId = releaseIdentifier(
-    process.env.NEXT_PUBLIC_HERD_RELEASE_ID,
+    publicRuntimeValue("HERD_RELEASE_ID"),
     "release ID",
   );
   const keyBinding = evaluatorKeyBinding(releaseId);
   const imageDigest = requiredBuildValue(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST,
+    publicRuntimeValue("HERD_ATTESTATION_IMAGE_DIGEST"),
     "evaluator image digest",
   );
   if (!/^sha256:[0-9a-f]{64}$/u.test(imageDigest)) {
@@ -218,8 +227,33 @@ function loadAttestationConfig(): AttestationConfig {
       "This Herd release has an invalid evaluator image digest.",
     );
   }
+  const allowedImageDigests = (
+    publicRuntimeValue("HERD_ATTESTATION_IMAGE_DIGESTS") ?? imageDigest
+  )
+    .split(",")
+    .map((digest) => digest.trim());
+  if (
+    allowedImageDigests.length === 0 ||
+    allowedImageDigests.length > 2 ||
+    allowedImageDigests[0] !== imageDigest ||
+    new Set(allowedImageDigests).size !== allowedImageDigests.length ||
+    !allowedImageDigests.every((digest) => /^sha256:[0-9a-f]{64}$/u.test(digest))
+  ) {
+    throw new EvaluatorAttestationError(
+      "This Herd release has an invalid evaluator image digest allowlist.",
+    );
+  }
+  const policyMeasurement = requiredBuildValue(
+    publicRuntimeValue("HERD_EVALUATOR_MEASUREMENT"),
+    "evaluator policy measurement",
+  );
+  if (!/^sha256:[0-9a-f]{64}$/u.test(policyMeasurement)) {
+    throw new EvaluatorAttestationError(
+      "This Herd release has an invalid evaluator policy measurement.",
+    );
+  }
   const rootFingerprint = requiredBuildValue(
-    process.env.NEXT_PUBLIC_HERD_ATTESTATION_ROOT_FINGERPRINT,
+    publicRuntimeValue("HERD_ATTESTATION_ROOT_FINGERPRINT"),
     "attestation root fingerprint",
   );
   if (!/^[0-9a-f]{64}$/u.test(rootFingerprint)) {
@@ -228,18 +262,20 @@ function loadAttestationConfig(): AttestationConfig {
     );
   }
   return {
-    audience: httpsAudience(process.env.NEXT_PUBLIC_HERD_ATTESTATION_AUDIENCE),
+    audience: httpsAudience(publicRuntimeValue("HERD_ATTESTATION_AUDIENCE")),
     projectId: requiredBuildValue(
-      process.env.NEXT_PUBLIC_HERD_ATTESTATION_PROJECT_ID,
+      publicRuntimeValue("HERD_ATTESTATION_PROJECT_ID"),
       "evaluator project ID",
     ),
     serviceAccount: requiredBuildValue(
-      process.env.NEXT_PUBLIC_HERD_ATTESTATION_SERVICE_ACCOUNT,
+      publicRuntimeValue("HERD_ATTESTATION_SERVICE_ACCOUNT"),
       "evaluator service account",
     ),
     imageDigest,
+    allowedImageDigests,
+    policyMeasurement,
     rootCertificate: requiredBuildValue(
-      process.env.NEXT_PUBLIC_HERD_ATTESTATION_ROOT_CERTIFICATE,
+      publicRuntimeValue("HERD_ATTESTATION_ROOT_CERTIFICATE"),
       "attestation root certificate",
     ).replaceAll("\\n", "\n"),
     rootFingerprint,
@@ -248,50 +284,6 @@ function loadAttestationConfig(): AttestationConfig {
     maxAgeSeconds,
     keyBinding,
   };
-}
-
-export function softwareQaEvaluatorModeEnabled(): boolean {
-  return (
-    process.env.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE === "test" &&
-    process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR === "true"
-  );
-}
-
-function softwareQaEvaluatorAccepted(policy: PrivateResponsePolicyV1): boolean {
-  const enabled = process.env.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR;
-  if (!softwareQaEvaluatorModeEnabled()) {
-    if (enabled === "true") {
-      throw new EvaluatorAttestationError(
-        "Software evaluator verification is permitted only in an isolated test release.",
-      );
-    }
-    if (enabled && enabled !== "false") {
-      throw new EvaluatorAttestationError(
-        "This Herd release has an invalid software-QA evaluator setting.",
-      );
-    }
-    return false;
-  }
-  const releaseId = releaseIdentifier(
-    process.env.NEXT_PUBLIC_HERD_RELEASE_ID,
-    "release ID",
-  );
-  const evaluator = evaluatorKeyBinding(releaseId).keys.responseDecryption;
-  const measurement = requiredBuildValue(
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT,
-    "software-QA evaluator measurement",
-  );
-  if (
-    policy.releaseId !== releaseId ||
-    policy.evaluatorKeyId !== evaluator.keyId ||
-    policy.evaluatorPublicKey !== evaluator.publicKey ||
-    policy.evaluatorMeasurement !== measurement
-  ) {
-    throw new EvaluatorAttestationError(
-      "The software-QA evaluator does not match this test release's trust pins.",
-    );
-  }
-  return true;
 }
 
 function strictBase64Url(value: unknown, field: string): Uint8Array {
@@ -537,11 +529,12 @@ function stringArray(value: unknown, field: string): string[] {
 }
 
 function emptyCommandOverride(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 0;
+  return value === undefined || (Array.isArray(value) && value.length === 0);
 }
 
 function emptyEnvironmentOverride(value: unknown): boolean {
   return (
+    value === undefined ||
     (value !== null &&
       typeof value === "object" &&
       !Array.isArray(value) &&
@@ -657,7 +650,7 @@ async function verifyAttestationToken(
     gce.project_id !== config.projectId ||
     serviceAccounts.length !== 1 ||
     serviceAccounts[0] !== config.serviceAccount ||
-    container.image_digest !== config.imageDigest ||
+    !config.allowedImageDigests.includes(container.image_digest) ||
     container.restart_policy !== "Always" ||
     !emptyEnvironmentOverride(container.env_override) ||
     !emptyCommandOverride(container.cmd_override) ||
@@ -692,7 +685,7 @@ async function verifyResponse(
     response.keyBinding.keys.responseDecryption.keyId !== policy.evaluatorKeyId ||
     response.keyBinding.keys.responseDecryption.publicKey !== policy.evaluatorPublicKey ||
     policy.releaseId !== config.releaseId ||
-    policy.evaluatorMeasurement !== config.imageDigest
+    policy.evaluatorMeasurement !== config.policyMeasurement
   ) {
     throw new EvaluatorAttestationError(
       "The evaluator attestation is not bound to this event and Herd release.",
@@ -704,7 +697,6 @@ async function verifyResponse(
 export async function attestEvaluatorForPolicy(
   policy: PrivateResponsePolicyV1,
 ): Promise<void> {
-  if (softwareQaEvaluatorAccepted(policy)) return;
   const config = loadAttestationConfig();
   const nonce = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   let response: Response;
@@ -722,6 +714,9 @@ export async function attestEvaluatorForPolicy(
     );
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new EvaluatorAuthenticationError();
+    }
     throw new EvaluatorAttestationError(
       "The confidential evaluator could not be verified.",
     );

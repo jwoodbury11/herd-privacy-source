@@ -27,6 +27,14 @@ evaluator-key epoch fingerprint. It rejects a skipped predecessor, a changed
 image/key tuple under an existing epoch ID, an incomplete three-key epoch
 rotation, and any change to the lifetime-global response-transparency key.
 
+Each target status also includes a check duration and one bounded operational
+failure class. The class distinguishes configuration, availability, release
+integrity, evaluator attestation, response transparency, and monitor-storage
+failures without exporting fetched bodies, attestation tokens, receipts, user
+identifiers, or free-form exception messages to aggregate telemetry. The full
+privacy and SLI design is in
+`docs/privacy-preserving-reliability-observability.md`.
+
 Configure `TARGETS_JSON` as a Worker secret. For a Sites origin protected by
 Sign in with ChatGPT, also configure `SITES_BYPASS_BEARER_TOKEN` as a Worker
 secret. The monitor sends it only to the target's exact `expectedWebOrigin`;

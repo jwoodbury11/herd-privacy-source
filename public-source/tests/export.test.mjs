@@ -70,6 +70,28 @@ test("allowlisted source export is byte-for-byte deterministic and excludes prop
   assert.deepEqual(first, second);
 });
 
+test("recursive includes skip prohibited generated and dependency subtrees", async () => {
+  const root = await fixtureRoot();
+  await mkdir(path.join(root, "src", "node_modules", "dependency"), { recursive: true });
+  await mkdir(path.join(root, "src", "release", "generated"), { recursive: true });
+  await writeFile(path.join(root, "src", "node_modules", "dependency", "index.mjs"), "secret\n");
+  await writeFile(path.join(root, "src", "release", "generated", "runtime.json"), "secret\n");
+
+  const files = await collectExportFiles(root, normalizeExportPolicy({
+    ...rawPolicy(),
+    prohibitedPathFragments: [
+      ...rawPolicy().prohibitedPathFragments,
+      "release/generated",
+    ],
+  }));
+
+  assert.deepEqual(files.map(({ path: filePath }) => filePath), [
+    "LICENSE",
+    "docs/protocol.md",
+    "src/privacy.mjs",
+  ]);
+});
+
 test("standalone verifier accepts a canonical export and rejects one changed byte", async () => {
   const root = await fixtureRoot();
   const normalizedPolicy = policy();
@@ -232,7 +254,7 @@ test("configuration examples require an exact .env.example path and pinned diges
   await assert.rejects(collectExportFiles(unpinnedRoot, policy()), /Environment file/u);
 });
 
-test("repository policy includes the executable privacy contracts and QA dependencies", async () => {
+test("repository policy includes the executable privacy contracts and acceptance dependencies", async () => {
   const policyPath = path.join(repositoryRoot, "public-source", "export-policy.json");
   const repositoryPolicy = normalizeExportPolicy(JSON.parse(await readFile(policyPath, "utf8")));
   assert.equal(
@@ -249,11 +271,8 @@ test("repository policy includes the executable privacy contracts and QA depende
     "scripts/verify-data-contract.mjs",
     "scripts/scan-sensitive-artifacts.mjs",
     "docs/data-retention-and-privacy-operations.md",
-    "invitee-web/scripts/browser-qa-harness.mjs",
+    "invitee-web/scripts/browser-acceptance-harness.mjs",
     "invitee-web/.env.example",
-    "invitee-web/lib/backend/qa-reset.ts",
-    "invitee-web/app/api/internal/qa-reset/route.ts",
-    "invitee-web/tests/qa-reset.test.mjs",
     "invitee-web/lib/backend/accounts.ts",
     "invitee-web/legal-content/index.tsx",
     "invitee-web/tests/account-deletion.test.mjs",
@@ -279,10 +298,6 @@ test("repository policy includes the executable privacy contracts and QA depende
     "herd-legal/vite.config.ts",
     "herd-legal/public/og.png",
     "evaluator-service/.env.example",
-    "evaluator-service/lib/qa-trust-signer.ts",
-    "evaluator-service/app/api/v1/sign/policy/route.ts",
-    "evaluator-service/app/api/v1/sign/transparency/route.ts",
-    "evaluator-service/tests/qa-trust-signer.test.mjs",
   ]) {
     assert.equal(included.has(requiredPath), true, `${requiredPath} is absent from the public export`);
   }

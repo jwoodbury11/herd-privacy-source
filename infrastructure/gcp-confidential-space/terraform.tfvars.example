@@ -15,7 +15,13 @@ transparency_collection_id     = "herd_response_log_v1"
 
 # Set only after the foundation phase, KMS encryption, immutable build, and push:
 # runtime_enabled            = true
-# image_digest               = "sha256:replace-with-64-lowercase-hex"
+# evaluator_slots = {
+#   blue = {
+#     image_digest   = "sha256:replace-with-64-lowercase-hex"
+#     instance_count = 3
+#     serve_traffic  = true
+#   }
+# }
 # confidential_space_image   = "https://www.googleapis.com/compute/v1/projects/confidential-space-images/global/images/replace-exact-production-image"
 # confidential_space_swversions = ["260600"]
 # evaluator_domain           = "evaluator.example.com"

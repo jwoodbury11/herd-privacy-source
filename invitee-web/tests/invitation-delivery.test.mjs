@@ -53,27 +53,29 @@ async function createHarness({ fetchMock, deliveryConfigured = true } = {}) {
         TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid,
       }
     : {};
-  const miniflare = new Miniflare({
+  const bindings = {
+    HERD_DEPLOYMENT_PROFILE: "test",
+    HERD_AUTH_PEPPER: testPepper,
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+    HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-test-generation-v1",
+    HERD_TEST_HOST_PHONE_E164: "+14155550111",
+    HERD_EVALUATOR_KEY_ID: "delivery-test-evaluator-v1",
+    HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
+    HERD_EVALUATOR_MEASUREMENT: "delivery-test-evaluator-measurement",
+    HERD_RELEASE_ID: "delivery-test-release-v1",
+    HERD_ARTIFACT_RELEASE_ID: "2026.08.12.delivery-test",
+    ...deliveryBindings,
+  };
+  const miniflareOptions = {
     modules: modulePaths.map((modulePath) => ({ type: "ESModule", path: modulePath })),
     modulesRoot: serverRoot,
     compatibilityDate: "2026-05-15",
     compatibilityFlags: ["nodejs_compat"],
     d1Databases: { DB: `herd-delivery-${process.pid}-${Date.now()}-${Math.random()}` },
     ...(fetchMock ? { fetchMock } : {}),
-    bindings: {
-      HERD_AUTH_PEPPER: testPepper,
-      HERD_TEST_BYPASS_ENABLED: "true",
-      HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-      HERD_QA_BYPASS_GENERATION: "herd-test-generation-v1",
-      HERD_TEST_PHONE_E164: "+14155550187",
-      HERD_TEST_HOST_PHONE_E164: "+14155550111",
-      HERD_EVALUATOR_KEY_ID: "delivery-test-evaluator-v1",
-      HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
-      HERD_EVALUATOR_MEASUREMENT: "delivery-test-evaluator-measurement",
-      HERD_RELEASE_ID: "delivery-test-release-v1",
-      ...deliveryBindings,
-    },
-  });
+    bindings,
+  };
+  const miniflare = new Miniflare(miniflareOptions);
   const database = await miniflare.getD1Database("DB");
   const migrationFiles = (await readdir(migrationDirectory))
     .filter((name) => /^\d+_.+\.sql$/u.test(name))
@@ -85,7 +87,15 @@ async function createHarness({ fetchMock, deliveryConfigured = true } = {}) {
       if (statement) await database.exec(statement.replace(/\s+/gu, " "));
     }
   }
-  return { miniflare, database };
+  return {
+    miniflare,
+    database,
+    async disableDelivery() {
+      const nextBindings = { ...bindings };
+      for (const key of Object.keys(deliveryBindings)) delete nextBindings[key];
+      await miniflare.setOptions({ ...miniflareOptions, bindings: nextBindings });
+    },
+  };
 }
 
 function api(miniflare, pathname, init = {}) {
@@ -121,7 +131,7 @@ function eventFixture({ eventId, invitees, invitationsSent = false }) {
     title: "Delivery reliability dinner",
     eventDate: eventDate.toISOString(),
     endDate: new Date(eventDate.getTime() + 7_200_000).toISOString(),
-    hostName: "Herd QA Host",
+    hostName: "Herd test Host",
     locationName: "Test kitchen",
     locationAddress: "San Francisco, CA",
     invitees,
@@ -226,7 +236,7 @@ test("first Send stores an encrypted private link and returns provider-accepted 
   assert.equal(providerBody.get("To"), event.invitees[0].phoneNumber);
   assert.equal(providerBody.get("MessagingServiceSid"), messagingServiceSid);
   const message = providerBody.get("Body") ?? "";
-  assert.match(message, /^Herd: Herd QA Host invited you to Delivery reliability dinner — /u);
+  assert.match(message, /^Herd: Herd test Host invited you to Delivery reliability dinner — /u);
   assert.match(
     message,
     /\. View details and respond privately: https:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}\. One-time message sent at the host’s request\. Reply STOP to opt out; HELP for help\. Msg & data rates may apply\.$/u,
@@ -403,7 +413,8 @@ test("concurrent exact retries drain an interrupted pending delivery exactly onc
       providerCalls += 1;
       return { sid: `SM${"7".repeat(32)}`, status: "queued" };
     })
-    .delay(40);
+    .delay(40)
+    .persist();
   const { miniflare, database } = await createHarness({ fetchMock });
   t.after(() => miniflare.dispose());
   const hostToken = await signIn(miniflare, "1");
@@ -421,20 +432,22 @@ test("concurrent exact retries drain an interrupted pending delivery exactly onc
 
   const firstSend = await saveEvent(miniflare, hostToken, event);
   assert.equal(firstSend.status, 200);
-  assert.equal((await firstSend.json()).event.invitationDelivery.status, "suppressed");
-  assert.equal(providerCalls, 0);
+  assert.equal((await firstSend.json()).event.invitationDelivery.status, "complete");
+  assert.equal(providerCalls, 1);
 
   // Model a worker interruption after the event, policy, and durable outbox commit,
   // but before the pending delivery was claimed for dispatch.
   const interrupted = await database
     .prepare(
       `UPDATE invitation_deliveries
-       SET status = 'pending', suppressed_reason = NULL, updated_at = ?
-       WHERE event_id = ? AND invitee_id = ? AND status = 'suppressed'`,
+       SET status = 'pending', attempt_count = 0, provider_message_sid = NULL,
+           dispatch_started_at = NULL, updated_at = ?
+       WHERE event_id = ? AND invitee_id = ? AND status = 'sent'`,
     )
     .bind(new Date().toISOString(), event.id, event.invitees[0].id)
     .run();
   assert.equal(interrupted.meta.changes, 1);
+  providerCalls = 0;
 
   const [left, right] = await Promise.all([
     saveEvent(miniflare, hostToken, event),
@@ -471,7 +484,8 @@ test("an exact retry drains pending delivery using the stored frozen release", a
     .reply(201, () => {
       providerCalls += 1;
       return { sid: `SM${"8".repeat(32)}`, status: "queued" };
-    });
+    })
+    .persist();
   const { miniflare, database } = await createHarness({ fetchMock });
   t.after(() => miniflare.dispose());
   const hostToken = await signIn(miniflare, "1");
@@ -487,6 +501,7 @@ test("an exact retry drains pending delivery using the stored frozen release", a
     invitationsSent: true,
   });
   assert.equal((await saveEvent(miniflare, hostToken, event)).status, 200);
+  providerCalls = 0;
 
   const storedPolicy = await database
     .prepare(
@@ -525,8 +540,9 @@ test("an exact retry drains pending delivery using the stored frozen release", a
     database
       .prepare(
         `UPDATE invitation_deliveries
-         SET status = 'pending', suppressed_reason = NULL, updated_at = ?
-         WHERE event_id = ? AND invitee_id = ? AND status = 'suppressed'`,
+         SET status = 'pending', attempt_count = 0, provider_message_sid = NULL,
+             dispatch_started_at = NULL, updated_at = ?
+         WHERE event_id = ? AND invitee_id = ? AND status = 'sent'`,
       )
       .bind(new Date().toISOString(), event.id, event.invitees[0].id),
   ]);
@@ -543,7 +559,14 @@ test("an exact retry drains pending delivery using the stored frozen release", a
 });
 
 test("missing messaging configuration leaves interrupted delivery pending", async (t) => {
-  const { miniflare, database } = await createHarness({ deliveryConfigured: false });
+  const fetchMock = createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://api.twilio.com")
+    .intercept({ method: "POST", path: twilioMessagesPath })
+    .reply(201, { sid: `SM${"6".repeat(32)}`, status: "queued" });
+  const { miniflare, database: initialDatabase, disableDelivery } = await createHarness({ fetchMock });
+  let database = initialDatabase;
   t.after(() => miniflare.dispose());
   const hostToken = await signIn(miniflare, "1");
   const event = eventFixture({
@@ -558,11 +581,14 @@ test("missing messaging configuration leaves interrupted delivery pending", asyn
     invitationsSent: true,
   });
   assert.equal((await saveEvent(miniflare, hostToken, event)).status, 200);
+  await disableDelivery();
+  database = await miniflare.getD1Database("DB");
   await database
     .prepare(
       `UPDATE invitation_deliveries
-       SET status = 'pending', suppressed_reason = NULL, updated_at = ?
-       WHERE event_id = ? AND invitee_id = ? AND status = 'suppressed'`,
+       SET status = 'pending', attempt_count = 0, provider_message_sid = NULL,
+           dispatch_started_at = NULL, updated_at = ?
+       WHERE event_id = ? AND invitee_id = ? AND status = 'sent'`,
     )
     .bind(new Date().toISOString(), event.id, event.invitees[0].id)
     .run();
@@ -590,7 +616,18 @@ test("missing messaging configuration leaves interrupted delivery pending", asyn
 });
 
 test("an interrupted delivery is not sent after its reply deadline", async (t) => {
-  const { miniflare, database } = await createHarness();
+  let providerCalls = 0;
+  const fetchMock = createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://api.twilio.com")
+    .intercept({ method: "POST", path: twilioMessagesPath })
+    .reply(201, () => {
+      providerCalls += 1;
+      return { sid: `SM${"3".repeat(32)}`, status: "queued" };
+    })
+    .persist();
+  const { miniflare, database } = await createHarness({ fetchMock });
   t.after(() => miniflare.dispose());
   const hostToken = await signIn(miniflare, "1");
   const rsvpDeadline = new Date(Date.now() + 2_000).toISOString();
@@ -611,11 +648,13 @@ test("an interrupted delivery is not sent after its reply deadline", async (t) =
 
   const firstSend = await saveEvent(miniflare, hostToken, event);
   assert.equal(firstSend.status, 200);
+  assert.equal(providerCalls, 1);
   await database
     .prepare(
       `UPDATE invitation_deliveries
-       SET status = 'pending', suppressed_reason = NULL, updated_at = ?
-       WHERE event_id = ? AND invitee_id = ? AND status = 'suppressed'`,
+       SET status = 'pending', attempt_count = 0, provider_message_sid = NULL,
+           dispatch_started_at = NULL, last_error_code = NULL, updated_at = ?
+       WHERE event_id = ? AND invitee_id = ? AND status = 'sent'`,
     )
     .bind(new Date().toISOString(), event.id, event.invitees[0].id)
     .run();
@@ -628,6 +667,7 @@ test("an interrupted delivery is not sent after its reply deadline", async (t) =
   const retryEvent = (await retry.json()).event;
   assert.equal(retryEvent.invitationDelivery.status, "attention_needed");
   assert.equal(retryEvent.invitationDelivery.guests[0].status, "failed");
+  assert.equal(providerCalls, 1);
 
   const delivery = await database
     .prepare(
@@ -641,58 +681,6 @@ test("an interrupted delivery is not sent after its reply deadline", async (t) =
   assert.equal(delivery.attempts, 1);
   assert.equal(delivery.providerMessageSid, null);
   assert.equal(delivery.errorCode, "rsvp_closed_before_delivery");
-});
-
-test("QA aliases and controlled fixtures are suppressed but still receive in-app access", async (t) => {
-  const { miniflare, database } = await createHarness({ deliveryConfigured: false });
-  t.after(() => miniflare.dispose());
-  const hostToken = await signIn(miniflare, "1");
-  const invitees = ["2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => ({
-    id: `95000000-0000-4000-8000-${digit.padStart(12, "0")}`,
-    displayName: `QA account ${digit}`,
-    phoneNumber: `+1415555010${digit}`,
-  }));
-  invitees.push({
-    id: "95000000-0000-4000-8000-000000000187",
-    displayName: "Controlled fixture",
-    phoneNumber: "+14155550187",
-  });
-  const event = eventFixture({
-    eventId: "95000000-0000-4000-8000-000000000001",
-    invitees,
-    invitationsSent: true,
-  });
-  const response = await saveEvent(miniflare, hostToken, event);
-  assert.equal(response.status, 200);
-  const hostedEvent = (await response.json()).event;
-  assert.equal(hostedEvent.invitationDelivery.status, "suppressed");
-  assert.equal(hostedEvent.invitationDelivery.counts.suppressed, 9);
-  assert.equal(hostedEvent.invitationDelivery.counts.sent, 0);
-  const stored = await database
-    .prepare(
-      `SELECT COUNT(*) AS count, SUM(attempt_count) AS attempts,
-              COUNT(DISTINCT status) AS statuses, MAX(status) AS status
-       FROM invitation_deliveries WHERE event_id = ?`,
-    )
-    .bind(event.id)
-    .first();
-  assert.equal(stored.count, 9);
-  assert.equal(stored.attempts, 0);
-  assert.equal(stored.statuses, 1);
-  assert.equal(stored.status, "suppressed");
-
-  const guestToken = await signIn(miniflare, "2");
-  const guestEventsResponse = await api(miniflare, "/api/events", {
-    headers: { authorization: `Bearer ${guestToken}` },
-  });
-  assert.equal(guestEventsResponse.status, 200);
-  const guestEvent = (await guestEventsResponse.json()).events.find(
-    (candidate) => candidate.id === event.id,
-  );
-  assert.equal(guestEvent.role, "invitee");
-  assert.equal(typeof guestEvent.inviteToken, "string");
-  assert.equal(Object.hasOwn(guestEvent, "invitationDelivery"), false);
-  assert.equal(Object.hasOwn(guestEvent.invitees[0], "phoneNumber"), false);
 });
 
 test("a real-recipient Send fails closed before freezing when messaging is not configured", async (t) => {

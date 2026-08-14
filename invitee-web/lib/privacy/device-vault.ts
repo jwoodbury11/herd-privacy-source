@@ -35,12 +35,12 @@ export type LocalAccountRootSecret = {
 };
 
 export class PrivateVaultError extends Error {
-  readonly canStartOver: boolean;
+  readonly canSwitchDevice: boolean;
 
-  constructor(message: string, options: { canStartOver?: boolean } = {}) {
+  constructor(message: string, options: { canSwitchDevice?: boolean } = {}) {
     super(message);
     this.name = "PrivateVaultError";
-    this.canStartOver = options.canStartOver ?? false;
+    this.canSwitchDevice = options.canSwitchDevice ?? false;
   }
 }
 
@@ -194,7 +194,7 @@ function decodeWrap(value: string): Uint8Array {
     frame = base64UrlToBytes(value);
   } catch {
     throw new PrivateVaultError("The local account-key vault is malformed.", {
-      canStartOver: true,
+      canSwitchDevice: true,
     });
   }
   if (
@@ -202,7 +202,7 @@ function decodeWrap(value: string): Uint8Array {
     bytesToBase64Url(frame) !== value
   ) {
     throw new PrivateVaultError("The local account-key vault is malformed.", {
-      canStartOver: true,
+      canSwitchDevice: true,
     });
   }
   return frame;
@@ -217,7 +217,7 @@ function validateStoredDeviceKey(key: CryptoKey): void {
     !key.usages.includes("decrypt")
   ) {
     throw new PrivateVaultError("The local device key is invalid.", {
-      canStartOver: true,
+      canSwitchDevice: true,
     });
   }
 }
@@ -251,13 +251,13 @@ async function unwrapRecord(record: StoredVaultRecord): Promise<LocalAccountRoot
   } catch {
     throw new PrivateVaultError(
       "This browser can no longer open the account key stored on this device.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   }
   if (accountRootSecret.length !== ACCOUNT_ROOT_SECRET_BYTES) {
     accountRootSecret.fill(0);
     throw new PrivateVaultError("The local account root secret has the wrong size.", {
-      canStartOver: true,
+      canSwitchDevice: true,
     });
   }
   return {
@@ -306,7 +306,7 @@ async function verifyCommitment(
     accountRootSecret.bytes.fill(0);
     throw new PrivateVaultError(
       "This device’s account key does not match the active account-key epoch.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   }
   return accountRootSecret;

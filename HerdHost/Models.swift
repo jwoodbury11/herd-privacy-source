@@ -12,6 +12,13 @@ enum EventAccessRole: String, Codable, Hashable, Sendable {
     case invitee
 }
 
+enum EventHomeSection: Hashable, Sendable {
+    case invites
+    case hosted
+    case unconfirmed
+    case past
+}
+
 enum RSVPResponse: String, Codable, Hashable, Sendable {
     case going
     case cantCommit = "cant_commit"
@@ -22,6 +29,18 @@ enum EventResolutionStatus: String, Codable, Hashable, Sendable {
     case confirmed
     case notConfirmed = "not_confirmed"
     case verificationUnavailable = "verification_unavailable"
+}
+
+struct RevealedGuestState: Codable, Hashable, Sendable {
+    enum Status: String, Codable, Hashable, Sendable {
+        case going
+        case cantCommit = "cant_commit"
+        case noResponse = "no_response"
+    }
+
+    let memberId: String
+    let status: Status
+    let missedDeadline: Bool
 }
 
 struct EvaluationResultAttestationV1: Codable, Hashable, Sendable {
@@ -35,6 +54,8 @@ struct EvaluationResultAttestationV1: Codable, Hashable, Sendable {
 struct EventResolution: Codable, Hashable, Sendable {
     let status: EventResolutionStatus
     let attendingMemberIds: [String]?
+    let attendanceRevealed: Bool?
+    let guestStates: [RevealedGuestState]?
     let resolvedAt: Date?
     let retrying: Bool?
     let attestation: EvaluationResultAttestationV1?
@@ -42,12 +63,16 @@ struct EventResolution: Codable, Hashable, Sendable {
     init(
         status: EventResolutionStatus,
         attendingMemberIds: [String]? = nil,
+        attendanceRevealed: Bool? = nil,
+        guestStates: [RevealedGuestState]? = nil,
         resolvedAt: Date? = nil,
         retrying: Bool? = nil,
         attestation: EvaluationResultAttestationV1? = nil
     ) {
         self.status = status
         self.attendingMemberIds = attendingMemberIds
+        self.attendanceRevealed = attendanceRevealed
+        self.guestStates = guestStates
         self.resolvedAt = resolvedAt
         self.retrying = retrying
         self.attestation = attestation
@@ -232,6 +257,11 @@ struct PrivateResponseDraft: Hashable, Sendable {
     let requiredGroups: [RSVPConditionGroup]
 }
 
+enum PrivateResponseCertificationStatus: String, Codable, Hashable, Sendable {
+    case certified
+    case pending
+}
+
 struct InvitePrivateResponseContext: Hashable, Sendable {
     let event: HerdEvent
     let inviteeID: UUID
@@ -240,27 +270,36 @@ struct InvitePrivateResponseContext: Hashable, Sendable {
     let responseEnvelope: StoredPrivateResponseEnvelopeV1?
     let hasResponse: Bool
     let responseRevision: Int?
+    let responseCertificationStatus: PrivateResponseCertificationStatus?
 }
 
 struct Invitee: Identifiable, Codable, Hashable, Sendable {
+    struct ResponseHistory: Codable, Hashable, Sendable {
+        let missedConfirmedEvents: Int
+        let totalConfirmedEvents: Int
+    }
+
     let id: UUID
     var sourceContactIdentifier: String?
     var displayName: String
     var phoneNumber: String
     var isCurrentUser: Bool
+    var responseHistory: ResponseHistory?
 
     init(
         id: UUID = UUID(),
         sourceContactIdentifier: String? = nil,
         displayName: String,
         phoneNumber: String,
-        isCurrentUser: Bool = false
+        isCurrentUser: Bool = false,
+        responseHistory: ResponseHistory? = nil
     ) {
         self.id = id
         self.sourceContactIdentifier = sourceContactIdentifier
         self.displayName = displayName
         self.phoneNumber = phoneNumber
         self.isCurrentUser = isCurrentUser
+        self.responseHistory = responseHistory
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -269,6 +308,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         case displayName
         case phoneNumber
         case isCurrentUser
+        case responseHistory
     }
 
     init(from decoder: Decoder) throws {
@@ -281,6 +321,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         displayName = try container.decode(String.self, forKey: .displayName)
         phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber) ?? ""
         isCurrentUser = try container.decodeIfPresent(Bool.self, forKey: .isCurrentUser) ?? false
+        responseHistory = try container.decodeIfPresent(ResponseHistory.self, forKey: .responseHistory)
     }
 }
 
@@ -317,6 +358,29 @@ enum EventDeadlineRules {
     }
 }
 
+enum EventDraftDefaults {
+    static func eventDate(
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> Date {
+        let weekday = calendar.component(.weekday, from: now)
+        let daysUntilSaturday = (7 - weekday + 7) % 7
+        // Wednesday is the cutoff for planning the coming weekend. From then
+        // on, start people on the following Saturday instead.
+        let daysToAdd = weekday >= 4 ? daysUntilSaturday + 7 : daysUntilSaturday
+        let saturday = calendar.date(byAdding: .day, value: daysToAdd, to: now)!
+        return calendar.date(bySettingHour: 19, minute: 0, second: 0, of: saturday)!
+    }
+
+    static func rsvpDeadline(
+        for eventDate: Date,
+        calendar: Calendar = .current
+    ) -> Date {
+        let thursday = calendar.date(byAdding: .day, value: -2, to: eventDate)!
+        return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: thursday)!
+    }
+}
+
 struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     var title: String
@@ -327,6 +391,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     var locationAddress: String
     var invitees: [Invitee]
     var minimumParticipants: Int
+    var allowsAttendeesToAddGuests: Bool
     var requiredGroups: [RequiredAttendeeGroup]
     var rsvpDeadline: Date?
     var eventDescription: String
@@ -338,6 +403,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     var accountKeyCommitment: String?
     var hasResponse: Bool
     var responseRevision: Int?
+    var responseCertificationStatus: PrivateResponseCertificationStatus?
     var privateResponsePolicy: PrivateResponsePolicyV1?
     var resolution: EventResolution?
     var invitationDelivery: InvitationDeliverySummary?
@@ -352,6 +418,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         locationAddress: String,
         invitees: [Invitee],
         minimumParticipants: Int,
+        allowsAttendeesToAddGuests: Bool = true,
         requiredGroups: [RequiredAttendeeGroup],
         rsvpDeadline: Date?,
         eventDescription: String,
@@ -363,6 +430,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         accountKeyCommitment: String? = nil,
         hasResponse: Bool = false,
         responseRevision: Int? = nil,
+        responseCertificationStatus: PrivateResponseCertificationStatus? = nil,
         privateResponsePolicy: PrivateResponsePolicyV1? = nil,
         resolution: EventResolution? = nil,
         invitationDelivery: InvitationDeliverySummary? = nil
@@ -376,6 +444,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.locationAddress = locationAddress
         self.invitees = invitees
         self.minimumParticipants = minimumParticipants
+        self.allowsAttendeesToAddGuests = allowsAttendeesToAddGuests
         self.requiredGroups = requiredGroups
         self.rsvpDeadline = rsvpDeadline
         self.eventDescription = eventDescription
@@ -387,26 +456,36 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.accountKeyCommitment = accountKeyCommitment
         self.hasResponse = hasResponse
         self.responseRevision = responseRevision
+        self.responseCertificationStatus = responseCertificationStatus
         self.privateResponsePolicy = privateResponsePolicy
         self.resolution = resolution
         self.invitationDelivery = invitationDelivery
     }
 
-    static func newDraft(hostName: String = "Host") -> HerdEvent {
-        HerdEvent(
+    static func newDraft(
+        hostName: String = "Host",
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> HerdEvent {
+        let eventDate = EventDraftDefaults.eventDate(now: now, calendar: calendar)
+        return HerdEvent(
             id: UUID(),
             title: "",
-            eventDate: nil,
+            eventDate: eventDate,
             endDate: nil,
             hostName: hostName,
             locationName: "",
             locationAddress: "",
             invitees: [],
             minimumParticipants: 4,
+            allowsAttendeesToAddGuests: true,
             requiredGroups: [],
-            rsvpDeadline: nil,
+            rsvpDeadline: EventDraftDefaults.rsvpDeadline(
+                for: eventDate,
+                calendar: calendar
+            ),
             eventDescription: "",
-            createdAt: .now,
+            createdAt: now,
             invitationsSent: false
         )
     }
@@ -417,6 +496,34 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
 
     var isHosted: Bool {
         role == .host
+    }
+
+    func homeSection(
+        at now: Date = .now,
+        calendar: Calendar = .current
+    ) -> EventHomeSection {
+        if invitationsSent,
+           let rsvpDeadline,
+           rsvpDeadline <= now,
+           resolution?.status != .confirmed {
+            return .unconfirmed
+        }
+
+        if let eventDate,
+           let dayAfterEvent = calendar.date(
+               byAdding: .day,
+               value: 1,
+               to: calendar.startOfDay(for: eventDate)
+           ),
+           now >= dayAfterEvent {
+            return .past
+        }
+
+        return isHosted ? .hosted : .invites
+    }
+
+    var participantCount: Int {
+        invitees.count + 1
     }
 
     var outstandingTasks: [String] {
@@ -493,6 +600,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         case locationAddress
         case invitees
         case minimumParticipants
+        case allowsAttendeesToAddGuests
         case requiredGroups
         case rsvpDeadline
         case eventDescription
@@ -520,6 +628,10 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         locationAddress = try container.decode(String.self, forKey: .locationAddress)
         invitees = try container.decode([Invitee].self, forKey: .invitees)
         minimumParticipants = try container.decode(Int.self, forKey: .minimumParticipants)
+        allowsAttendeesToAddGuests = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .allowsAttendeesToAddGuests
+        ) ?? true
         requiredGroups = try container.decode([RequiredAttendeeGroup].self, forKey: .requiredGroups)
         rsvpDeadline = try container.decodeIfPresent(Date.self, forKey: .rsvpDeadline)
         eventDescription = try container.decode(String.self, forKey: .eventDescription)
@@ -553,6 +665,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         try container.encode(locationAddress, forKey: .locationAddress)
         try container.encode(invitees, forKey: .invitees)
         try container.encode(minimumParticipants, forKey: .minimumParticipants)
+        try container.encode(allowsAttendeesToAddGuests, forKey: .allowsAttendeesToAddGuests)
         try container.encode(requiredGroups, forKey: .requiredGroups)
         try container.encodeIfPresent(rsvpDeadline, forKey: .rsvpDeadline)
         try container.encode(eventDescription, forKey: .eventDescription)

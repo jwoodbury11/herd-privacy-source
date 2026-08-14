@@ -9,23 +9,39 @@ final class ContactStoreService: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let contactStore = CNContactStore()
+    private let defaults: UserDefaults
+    private var phoneCandidates: [ContactCandidate] = []
+    private static let savedContactsKey = "herd.saved-contacts.v1"
 
-    init() {
+    init(defaults: UserDefaults? = nil) {
+#if DEBUG
+        let resolvedDefaults = defaults ?? HerdUITestEnvironment.current?.defaults ?? .standard
+#else
+        let resolvedDefaults = defaults ?? .standard
+#endif
+        self.defaults = resolvedDefaults
+
 #if DEBUG
         if HerdUITestEnvironment.current != nil {
             authorizationStatus = .authorized
-            candidates = HerdUITestEnvironment.fixtureContacts
+            phoneCandidates = HerdUITestEnvironment.fixtureContacts
+            candidates = Self.merge(
+                phoneCandidates: phoneCandidates,
+                savedCandidates: Self.loadSavedContacts(from: resolvedDefaults)
+            )
             return
         }
 #endif
         authorizationStatus = CNContactStore.authorizationStatus(for: .contacts)
+        candidates = Self.loadSavedContacts(from: resolvedDefaults)
     }
 
     func refresh() {
 #if DEBUG
         if HerdUITestEnvironment.current != nil {
             authorizationStatus = .authorized
-            candidates = HerdUITestEnvironment.fixtureContacts
+            phoneCandidates = HerdUITestEnvironment.fixtureContacts
+            publishMergedCandidates()
             isLoading = false
             errorMessage = nil
             return
@@ -36,8 +52,48 @@ final class ContactStoreService: ObservableObject {
         case .authorized, .limited:
             fetchContacts()
         default:
-            candidates = []
+            phoneCandidates = []
+            publishMergedCandidates()
         }
+    }
+
+    @discardableResult
+    func saveManualContact(_ candidate: ContactCandidate) -> ContactCandidate {
+        let displayName = candidate.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phoneNumber = HerdPhoneNumberFormatter.format(candidate.phoneNumber)
+        let phoneKey = HerdPhoneNumberFormatter.comparisonKey(phoneNumber)
+        var savedCandidates = Self.loadSavedContacts(from: defaults)
+
+        let savedCandidate: ContactCandidate
+        if let existingIndex = savedCandidates.firstIndex(where: {
+            HerdPhoneNumberFormatter.comparisonKey($0.phoneNumber) == phoneKey
+        }) {
+            savedCandidate = ContactCandidate(
+                id: savedCandidates[existingIndex].id,
+                displayName: displayName,
+                phoneNumber: phoneNumber
+            )
+            savedCandidates[existingIndex] = savedCandidate
+        } else {
+            savedCandidate = ContactCandidate(
+                id: candidate.id,
+                displayName: displayName,
+                phoneNumber: phoneNumber
+            )
+            savedCandidates.append(savedCandidate)
+        }
+
+        do {
+            let storedContacts = savedCandidates.map(StoredContact.init)
+            defaults.set(try JSONEncoder().encode(storedContacts), forKey: Self.savedContactsKey)
+            errorMessage = nil
+            publishMergedCandidates(savedCandidates: savedCandidates)
+        } catch {
+            errorMessage = "Herd couldn’t save this contact."
+        }
+        return candidates.first(where: {
+            HerdPhoneNumberFormatter.comparisonKey($0.phoneNumber) == phoneKey
+        }) ?? savedCandidate
     }
 
     func requestAccess() {
@@ -93,12 +149,12 @@ final class ContactStoreService: ObservableObject {
                 }
 
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--herd-qa-contacts") {
+                if ProcessInfo.processInfo.arguments.contains("--herd-test-contacts") {
                     let existingPhoneDigits = Set(
                         contacts.map { $0.phoneNumber.filter(\.isNumber) }
                     )
                     contacts.insert(
-                        contentsOf: Self.qaContacts.filter {
+                        contentsOf: Self.testContacts.filter {
                             !existingPhoneDigits.contains($0.phoneNumber.filter(\.isNumber))
                         },
                         at: 0
@@ -114,7 +170,8 @@ final class ContactStoreService: ObservableObject {
                 contacts = herdTestContacts + contacts.filter { !Self.isHerdTestContact($0) }
 
                 DispatchQueue.main.async {
-                    self?.candidates = contacts
+                    self?.phoneCandidates = contacts
+                    self?.publishMergedCandidates()
                     self?.isLoading = false
                 }
             } catch {
@@ -127,14 +184,100 @@ final class ContactStoreService: ObservableObject {
     }
 
     private static func isHerdTestContact(_ contact: ContactCandidate) -> Bool {
-        contact.displayName.hasPrefix("_") && contact.displayName.hasSuffix(" herdTestUser")
+        contact.id.hasPrefix("herd-test-contact-") ||
+            (contact.displayName.hasPrefix("_") && contact.displayName.hasSuffix(" herdTestUser"))
+    }
+
+    private func publishMergedCandidates(
+        savedCandidates: [ContactCandidate]? = nil
+    ) {
+        candidates = Self.merge(
+            phoneCandidates: phoneCandidates,
+            savedCandidates: savedCandidates ?? Self.loadSavedContacts(from: defaults)
+        )
+    }
+
+    private static func merge(
+        phoneCandidates: [ContactCandidate],
+        savedCandidates: [ContactCandidate]
+    ) -> [ContactCandidate] {
+        var seenPhoneKeys: Set<String> = []
+        var merged: [ContactCandidate] = []
+
+        for candidate in phoneCandidates + savedCandidates {
+            let phoneKey = HerdPhoneNumberFormatter.comparisonKey(candidate.phoneNumber)
+                ?? "id:\(candidate.id)"
+            guard seenPhoneKeys.insert(phoneKey).inserted else { continue }
+            merged.append(candidate)
+        }
+
+        let herdTestContacts = merged
+            .filter(isHerdTestContact)
+            .sorted(by: contactSort)
+        let regularContacts = merged
+            .filter { !isHerdTestContact($0) }
+            .sorted(by: contactSort)
+        return herdTestContacts + regularContacts
+    }
+
+    private static func contactSort(
+        _ lhs: ContactCandidate,
+        _ rhs: ContactCandidate
+    ) -> Bool {
+        lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+    }
+
+    private static func loadSavedContacts(from defaults: UserDefaults) -> [ContactCandidate] {
+        guard
+            let data = defaults.data(forKey: savedContactsKey),
+            let storedContacts = try? JSONDecoder().decode([StoredContact].self, from: data)
+        else { return [] }
+
+        return storedContacts.compactMap { stored in
+            let displayName = stored.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let phoneNumber = HerdPhoneNumberFormatter.format(stored.phoneNumber)
+            guard
+                !displayName.isEmpty,
+                HerdPhoneNumberFormatter.comparisonKey(phoneNumber) != nil
+            else { return nil }
+            return ContactCandidate(
+                id: stored.id,
+                displayName: displayName,
+                phoneNumber: phoneNumber
+            )
+        }
+    }
+
+    private struct StoredContact: Codable {
+        let id: String
+        let displayName: String
+        let phoneNumber: String
+
+        init(_ candidate: ContactCandidate) {
+            id = candidate.id
+            displayName = candidate.displayName
+            phoneNumber = candidate.phoneNumber
+        }
     }
 
     #if DEBUG
-    private static let qaContacts: [ContactCandidate] = (1...9).map { index in
-        ContactCandidate(
-            id: "herd-qa-contact-\(index)",
-            displayName: "_\(index) herdTestUser",
+    private static let testContactNames = [
+        "One Anderson",
+        "Two Brown",
+        "Three Davis",
+        "Four Garcia",
+        "Five Johnson",
+        "Six Miller",
+        "Seven Smith",
+        "Eight Taylor",
+        "Nine Wilson"
+    ]
+
+    private static let testContacts: [ContactCandidate] = testContactNames.enumerated().map { offset, name in
+        let index = offset + 1
+        return ContactCandidate(
+            id: "herd-test-contact-\(index)",
+            displayName: name,
             phoneNumber: "+1 (415) 555-010\(index)"
         )
     }

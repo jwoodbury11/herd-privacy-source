@@ -56,6 +56,7 @@ export function makeReleaseFixture({
   const receiptTransparencySigning = keyPair("receipt-signing-2026");
   const releaseSigning = keyPair("release-signing-2026");
   const imageDigest = { algorithm: "sha256", value: "11".repeat(32) };
+  const policyMeasurement = { algorithm: "sha256", value: "33".repeat(32) };
   const sourceArchiveBytes = Buffer.from("herd-privacy-source.tar");
   const sourceArchive = artifact("herd-privacy-source.tar", sourceArchiveBytes);
   const sourceManifestBytes = Buffer.from(canonicalJson({
@@ -264,6 +265,7 @@ export function makeReleaseFixture({
       workload: {
         platform: "gcp-confidential-space",
         imageDigest,
+        policyMeasurement,
         measurements: [{ algorithm: "sha384", value: "22".repeat(48) }],
         attestationProvider: "google-pki-attestation-token",
         attestationClaimPolicy: {
@@ -277,6 +279,7 @@ export function makeReleaseFixture({
           keyBindingHashEncoding: "base64url",
           keyBindingHash: computeWorkloadKeyBindingHash(binding),
           imageDigest,
+          allowedImageDigests: [imageDigest],
           projectId: "herd-prod",
           serviceAccount: "herd-evaluator@herd-prod.iam.gserviceaccount.com",
           hwmodel: "GCP_INTEL_TDX",
@@ -470,6 +473,7 @@ export function makeReleaseFixture({
       policySigningKeyId: manifest.trust.policySigning.keyId,
       receiptTransparencySigningKeyId: manifest.trust.receiptTransparencySigning.keyId,
       workloadImageDigest: manifest.trust.workload.imageDigest,
+      policyMeasurement: manifest.trust.workload.policyMeasurement,
       measurements: manifest.trust.workload.measurements,
       attestationProvider: manifest.trust.workload.attestationProvider,
       attestationClaimPolicy: manifest.trust.workload.attestationClaimPolicy,

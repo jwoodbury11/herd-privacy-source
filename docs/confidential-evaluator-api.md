@@ -73,7 +73,10 @@ base64url(SHA-256(
 Health metadata is informational until verified against a fresh attestation.
 `/healthz` is process liveness. Before returning the same metadata, `/readyz`
 also reads the Firestore tail and its matching immutable entry and validates
-their receipt/head signatures against the lifetime-global response-log key. The
+their receipt/head signatures against the lifetime-global response-log key. It
+also signs the stored canonical head with the in-memory transparency key, so an
+instance that can read authority state but can no longer certify a receipt is
+removed from service before an RSVP reaches it. The
 process performs this readiness check before it starts listening; there is no
 ready state without access to the durable authority.
 
@@ -487,41 +490,18 @@ response key, entry hash, index, or predecessor remains the unsigned generic
 `transparency_conflict` (or `invalid_request`) and must never trigger cleanup.
 
 This endpoint is backend-only and rejects browser `Origin` requests. The
-ordinary application backend cannot replace a genuinely enrolled response
-without its device-derived Ed25519 key. It can front-run a never-enrolled slot
-with its own key or suppress a genuine submission, causing integrity failure or
-visible conflict/denial. Preventing that first-enrollment attack requires an
-independently authenticated direct client identity-enrollment channel that the
-current SMS/backend trust path does not provide. The backend cannot ask the
-authority to reset, skip, roll back, sign two successors at one size, or query
+ordinary application backend cannot replace a response within the same
+account-key epoch without its device-derived Ed25519 key. The current
+SMS/session device-switch path can authorize a new account epoch, however, and
+the authority then permits the account epoch and response key to rotate together
+for the next revision. Preventing backend-authorized replacement requires an
+independently authenticated direct client identity channel that the current
+SMS/backend trust path does not provide. The backend cannot ask the authority
+to reset, skip, roll back, sign two successors at one size, or query
 alternate evaluation subsets. The key-custodian administrators remain a trust boundary because
 they can alter Firestore IAM or data. Public publication and independent
 witness/gossip comparison remain required to expose custodian compromise,
 operational rollback, or suppression.
-
-### Reference software-QA signer boundary
-
-The lightweight `evaluator-service` implements the same two signing route
-shapes solely for an isolated end-to-end QA deployment. Those routes are absent
-unless both `HERD_DEPLOYMENT_PROFILE=test` and
-`HERD_SOFTWARE_QA_TRUST_SIGNER_ENABLED=true` are exact, require the evaluator
-bearer token, reject browser `Origin`, and require distinct public identities
-and identifiers for all four evaluator key purposes.
-
-Its policy route validates the exact frozen-policy schema and configured
-release, response-decryption key, and measurement pins. Its transparency route
-validates the canonical receipt order and sizes, index/revision bounds, genesis
-relationship, entry hash, and Ed25519 response authorization. It derives the
-head from that validated receipt instead of accepting a caller-selected head.
-
-That QA implementation is intentionally stateless: it cannot prove the prior
-head, reserve a globally unique next index, register policy/member state,
-enforce a deadline or revision sequence, serialize concurrent appenders,
-return byte-identical durable retries, consume evaluation state, or issue the
-production reconciliation disposition. Its signatures are useful only for
-testing the real client/backend verification path in an unmistakably labeled
-non-production release. They are not hardware-attestation evidence and are not
-a substitute for the Firestore-backed production authority described above.
 
 ## Canonical evaluation consumption
 

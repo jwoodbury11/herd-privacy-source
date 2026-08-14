@@ -94,6 +94,12 @@ struct HerdExperience: Decodable {
 
         let title: String
         let createEventTitle: String
+        let invitesSectionTitle: String
+        let hostedSectionTitle: String
+        let unconfirmedSectionTitle: String
+        let unconfirmedSectionNote: String
+        let pastSectionTitle: String
+        let emptyInvitesMessage: String
         let hostStatus: String
         let inviteeStatus: String
         let dateNotSet: String
@@ -146,7 +152,7 @@ struct HerdExperience: Decodable {
             let hosting: String
             let responded: String
             let replyNeeded: String
-            let repliesOpen: String
+            let unconfirmed: String
             let finalizing: String
             let confirmed: String
             let notConfirmed: String
@@ -171,6 +177,18 @@ struct HerdExperience: Decodable {
             let action: String
         }
 
+        struct EventActions: Decodable {
+            let moreLabel: String
+            let deleteButton: String
+            let deletionTitle: String
+            let deletionBody: String
+            let cancelButton: String
+            let confirmButton: String
+            let deletingButton: String
+            let failureTitle: String
+            let failureBody: String
+        }
+
         struct Resolution: Decodable {
             let pendingTitle: String
             let pendingBody: String
@@ -186,7 +204,6 @@ struct HerdExperience: Decodable {
         let dateNotSet: String
         let locationNotSet: String
         let hostPrefix: String
-        let hostMinimumNote: String
         let replyByPrefix: String
         let noReplyDeadline: String
         let remainingSuffix: String
@@ -195,32 +212,68 @@ struct HerdExperience: Decodable {
         let metrics: Metrics
         let attendeeEntry: AttendeeEntry
         let privacyCallout: PrivacyCallout
+        let eventActions: EventActions
         let resolution: Resolution
         let unavailableTitle: String
         let unavailableBody: String
     }
 
     struct Attendees: Decodable {
+        struct AddGuests: Decodable {
+            let button: String
+            let navigationTitle: String
+            let title: String
+            let body: String
+            let nameLabel: String
+            let namePlaceholder: String
+            let phoneLabel: String
+            let phonePlaceholder: String
+            let addAnotherButton: String
+            let removeButton: String
+            let submitSingleButton: String
+            let submitMultipleTemplate: String
+            let submittingButton: String
+            let failureTitle: String
+            let failureBody: String
+        }
+
         let navigationTitle: String
         let title: String
+        let statusDisclosure: String
         let hostLabel: String
         let invitedSuffix: String
         let currentUserLabel: String
         let emptyMessage: String
+        let addGuests: AddGuests
     }
 
     struct Reply: Decodable {
-        struct Reset: Decodable {
+        struct DeviceSwitch: Decodable {
             let title: String
-            let body: String
+            let replaceBody: String
+            let newReplyBody: String
             let cancelButton: String
             let confirmButton: String
+            let requestingCode: String
+            let requestFailed: String
+            let verificationPrefix: String
+            let verificationSuffix: String
+            let verifiedBody: String
+            let verifyButton: String
+            let verifyingButton: String
+            let switchingButton: String
+            let retryButton: String
+            let failure: String
         }
 
         let title: String
         let privacyNote: String
         let openingSaved: String
         let unreadable: String
+        let unavailableTitle: String
+        let replaceButton: String
+        let goingCollapsedTitle: String
+        let goingCollapsedBody: String
         let goingPrefix: String
         let goingSuffix: String
         let decreaseMinimum: String
@@ -236,18 +289,39 @@ struct HerdExperience: Decodable {
         let removeCondition: String
         let chooseButton: String
         let submitButton: String
+        let sentButton: String
+        let updateButton: String
         let submittingButton: String
+        let previewButton: String
+        let previewTitle: String
+        let confirmedPreviewLabel: String
+        let confirmedPreviewBody: String
+        let noReplyHistoryTemplate: String
+        let noReplySingleEventHistory: String
+        let noReplyPreviewBody: String
+        let notConfirmedPreviewLabel: String
+        let notConfirmedPreviewTitle: String
+        let notConfirmedPreviewBody: String
+        let previewDismissButton: String
         let savedTitle: String
         let unlockButton: String
         let closedMessage: String
         let missingLinkMessage: String
-        let reset: Reset
+        let deviceSwitch: DeviceSwitch
     }
 
     struct Privacy: Decodable {
+        struct FlowStep: Decodable, Identifiable {
+            let title: String
+            let body: String
+            var id: String { title }
+        }
+
         struct Section: Decodable, Identifiable {
             let title: String
             let paragraphs: [String]
+            let showsPolicyIdentifiers: Bool
+            let showsVerificationLinks: Bool
             var id: String { title }
         }
 
@@ -255,41 +329,20 @@ struct HerdExperience: Decodable {
         let eyebrow: String
         let title: String
         let intro: String
-        let statusEyebrow: String
-        let statusTitle: String
-        let builtLabel: String
-        let builtTitle: String
-        let builtBody: String
-        let pendingLabel: String
-        let pendingTitle: String
-        let pendingBody: String
-        let flowEyebrow: String
         let flowTitle: String
-        let flowSourceTitle: String
-        let flowSourceBody: String
-        let flowEnvelopeTitle: String
-        let flowEnvelopeBody: String
-        let flowDestinationTitle: String
-        let flowDestinationBody: String
-        let flowNote: String
+        let flowPrivacyLabel: String
+        let flowSteps: [FlowStep]
         let answersEyebrow: String
         let answersTitle: String
-        let answersIntro: String
+        let sourceURL: String
+        let releaseEvidenceURL: String
         let sections: [Section]
     }
 
     struct Success: Decodable {
         let title: String
         let body: String
-        let savedReplyLabel: String
-        let savedReplyTitle: String
-        let goingLabel: String
-        let cantCommitLabel: String
-        let goingPrivacy: String
-        let cantCommitPrivacy: String
-        let visibilityLabel: String
-        let visibilityTitle: String
-        let visibilityBody: String
+        let replyPreviewTitle: String
         let changeWithDeadlinePrefix: String
         let changeWithoutDeadline: String
         let viewInvitationButton: String

@@ -1,16 +1,19 @@
 locals {
-  effective_image_digest = coalesce(
-    var.image_digest,
-    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  )
   effective_confidential_space_image = coalesce(
     var.confidential_space_image,
     "projects/confidential-space-images/global/images/runtime-not-enabled",
   )
   effective_evaluator_domain = coalesce(var.evaluator_domain, "runtime-disabled.invalid")
 
+  authorized_image_digests = toset([
+    for slot in values(var.evaluator_slots) : slot.image_digest
+  ])
+
   image_repository = "${var.region}-docker.pkg.dev/${var.workload_project_id}/${var.artifact_repository_id}/${var.container_image_name}"
-  image_reference  = "${local.image_repository}@${local.effective_image_digest}"
+  image_references = {
+    for name, slot in var.evaluator_slots :
+    name => "${local.image_repository}@${slot.image_digest}"
+  }
 
   workload_services = toset([
     "artifactregistry.googleapis.com",
@@ -37,8 +40,18 @@ resource "terraform_data" "runtime_guard" {
 
   lifecycle {
     precondition {
-      condition     = var.image_digest != null
-      error_message = "Set image_digest to the pushed immutable digest before enabling runtime resources."
+      condition     = length(var.evaluator_slots) > 0
+      error_message = "Configure at least one evaluator slot before enabling runtime resources."
+    }
+    precondition {
+      condition     = anytrue([for slot in values(var.evaluator_slots) : slot.instance_count > 0])
+      error_message = "At least one evaluator slot must have a positive instance_count."
+    }
+    precondition {
+      condition = anytrue([
+        for slot in values(var.evaluator_slots) : slot.serve_traffic && slot.instance_count > 0
+      ])
+      error_message = "At least one traffic-serving evaluator slot must have a positive instance_count."
     }
     precondition {
       condition     = var.confidential_space_image != null && !strcontains(var.confidential_space_image, "/family/")

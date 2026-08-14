@@ -260,7 +260,7 @@ test("transparency endpoint is policy-bound, append-only, and rejects former ope
   }
 });
 
-test("a late missing append returns only a signed authority-head reconciliation proof", async () => {
+test("a late response append receives the normal certified receipt", async () => {
   const { app, config, keyStore, now } = await harness();
   const policyResponse = await app(
     post("/api/v1/sign/policy", {
@@ -282,51 +282,10 @@ test("a late missing append returns only a signed authority-head reconciliation 
       canonicalReceiptPayload,
     }),
   );
-  assert.equal(response.status, 409);
+  assert.equal(response.status, 200);
   const body = await response.json();
-  assert.deepEqual(Object.keys(body), ["error"]);
-  assert.deepEqual(Object.keys(body.error), ["code", "proof"]);
-  assert.equal(body.error.code, "transparency_late_missing_entry");
-  const proof = body.error.proof;
-  assert.deepEqual(Object.keys(proof), [
-    "canonicalPayload",
-    "domain",
-    "payloadHash",
-    "signature",
-    "signingKeyId",
-  ]);
-  assert.equal(proof.domain, TRANSPARENCY_RECONCILIATION_DOMAIN);
-  assert.equal(
-    proof.signingKeyId,
-    keyStore.metadata.keys.transparencySigning.keyId,
-  );
-  assert.equal(
-    proof.payloadHash,
-    sha256Base64Url(Buffer.from(proof.canonicalPayload, "utf8")),
-  );
-  const receiptValue = JSON.parse(canonicalReceiptPayload);
-  assert.deepEqual(JSON.parse(proof.canonicalPayload), {
-    protocolVersion: 1,
-    logId: TRANSPARENCY_LOG_ID,
-    rejectedLogIndex: 1,
-    rejectedEntryHash: receiptValue.entryHash,
-    authorityTreeSize: 0,
-    authorityHeadEntryHash: Buffer.alloc(32).toString("base64url"),
-    generatedAt: now.value,
-    signingKeyId: keyStore.metadata.keys.transparencySigning.keyId,
-  });
-  const publicKey = await publicKeyFromMetadata(
-    keyStore.metadata.keys.transparencySigning,
-  );
-  assert.equal(
-    await webcrypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      publicKey,
-      Buffer.from(proof.signature, "base64url"),
-      domainSeparatedBytes(proof.domain, proof.canonicalPayload),
-    ),
-    true,
-  );
+  assert.equal(body.protocolVersion, 1);
+  assert.equal(body.kind, "append");
 
   const malformed = JSON.parse(canonicalReceiptPayload);
   malformed.entryHash = Buffer.alloc(32, 9).toString("base64url");

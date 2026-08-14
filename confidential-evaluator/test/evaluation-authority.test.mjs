@@ -120,6 +120,7 @@ function claim(policyCommitments, slots, batchHashOverride) {
           protocolVersion: 1,
           eventId: policyCommitments.eventId,
           policyHash: policyCommitments.policyHash,
+          revealAttendance: true,
           slots: slots.map(({ inviteeId, envelopeHash }) => ({
             inviteeId,
             envelopeHash,
@@ -131,6 +132,31 @@ function claim(policyCommitments, slots, batchHashOverride) {
   return {
     ...policyCommitments,
     batchHash,
+    revealAttendance: true,
+    slots,
+  };
+}
+
+function preDeadlineClaim(policyCommitments, slots) {
+  const batchHash = sha256Base64Url(
+    Buffer.from(
+      JSON.stringify({
+        protocolVersion: 1,
+        eventId: policyCommitments.eventId,
+        policyHash: policyCommitments.policyHash,
+        revealAttendance: false,
+        slots: slots.map(({ inviteeId, envelopeHash }) => ({
+          inviteeId,
+          envelopeHash,
+        })),
+      }),
+      "utf8",
+    ),
+  );
+  return {
+    ...policyCommitments,
+    batchHash,
+    revealAttendance: false,
     slots,
   };
 }
@@ -304,6 +330,34 @@ test("policy authority freezes only opaque commitments and rejects replacement",
   );
 });
 
+test("an RSVP self-heals a persisted pre-deadline evaluation", async () => {
+  const keyStore = await makeKeyStore();
+  const store = new InMemoryTransparencyStore();
+  const now = { value: BEFORE_DEADLINE };
+  const evaluator = authority(store, keyStore, now);
+  const commitments = policy(keyStore);
+  await evaluator.freezePolicy(commitments);
+
+  const emptySlot = {
+    inviteeId: MEMBER_A,
+    envelopeHash: null,
+    revision: null,
+    responseSigningPublicKey: null,
+  };
+  const earlyEvaluation = await evaluator.consumeCanonicalBatch(
+    preDeadlineClaim(commitments, [emptySlot]),
+  );
+  assert.equal(earlyEvaluation.evaluatedAt, BEFORE_DEADLINE);
+  assert.notEqual(store.snapshot().policies[0].evaluationBatchHash, "");
+
+  await evaluator.append(receipt(keyStore));
+  const persistedPolicy = store.snapshot().policies[0];
+  assert.equal(persistedPolicy.responseSequence, 1);
+  assert.equal(persistedPolicy.evaluationBatchHash, "");
+  assert.equal(persistedPolicy.evaluatedAt, "");
+  assert.equal(store.snapshot().members[0].revision, 1);
+});
+
 test("member revisions begin at one and advance by exactly one", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
@@ -340,7 +394,7 @@ test("member revisions begin at one and advance by exactly one", async () => {
   assert.equal(store.snapshot().members[0].revision, 2);
 });
 
-test("the first response key is pinned and a new account root cannot replace it", async () => {
+test("a verified device switch rotates the account epoch and response key together", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -349,6 +403,31 @@ test("the first response key is pinned and a new account root cannot replace it"
   const firstPayload = receipt(keyStore);
   const first = await evaluator.append(firstPayload);
   const replacementIdentity = makeTestResponseSigningIdentity();
+  await evaluator.append(
+    receipt(keyStore, {
+      logIndex: 2,
+      previousEntryHash: headHash(first),
+      revision: 2,
+      discriminator: 2,
+      accountKeyEpochId: "30000000-0000-4000-8000-000000000002",
+      responseSigningIdentity: replacementIdentity,
+    }),
+  );
+  assert.equal(
+    store.snapshot().members[0].accountKeyEpochId,
+    "30000000-0000-4000-8000-000000000002",
+  );
+  const exactRetry = await evaluator.append(firstPayload);
+  assert.equal(JSON.stringify(exactRetry), JSON.stringify(first));
+});
+
+test("the response key cannot change without a device-switch epoch", async () => {
+  const keyStore = await makeKeyStore();
+  const store = new InMemoryTransparencyStore();
+  const now = { value: BEFORE_DEADLINE };
+  const evaluator = authority(store, keyStore, now);
+  await evaluator.freezePolicy(policy(keyStore));
+  const first = await evaluator.append(receipt(keyStore));
   await assert.rejects(
     evaluator.append(
       receipt(keyStore, {
@@ -356,13 +435,11 @@ test("the first response key is pinned and a new account root cannot replace it"
         previousEntryHash: headHash(first),
         revision: 2,
         discriminator: 2,
-        responseSigningIdentity: replacementIdentity,
+        responseSigningIdentity: makeTestResponseSigningIdentity(),
       }),
     ),
     (error) => error?.status === 409,
   );
-  const exactRetry = await evaluator.append(firstPayload);
-  assert.equal(JSON.stringify(exactRetry), JSON.stringify(first));
 });
 
 test("the enrolled account-key epoch cannot change under the same valid response key", async () => {
@@ -452,7 +529,7 @@ test("a receipt with a forged response authorization never enrolls a key", async
   assert.equal(store.snapshot().entries.length, 0);
 });
 
-test("late appends fail while an exact certified retry survives deadline and consumption", async () => {
+test("late appends remain certified and invalidate the consumed batch", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -464,23 +541,22 @@ test("late appends fail while an exact certified retry survives deadline and con
   const expectedSlot = slotFromReceipt(firstPayload);
 
   now.value = AFTER_DEADLINE;
-  await assert.rejects(
-    evaluator.append(
-      receipt(keyStore, {
-        logIndex: 2,
-        previousEntryHash: headHash(first),
-        revision: 2,
-        discriminator: 2,
-      }),
-    ),
-    (error) => error?.status === 409,
-  );
   await evaluator.consumeCanonicalBatch(claim(commitments, [expectedSlot]));
+  const secondPayload = receipt(keyStore, {
+    logIndex: 2,
+    previousEntryHash: headHash(first),
+    revision: 2,
+    discriminator: 2,
+    committedAt: AFTER_DEADLINE,
+  });
+  await evaluator.append(secondPayload);
+  assert.equal(store.snapshot().members[0].revision, 2);
+  assert.equal(store.snapshot().policies[0].evaluationBatchHash, "");
   const retry = await evaluator.append(firstPayload);
   assert.equal(JSON.stringify(retry), JSON.stringify(first));
 });
 
-test("a fully valid late missing entry receives a signed authority-head reconciliation proof", async () => {
+test("a fully valid first response after the deadline is appended", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -489,23 +565,13 @@ test("a fully valid late missing entry receives a signed authority-head reconcil
   const payload = receipt(keyStore);
 
   now.value = AFTER_DEADLINE;
-  let rejection;
-  try {
-    await evaluator.append(payload);
-    assert.fail("the late missing append unexpectedly succeeded");
-  } catch (error) {
-    rejection = error;
-  }
-  await assertLateMissingProof(rejection, keyStore, payload, {
-    treeSize: 0,
-    entryHash: GENESIS_HASH,
-  });
-  assert.equal(store.snapshot().entries.length, 0);
-  assert.equal(store.snapshot().members.length, 0);
-  assert.equal(store.snapshot().policies[0].responseSequence, 0);
+  await evaluator.append(payload);
+  assert.equal(store.snapshot().entries.length, 1);
+  assert.equal(store.snapshot().members.length, 1);
+  assert.equal(store.snapshot().policies[0].responseSequence, 1);
 });
 
-test("a consumed policy signs the exact next missing entry without changing authority state", async () => {
+test("a consumed policy accepts the next revision and clears its evaluation", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -526,21 +592,11 @@ test("a consumed policy signs the exact next missing entry without changing auth
     revision: 2,
     discriminator: 2,
   });
-  let rejection;
-  try {
-    await evaluator.append(missingPayload);
-    assert.fail("the consumed-policy append unexpectedly succeeded");
-  } catch (error) {
-    rejection = error;
-  }
-  await assertLateMissingProof(rejection, keyStore, missingPayload, {
-    treeSize: 1,
-    entryHash: previousEntryHash,
-  });
+  await evaluator.append(missingPayload);
   const snapshot = store.snapshot();
-  assert.equal(snapshot.entries.length, 1);
-  assert.equal(snapshot.members[0].revision, 1);
-  assert.notEqual(snapshot.policies[0].evaluationBatchHash, "");
+  assert.equal(snapshot.entries.length, 2);
+  assert.equal(snapshot.members[0].revision, 2);
+  assert.equal(snapshot.policies[0].evaluationBatchHash, "");
 });
 
 test("invalid authorization, revision, hash, timestamp, key, or tail never receives reconciliation disposition", async () => {
@@ -564,11 +620,6 @@ test("invalid authorization, revision, hash, timestamp, key, or tail never recei
 
   await rejectGenesis(tamperResponseSignature(receipt(keyStore)));
   await rejectGenesis(receipt(keyStore, { revision: 2 }));
-  await rejectGenesis(
-    receipt(keyStore, {
-      committedAt: "2026-02-01T00:00:00.001Z",
-    }),
-  );
   const malformedHash = JSON.parse(receipt(keyStore));
   malformedHash.entryHash = Buffer.alloc(32, 88).toString("base64url");
   await rejectGenesis(JSON.stringify(malformedHash));
@@ -667,11 +718,11 @@ test("omitted, null, and stale member snapshots cannot be used as evaluation ora
     evaluator.consumeCanonicalBatch(
       claim(commitments, latest, Buffer.alloc(32, 7).toString("base64url")),
     ),
-    (error) => error?.status === 409,
+    (error) => error?.status === 400,
   );
 });
 
-test("a last receipt and evaluation consumption have exactly one CAS winner", async () => {
+test("a receipt racing evaluation is never lost and stale batches are rejected", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -694,20 +745,13 @@ test("a last receipt and evaluation consumption have exactly one CAS winner", as
     evaluator.append(finalReceipt),
     evaluator.consumeCanonicalBatch(beforeClaim),
   ]);
-  assert.equal(
-    [appendResult, consumeResult].filter(({ status }) => status === "fulfilled")
-      .length,
-    1,
-  );
-
   if (appendResult.status === "fulfilled") {
     await assert.rejects(evaluator.consumeCanonicalBatch(beforeClaim));
     await evaluator.consumeCanonicalBatch(afterClaim);
   } else {
-    await evaluator.consumeCanonicalBatch(beforeClaim);
-    await assert.rejects(evaluator.append(finalReceipt));
-    await assert.rejects(evaluator.consumeCanonicalBatch(afterClaim));
+    assert.fail(`the deadline response was lost: ${appendResult.reason}`);
   }
+  assert.equal(store.snapshot().members[0].revision, 1);
 });
 
 test("an evaluation commit response lost after durable consumption is an exact retry", async () => {

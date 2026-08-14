@@ -31,10 +31,11 @@ test("Confidential Space image suppresses workload logs and uses only the socket
 });
 
 test("Terraform makes the custodian database durable and non-administrable by the workload", async () => {
-  const [foundation, identity, compute, variables, versions] = await Promise.all([
+  const [foundation, identity, compute, loadBalancer, variables, versions] = await Promise.all([
     source("foundation.tf"),
     source("identity.tf"),
     source("compute.tf"),
+    source("load-balancer.tf"),
     source("variables.tf"),
     source("versions.tf"),
   ]);
@@ -62,8 +63,9 @@ test("Terraform makes the custodian database durable and non-administrable by th
   assert.doesNotMatch(identity, /roles\/datastore\.(?:user|admin|owner|editor)/u);
   assert.match(
     identity,
-    /principalSet:\/\/iam\.googleapis\.com\/projects\/\$\{var\.key_project_number\}\/locations\/global\/workloadIdentityPools\/\$\{local\.workload_identity_pool_id\}\/attribute\.image_digest\/\$\{local\.effective_image_digest\}/u,
+    /for_each\s*=\s*var\.runtime_enabled \? local\.authorized_image_digests/u,
   );
+  assert.match(identity, /attribute\.image_digest\/\$\{each\.value\}/u);
   assert.match(
     identity,
     /role\s*=\s*google_project_iam_custom_role\.transparency_appender\.name/u,
@@ -94,6 +96,35 @@ test("Terraform makes the custodian database durable and non-administrable by th
   assert.match(compute, /"tee-container-log-redirect"\s*=\s*"false"/u);
   assert.match(compute, /wait_for_instances\s*=\s*true/u);
   assert.match(compute, /request_path\s*=\s*"\/readyz"/u);
+  assert.match(compute, /for_each\s*=\s*var\.runtime_enabled \? var\.evaluator_slots/u);
+  assert.match(
+    compute,
+    /base_instance_name\s*=\s*each\.key == "blue" \? "\$\{var\.name_prefix\}-tdx" : "\$\{var\.name_prefix\}-tdx-\$\{each\.key\}"/u,
+  );
+  assert.match(compute, /type\s*=\s*"OPPORTUNISTIC"/u);
+  assert.match(compute, /max_surge_fixed\s*=\s*0/u);
+  assert.equal(
+    [...loadBalancer.matchAll(/prevent_destroy\s*=\s*true/gu)].length,
+    6,
+  );
+  assert.match(compute, /max_unavailable_fixed\s*=\s*length\(var\.zones\)/u);
+  assert.match(compute, /replacement_method\s*=\s*"RECREATE"/u);
+  assert.match(
+    compute,
+    /google_compute_instance_template\.evaluator\[each\.key\]\.id/u,
+  );
+  assert.match(
+    await source("load-balancer.tf"),
+    /name => manager if var\.evaluator_slots\[name\]\.serve_traffic/u,
+  );
+  assert.match(
+    await source("locals.tf"),
+    /slot\.serve_traffic && slot\.instance_count > 0/u,
+  );
+  assert.match(
+    compute,
+    /google_kms_crypto_key_iam_member\.attested_decrypter/u,
+  );
 });
 
 test("Terraform independently wraps the global log identity and grants only the exact attested digest", async () => {
@@ -133,7 +164,7 @@ test("Terraform independently wraps the global log identity and grants only the 
   assert.equal(
     [
       ...identity.matchAll(
-        /attribute\.image_digest\/\$\{local\.effective_image_digest\}/gu,
+        /attribute\.image_digest\/\$\{each\.value\}/gu,
       ),
     ].length,
     3,

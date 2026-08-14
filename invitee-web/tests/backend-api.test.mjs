@@ -12,14 +12,17 @@ import { fileURLToPath } from "node:url";
 
 import { createFetchMock, Miniflare } from "miniflare";
 
-import { stagingScenario } from "./fixtures/staging-scenarios.mjs";
+import { testAccountNameForAlias } from "../lib/backend/test-accounts.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
 const migrationDirectory = path.join(projectRoot, "drizzle");
-const testPhone = "+14155550187";
 const testPepper = "herd-test-pepper-0123456789-abcdefghijklmnopqrstuvwxyz";
-const qaBypassGeneration = "herd-test-generation-v1";
+const testAccessGeneration = "herd-test-generation-v1";
+const messagingAccountSid = `AC${"1".repeat(32)}`;
+const messagingApiKeySid = `SK${"2".repeat(32)}`;
+const messagingServiceSid = `MG${"3".repeat(32)}`;
+const verifyServiceSid = `VA${"4".repeat(32)}`;
 const evaluatorKeyId = "test-evaluator-v1";
 const evaluatorPublicKey = Buffer.from(
   `04${
@@ -123,17 +126,40 @@ async function createHarness(options = {}) {
     if (right === entry) return 1;
     return left.localeCompare(right);
   });
+  const fetchMock = options.fetchMock ?? createFetchMock();
+  if (!options.fetchMock) {
+    fetchMock.disableNetConnect();
+    fetchMock
+      .get("https://api.twilio.com")
+      .intercept({
+        method: "POST",
+        path: `/2010-04-01/Accounts/${messagingAccountSid}/Messages.json`,
+      })
+      .reply(201, () => ({ sid: `SM${"9".repeat(32)}`, status: "accepted" }))
+      .persist();
+  }
+  const defaultDeliveryBindings = options.fetchMock
+    ? {}
+    : {
+        HERD_PUBLIC_APP_URL: "https://app.herdprivacy.com",
+        TWILIO_ACCOUNT_SID: messagingAccountSid,
+        TWILIO_API_KEY_SID: messagingApiKeySid,
+        TWILIO_API_KEY_SECRET: "test-messaging-secret",
+        TWILIO_VERIFY_SERVICE_SID: verifyServiceSid,
+        TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid,
+      };
   const harnessBindings = {
+    HERD_DEPLOYMENT_PROFILE: "test",
     HERD_AUTH_PEPPER: testPepper,
-    HERD_TEST_BYPASS_ENABLED: "true",
-    HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-    HERD_QA_BYPASS_GENERATION: qaBypassGeneration,
-    HERD_TEST_PHONE_E164: testPhone,
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+    HERD_TEST_ACCOUNT_ACCESS_GENERATION: testAccessGeneration,
     HERD_TEST_HOST_PHONE_E164: "+14155550111",
     HERD_EVALUATOR_KEY_ID: evaluatorKeyId,
     HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
     HERD_EVALUATOR_MEASUREMENT: "test-software-evaluator-sha384",
     HERD_RELEASE_ID: "herd-test-release-v1",
+    HERD_ARTIFACT_RELEASE_ID: "2026.08.12.1",
+    ...defaultDeliveryBindings,
     ...options.bindings,
   };
   const miniflareOptions = {
@@ -145,7 +171,7 @@ async function createHarness(options = {}) {
     compatibilityDate: "2026-05-15",
     compatibilityFlags: ["nodejs_compat"],
     d1Databases: { DB: `herd-backend-${process.pid}-${Date.now()}` },
-    ...(options.fetchMock ? { fetchMock: options.fetchMock } : {}),
+    fetchMock,
     bindings: { ...harnessBindings },
   };
   const miniflare = new Miniflare(miniflareOptions);
@@ -176,26 +202,6 @@ async function createHarness(options = {}) {
   };
 }
 
-test("QA authentication fails closed without the second safety acknowledgement", async (t) => {
-  const { miniflare, database } = await createHarness({
-    bindings: { HERD_ALLOW_INSECURE_QA_BYPASS: "false" },
-  });
-  t.after(() => miniflare.dispose());
-
-  const response = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: "1" }),
-  );
-  assert.equal(response.status, 500);
-  const body = await response.json();
-  assert.equal(body.error?.code, "server_misconfigured");
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM sessions").first("count"),
-    0,
-  );
-});
-
 test("authentication accepts only canonical pending invitation tokens", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
@@ -213,79 +219,11 @@ test("authentication accepts only canonical pending invitation tokens", async (t
   );
 });
 
-test("invitation authentication sends no code or session unless token and phone are bound", async (t) => {
-  const apiKeySid = `SK${"4".repeat(32)}`;
-  const verifyServiceSid = `VA${"5".repeat(32)}`;
-  const fetchMock = createFetchMock();
-  fetchMock.disableNetConnect();
-  const { miniflare, database } = await createHarness({
-    fetchMock,
-    bindings: {
-      TWILIO_API_KEY_SID: apiKeySid,
-      TWILIO_API_KEY_SECRET: "twilio-unused-for-mismatch",
-      TWILIO_VERIFY_SERVICE_SID: verifyServiceSid,
-    },
-  });
-  t.after(() => miniflare.dispose());
-
-  // Start from a fresh database: native can carry this link directly into
-  // authentication without making an anonymous preview request first.
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM invitees").first("count"),
-    0,
-  );
-  const wrongPhone = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", {
-      phoneNumber: "+14155550998",
-      inviteToken: "poker-party",
-    }),
-  );
-  assert.equal(wrongPhone.status, 400);
-  const wrongPhoneError = (await wrongPhone.json()).error;
-  assert.equal(wrongPhoneError.code, "invitation_auth_mismatch");
-
-  const missingToken = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", {
-      phoneNumber: testPhone,
-      inviteToken: "missing_invite_token",
-    }),
-  );
-  assert.equal(missingToken.status, 400);
-  assert.deepEqual((await missingToken.json()).error, wrongPhoneError);
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM challenges").first("count"),
-    0,
-  );
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM sessions").first("count"),
-    0,
-  );
-
-  const correctPhone = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", {
-      phoneNumber: testPhone,
-      inviteToken: "poker-party",
-    }),
-  );
-  assert.equal(correctPhone.status, 200);
-  assert.equal((await correctPhone.json()).user.phoneNumber, testPhone);
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM sessions").first("count"),
-    1,
-  );
-});
-
-test("a matching non-QA invitation starts exactly one Twilio challenge", async (t) => {
+test("a full test-account phone number still starts a real Twilio challenge", async (t) => {
   const apiKeySid = `SK${"6".repeat(32)}`;
   const verifyServiceSid = `VA${"7".repeat(32)}`;
   const providerSid = `VE${"8".repeat(32)}`;
-  const realPhone = "+14155550995";
+  const realPhone = "+14155550101";
   const wrongPhone = "+14155550996";
   const inviteToken = "Real_invite-token-123";
   const fetchMock = createFetchMock();
@@ -400,9 +338,56 @@ test("a matching non-QA invitation starts exactly one Twilio challenge", async (
   );
 });
 
-test("QA authentication requires a unique bypass generation", async (t) => {
+test("an authenticated test account can reverify its own canonical number", async (t) => {
+  const { miniflare, database } = await createHarness();
+  t.after(() => miniflare.dispose());
+
+  const initialResponse = await api(
+    miniflare,
+    "/api/auth/request-code",
+    jsonRequest("POST", { phoneNumber: "1" }),
+  );
+  assert.equal(initialResponse.status, 200);
+  const initialSession = await initialResponse.json();
+  assert.equal(initialSession.user.phoneNumber, "+14155550101");
+
+  const refreshedResponse = await api(
+    miniflare,
+    "/api/auth/request-code",
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${initialSession.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ phoneNumber: initialSession.user.phoneNumber }),
+    },
+  );
+  assert.equal(refreshedResponse.status, 200);
+  const refreshedSession = await refreshedResponse.json();
+  assert.equal(refreshedSession.user.id, initialSession.user.id);
+  assert.notEqual(refreshedSession.accessToken, initialSession.accessToken);
+  assert.equal(
+    await database.prepare("SELECT COUNT(*) AS count FROM challenges").first("count"),
+    0,
+  );
+  assert.equal(
+    await database
+      .prepare("SELECT request_count AS count FROM auth_phone_rate_limits")
+      .first("count"),
+    1,
+  );
+  assert.equal(
+    await database
+      .prepare("SELECT request_count AS count FROM auth_ip_rate_limits")
+      .first("count"),
+    1,
+  );
+});
+
+test("test-account access requires a unique generation", async (t) => {
   const { miniflare, database } = await createHarness({
-    bindings: { HERD_QA_BYPASS_GENERATION: "" },
+    bindings: { HERD_TEST_ACCOUNT_ACCESS_GENERATION: "" },
   });
   t.after(() => miniflare.dispose());
 
@@ -419,7 +404,7 @@ test("QA authentication requires a unique bypass generation", async (t) => {
   );
 });
 
-test("a QA generation mismatch permanently revokes the observed session", async (t) => {
+test("a test-access generation mismatch permanently revokes the observed session", async (t) => {
   const { miniflare, database, updateBindings } = await createHarness();
   t.after(() => miniflare.dispose());
 
@@ -432,17 +417,17 @@ test("a QA generation mismatch permanently revokes the observed session", async 
   const session = await sessionResponse.json();
   const storedBeforeRotation = await database
     .prepare(
-      `SELECT qa_bypass_generation AS qaBypassGeneration,
+      `SELECT test_access_generation AS testAccessGeneration,
               revoked_at AS revokedAt
        FROM sessions
        WHERE id = (SELECT id FROM sessions LIMIT 1)`,
     )
     .first();
-  assert.equal(storedBeforeRotation.qaBypassGeneration, qaBypassGeneration);
+  assert.equal(storedBeforeRotation.testAccessGeneration, testAccessGeneration);
   assert.equal(storedBeforeRotation.revokedAt, null);
 
   await updateBindings({
-    HERD_QA_BYPASS_GENERATION: "herd-test-generation-v2",
+    HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-test-generation-v2",
   });
   const rotatedResponse = await api(miniflare, "/api/me", {
     headers: { authorization: `Bearer ${session.accessToken}` },
@@ -455,13 +440,13 @@ test("a QA generation mismatch permanently revokes the observed session", async 
     .prepare(
       `SELECT revoked_at AS revokedAt
        FROM sessions
-       WHERE qa_bypass_generation = ?`,
+       WHERE test_access_generation = ?`,
     )
-    .bind(qaBypassGeneration)
+    .bind(testAccessGeneration)
     .first();
   assert.ok(revoked?.revokedAt);
 
-  await updateBindings({ HERD_QA_BYPASS_GENERATION: qaBypassGeneration });
+  await updateBindings({ HERD_TEST_ACCOUNT_ACCESS_GENERATION: testAccessGeneration });
   const switchedBackResponse = await api(miniflare, "/api/me", {
     headers: { authorization: `Bearer ${session.accessToken}` },
   });
@@ -544,7 +529,7 @@ test("real phone numbers use Twilio Verify before a session is created", async (
   assert.equal(storedChallenge.codeHash, null);
 });
 
-test("a host event appears for every invited QA account after invitations are sent", async (t) => {
+test("a host event appears for every invited test account after invitations are sent", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
@@ -560,7 +545,7 @@ test("a host event appears for every invited QA account after invitations are se
     assert.equal(response.status, 200);
     const session = await response.json();
     assert.equal(session.user.phoneNumber, `+1415555010${digit}`);
-    assert.equal(session.user.name, "");
+    assert.equal(session.user.name, testAccountNameForAlias(digit));
     assert.equal(session.user.address, "");
     accountIds.add(session.user.id);
     sessions.set(digit, session.accessToken);
@@ -577,7 +562,7 @@ test("a host event appears for every invited QA account after invitations are se
   const eventId = "71000000-0000-4000-8000-000000000001";
   const invitees = ["2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => ({
     id: `72000000-0000-4000-8000-${digit.padStart(12, "0")}`,
-    displayName: `Test account ${digit}`,
+    displayName: testAccountNameForAlias(digit),
     phoneNumber: `+1415555010${digit}`,
   }));
   const event = {
@@ -585,8 +570,8 @@ test("a host event appears for every invited QA account after invitations are se
     title: "All-account visibility check",
     eventDate: new Date(Date.now() + 14 * 86_400_000).toISOString(),
     endDate: new Date(Date.now() + 14 * 86_400_000 + 7_200_000).toISOString(),
-    hostName: "Test account 1",
-    locationName: "Herd QA",
+    hostName: testAccountNameForAlias("1"),
+    locationName: "Herd test",
     locationAddress: "San Francisco, CA",
     invitees,
     minimumParticipants: 2,
@@ -624,7 +609,7 @@ test("a host event appears for every invited QA account after invitations are se
       sessions.get("1"),
     ),
   );
-  assert.equal(sentResponse.status, 200);
+  assert.equal(sentResponse.status, 200, await sentResponse.clone().text());
   assert.equal((await sentResponse.json()).event.privateResponsePolicy.evaluatorKeyId, evaluatorKeyId);
 
   const invitedEventsByDigit = new Map();
@@ -782,10 +767,11 @@ test("a host event appears for every invited QA account after invitations are se
       accountTwoSession.accessToken,
     ),
   );
-  assert.equal(replaceAnsweredResponse.status, 409);
+  const replaceAnsweredBody = await replaceAnsweredResponse.json();
+  assert.equal(replaceAnsweredResponse.status, 200, JSON.stringify(replaceAnsweredBody));
   assert.equal(
-    (await replaceAnsweredResponse.json()).error.code,
-    "response_authorization_locked",
+    replaceAnsweredBody.responseEnvelope.revision,
+    2,
   );
 
   const accountTwoEventsResponse = await api(miniflare, "/api/events", {
@@ -824,7 +810,11 @@ test("a host event appears for every invited QA account after invitations are se
     )
     .all();
   assert.equal(accounts.results.length, 9);
-  assert.ok(accounts.results.every((account) => account.name === "" && account.address === ""));
+  assert.deepEqual(
+    accounts.results.map((account) => account.name),
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9"].map(testAccountNameForAlias),
+  );
+  assert.ok(accounts.results.every((account) => account.address === ""));
 
   const challenges = await database
     .prepare("SELECT COUNT(*) AS count FROM challenges")
@@ -891,6 +881,115 @@ test("event PUT rejects the authenticated host's normalized phone number", async
       .first("count"),
     0,
   );
+});
+
+test("hosts and permitted attendees can add guests before private replies begin", async (t) => {
+  const { miniflare } = await createHarness();
+  t.after(() => miniflare.dispose());
+
+  const sessions = new Map();
+  for (const digit of ["1", "2", "3", "4"]) {
+    const response = await api(
+      miniflare,
+      "/api/auth/request-code",
+      jsonRequest("POST", { phoneNumber: digit }),
+    );
+    assert.equal(response.status, 200);
+    sessions.set(digit, (await response.json()).accessToken);
+  }
+
+  const eventId = "74000000-0000-4000-8000-000000000001";
+  const futureDate = new Date(Date.now() + 14 * 86_400_000).toISOString();
+  const event = {
+    id: eventId,
+    title: "Shared guest additions",
+    eventDate: futureDate,
+    endDate: null,
+    hostName: testAccountNameForAlias("1"),
+    locationName: "",
+    locationAddress: "",
+    invitees: [{
+      id: "74000000-0000-4000-8000-000000000002",
+      displayName: testAccountNameForAlias("2"),
+      phoneNumber: "+14155550102",
+    }],
+    minimumParticipants: 2,
+    allowsAttendeesToAddGuests: true,
+    requiredGroups: [],
+    rsvpDeadline: new Date(Date.now() + 12 * 86_400_000).toISOString(),
+    eventDescription: "",
+    createdAt: new Date().toISOString(),
+    invitationsSent: true,
+  };
+  const createResponse = await api(
+    miniflare,
+    `/api/events/${eventId}`,
+    authorizedJsonRequest("PUT", event, sessions.get("1")),
+  );
+  assert.equal(createResponse.status, 200);
+
+  const attendeeAddition = await api(
+    miniflare,
+    `/api/events/${eventId}/attendees`,
+    authorizedJsonRequest("POST", {
+      invitees: [{
+        id: "74000000-0000-4000-8000-000000000003",
+        displayName: testAccountNameForAlias("3"),
+        phoneNumber: "+14155550103",
+      }],
+    }, sessions.get("2")),
+  );
+  assert.equal(attendeeAddition.status, 200);
+  const attendeeEvent = (await attendeeAddition.json()).event;
+  assert.equal(attendeeEvent.role, "invitee");
+  assert.equal(attendeeEvent.invitees.length, 2);
+
+  const disabledEventId = "74000000-0000-4000-8000-000000000011";
+  const disabledEvent = {
+    ...event,
+    id: disabledEventId,
+    title: "Host-only guest additions",
+    invitees: [{
+      id: "74000000-0000-4000-8000-000000000012",
+      displayName: testAccountNameForAlias("2"),
+      phoneNumber: "+14155550102",
+    }],
+    allowsAttendeesToAddGuests: false,
+  };
+  const createDisabledResponse = await api(
+    miniflare,
+    `/api/events/${disabledEventId}`,
+    authorizedJsonRequest("PUT", disabledEvent, sessions.get("1")),
+  );
+  assert.equal(createDisabledResponse.status, 200);
+
+  const deniedAddition = await api(
+    miniflare,
+    `/api/events/${disabledEventId}/attendees`,
+    authorizedJsonRequest("POST", {
+      invitees: [{
+        id: "74000000-0000-4000-8000-000000000014",
+        displayName: testAccountNameForAlias("4"),
+        phoneNumber: "+14155550104",
+      }],
+    }, sessions.get("2")),
+  );
+  assert.equal(deniedAddition.status, 403);
+  assert.equal((await deniedAddition.json()).error?.code, "attendee_additions_disabled");
+
+  const hostAddition = await api(
+    miniflare,
+    `/api/events/${disabledEventId}/attendees`,
+    authorizedJsonRequest("POST", {
+      invitees: [{
+        id: "74000000-0000-4000-8000-000000000014",
+        displayName: testAccountNameForAlias("4"),
+        phoneNumber: "+14155550104",
+      }],
+    }, sessions.get("1")),
+  );
+  assert.equal(hostAddition.status, 200);
+  assert.equal((await hostAddition.json()).event.invitees.length, 2);
 });
 
 test("legacy self-invites project as host-only and reject RSVP writes", async (t) => {
@@ -1162,568 +1261,9 @@ test("the authentication cutover revokes every legacy session", async () => {
   assert.match(migration, /WHERE `revoked_at` IS NULL/);
 });
 
-test("phone auth, shared events, invite projection, and RSVP work through D1", async (t) => {
-  const { miniflare, database } = await createHarness();
+test("removed demo invitation fixtures are not exposed by the production API", async (t) => {
+  const { miniflare } = await createHarness();
   t.after(() => miniflare.dispose());
-
-  const nonJsonResponse = await api(miniflare, "/api/auth/request-code", {
-    method: "POST",
-    headers: { "content-type": "text/plain" },
-    body: JSON.stringify({ phoneNumber: testPhone }),
-  });
-  assert.equal(nonJsonResponse.status, 415);
-  assert.equal((await nonJsonResponse.json()).error.code, "unsupported_media_type");
-
-  const crossOriginResponse = await api(
-    miniflare,
-    "/api/auth/request-code",
-    {
-      ...jsonRequest("POST", { phoneNumber: testPhone }),
-      headers: {
-        ...jsonRequest("POST", {}).headers,
-        origin: "https://attacker.example",
-      },
-    },
-  );
-  assert.equal(crossOriginResponse.status, 403);
-  assert.equal((await crossOriginResponse.json()).error.code, "cross_origin_request");
-
-  const blockedPhoneResponse = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: "+14155550999" }),
-  );
-  assert.equal(blockedPhoneResponse.status, 503);
-  assert.equal((await blockedPhoneResponse.json()).error.code, "sms_unavailable");
-
-  const publicInviteResponse = await api(miniflare, "/api/invites/poker-party");
-  assert.equal(publicInviteResponse.status, 200);
-  const publicInvite = await publicInviteResponse.json();
-  assert.equal(Object.hasOwn(publicInvite, "event"), false);
-  assert.equal(publicInvite.invitationPreview.title, "Poker night");
-  assert.equal(
-    Object.hasOwn(publicInvite.invitationPreview, "locationAddress"),
-    false,
-  );
-  assert.match(
-    publicInvite.invitationPreview.eventId,
-    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i,
-  );
-  assert.ok(Date.parse(publicInvite.invitationPreview.eventDate) > Date.now());
-
-  const requestResponse = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: "(415) 555-0187" }),
-  );
-  assert.equal(requestResponse.status, 200);
-  const verified = await requestResponse.json();
-  assert.equal(verified.user.phoneNumber, testPhone);
-  assert.match(verified.accountKeyEpochId, /^[0-9a-f-]{36}$/i);
-  assert.equal(verified.accountKeyCommitment, null);
-  assert.ok(verified.accessToken.length >= 40);
-  assert.ok(Date.parse(verified.expiresAt) > Date.now());
-  const setCookie = requestResponse.headers.get("set-cookie") ?? "";
-  assert.match(setCookie, /herd_session=[A-Za-z0-9_-]+/);
-  assert.match(setCookie, /HttpOnly/i);
-  assert.match(setCookie, /Secure/i);
-  assert.match(setCookie, /SameSite=Lax/i);
-  const cookie = setCookie.split(";")[0];
-
-  const throttledResponse = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: testPhone }),
-  );
-  assert.equal(throttledResponse.status, 429);
-  assert.equal((await throttledResponse.json()).error.code, "code_request_throttled");
-
-  const sessionMode = await database
-    .prepare("SELECT auth_mode AS authMode FROM sessions LIMIT 1")
-    .first();
-  assert.equal(sessionMode.authMode, "test");
-  await database
-    .prepare("UPDATE users SET phone_number = '+14155550999' WHERE id = ?")
-    .bind(verified.user.id)
-    .run();
-  const mismatchedModeResponse = await api(miniflare, "/api/me", {
-    headers: { cookie },
-  });
-  assert.equal(mismatchedModeResponse.status, 401);
-  await database
-    .prepare("UPDATE users SET phone_number = ? WHERE id = ?")
-    .bind(testPhone, verified.user.id)
-    .run();
-
-  const challengeCount = await database
-    .prepare("SELECT COUNT(*) AS count FROM challenges")
-    .first();
-  assert.equal(challengeCount.count, 0);
-  const sessionRecord = await database
-    .prepare("SELECT token_hash AS tokenHash FROM sessions LIMIT 1")
-    .first();
-  assert.notEqual(sessionRecord.tokenHash, verified.accessToken);
-  const inviteRecord = await database
-    .prepare(
-      "SELECT token_hash AS tokenHash FROM invitees WHERE event_id = ? AND display_name = 'Jeff Wilson'",
-    )
-    .bind(publicInvite.invitationPreview.eventId)
-    .first();
-  assert.notEqual(inviteRecord.tokenHash, "poker-party");
-
-  const meResponse = await api(miniflare, "/api/me", {
-    headers: { authorization: `Bearer ${verified.accessToken}` },
-  });
-  assert.equal(meResponse.status, 200);
-  assert.equal((await meResponse.json()).user.id, verified.user.id);
-
-  const profileResponse = await api(
-    miniflare,
-    "/api/me",
-    jsonRequest(
-      "PATCH",
-      { name: "Jeff Wilson", address: "219 Cumberland St" },
-      cookie,
-    ),
-  );
-  assert.equal(profileResponse.status, 200);
-  assert.equal((await profileResponse.json()).user.name, "Jeff Wilson");
-
-  const eventsResponse = await api(miniflare, "/api/events", {
-    headers: { cookie },
-  });
-  assert.equal(eventsResponse.status, 200);
-  const initialEvents = (await eventsResponse.json()).events;
-  const poker = initialEvents.find(
-    (event) => event.id === publicInvite.invitationPreview.eventId,
-  );
-  assert.equal(poker.role, "invitee");
-  assert.equal(poker.inviteToken, "poker-party");
-  assert.equal(poker.hasResponse, false);
-  assert.equal(Object.hasOwn(poker, "myRsvp"), false);
-  assert.ok(
-    poker.invitees.every((invitee) => !Object.hasOwn(invitee, "phoneNumber")),
-  );
-  assert.equal(
-    poker.invitees.filter((invitee) => invitee.isCurrentUser).length,
-    1,
-  );
-
-  const authenticatedInviteResponse = await api(
-    miniflare,
-    "/api/invites/poker-party",
-    { headers: { cookie } },
-  );
-  assert.equal(authenticatedInviteResponse.status, 200);
-  const authenticatedInvite = await authenticatedInviteResponse.json();
-  assert.equal(authenticatedInvite.event.id, poker.id);
-  assert.equal(
-    authenticatedInvite.inviteMetadata.accountKeyEpochId,
-    verified.accountKeyEpochId,
-  );
-  assert.equal(authenticatedInvite.inviteMetadata.accountKeyCommitment, null);
-  assert.equal(authenticatedInvite.event.privateResponsePolicy.evaluatorKeyId, evaluatorKeyId);
-  assert.ok(
-    authenticatedInvite.event.invitees.every(
-      (invitee) => !Object.hasOwn(invitee, "phoneNumber"),
-    ),
-  );
-
-  const legacyRsvpResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest(
-      "PUT",
-      {
-        response: "going",
-        minimumParticipants: 4,
-        requiredGroups: [],
-      },
-      cookie,
-    ),
-  );
-  assert.equal(legacyRsvpResponse.status, 400);
-  assert.equal(
-    (await legacyRsvpResponse.json()).error.code,
-    "plaintext_response_rejected",
-  );
-
-  const keyCommitment = encodedBytes(32, 31);
-  const initializeKeyResponse = await api(
-    miniflare,
-    "/api/account/key-epoch/initialize",
-    jsonRequest(
-      "POST",
-      {
-        expectedAccountKeyEpochId: verified.accountKeyEpochId,
-        keyCommitment,
-      },
-      cookie,
-    ),
-  );
-  assert.equal(initializeKeyResponse.status, 200);
-  assert.equal((await initializeKeyResponse.json()).keyCommitment, keyCommitment);
-  const conflictingCommitment = await api(
-    miniflare,
-    "/api/account/key-epoch/initialize",
-    jsonRequest(
-      "POST",
-      {
-        expectedAccountKeyEpochId: verified.accountKeyEpochId,
-        keyCommitment: encodedBytes(32, 30),
-      },
-      cookie,
-    ),
-  );
-  assert.equal(conflictingCommitment.status, 409);
-  assert.equal(
-    (await conflictingCommitment.json()).error.code,
-    "account_key_commitment_conflict",
-  );
-
-  const currentInvitee = poker.invitees.find((invitee) => invitee.isCurrentUser);
-  const envelope = encryptedEnvelope({
-    event: authenticatedInvite.event,
-    inviteeId: currentInvitee.id,
-    accountKeyEpochId: verified.accountKeyEpochId,
-  });
-  const forgedResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest(
-      "PUT",
-      {
-        envelope: {
-          ...envelope,
-          responseSignature: encodedBytes(64, 1),
-        },
-      },
-      cookie,
-    ),
-  );
-  assert.equal(forgedResponse.status, 400);
-  assert.equal(
-    (await forgedResponse.json()).error.code,
-    "invalid_response_authorization",
-  );
-  assert.equal(
-    await database
-      .prepare("SELECT COUNT(*) AS count FROM response_envelopes")
-      .first("count"),
-    0,
-  );
-  assert.equal(
-    await database
-      .prepare("SELECT COUNT(*) AS count FROM response_transparency_entries")
-      .first("count"),
-    0,
-  );
-  const rsvpResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest(
-      "PUT",
-      { envelope },
-      cookie,
-    ),
-  );
-  assert.equal(rsvpResponse.status, 200);
-  const encryptedResult = await rsvpResponse.json();
-  assert.equal(encryptedResult.responseEnvelope.revision, 1);
-  assert.equal(encryptedResult.responseEnvelope.payloadCiphertext, envelope.payloadCiphertext);
-  assert.equal(encryptedResult.receipt.ciphertextHash.length, 43);
-
-  const secondEnvelope = encryptedEnvelope({
-    event: authenticatedInvite.event,
-    inviteeId: currentInvitee.id,
-    accountKeyEpochId: verified.accountKeyEpochId,
-    revision: 2,
-  });
-  const secondResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest("PUT", { envelope: secondEnvelope }, cookie),
-  );
-  assert.equal(secondResponse.status, 200);
-  assert.equal((await secondResponse.json()).responseEnvelope.revision, 2);
-
-  const changedSignerEnvelope = encryptedEnvelope({
-    event: authenticatedInvite.event,
-    inviteeId: currentInvitee.id,
-    accountKeyEpochId: verified.accountKeyEpochId,
-    revision: 3,
-    responseSigningIdentity: replacementResponseSigningIdentity,
-  });
-  const changedSignerResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest("PUT", { envelope: changedSignerEnvelope }, cookie),
-  );
-  assert.equal(changedSignerResponse.status, 409);
-  assert.equal(
-    (await changedSignerResponse.json()).error.code,
-    "response_authorization_locked",
-  );
-
-  const responseColumns = await database
-    .prepare("PRAGMA table_info(response_envelopes)")
-    .all();
-  const responseColumnNames = responseColumns.results.map((column) => column.name);
-  for (const forbidden of ["reply", "minimum_participants", "condition_groups", "user_id"]) {
-    assert.equal(responseColumnNames.includes(forbidden), false);
-  }
-  const legacyTable = await database
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'rsvps'")
-    .first();
-  assert.equal(legacyTable, null);
-
-  const eventId = "40000000-0000-4000-8000-000000000001";
-  const inviteeId = "50000000-0000-4000-8000-000000000001";
-  const groupId = "60000000-0000-4000-8000-000000000001";
-  const eventDate = new Date(Date.now() + 10 * 86_400_000).toISOString();
-  const endDate = new Date(Date.now() + 10 * 86_400_000 + 7_200_000).toISOString();
-  const deadline = new Date(Date.now() + 8 * 86_400_000).toISOString();
-  const createEventResponse = await api(
-    miniflare,
-    `/api/events/${eventId}`,
-    jsonRequest(
-      "PUT",
-      {
-        id: eventId,
-        title: "Backyard dinner",
-        eventDate,
-        endDate,
-        hostName: "Jeff Wilson",
-        locationName: "Home",
-        locationAddress: "San Francisco, CA",
-        invitees: [
-          {
-            id: inviteeId,
-            sourceContactIdentifier: "must-not-cross-api",
-            displayName: "Avery Johnson",
-            phoneNumber: "+14155550137",
-          },
-        ],
-        minimumParticipants: 2,
-        requiredGroups: [{ id: groupId, memberIDs: [inviteeId] }],
-        rsvpDeadline: deadline,
-        eventDescription: "Dinner outside.",
-        createdAt: new Date().toISOString(),
-        invitationsSent: true,
-      },
-      cookie,
-    ),
-  );
-  assert.equal(createEventResponse.status, 200);
-  const hostedEvent = (await createEventResponse.json()).event;
-  assert.equal(hostedEvent.id, eventId);
-  assert.equal(hostedEvent.invitees[0].phoneNumber, "+14155550137");
-  assert.equal(
-    Object.hasOwn(hostedEvent.invitees[0], "sourceContactIdentifier"),
-    false,
-  );
-  assert.ok(hostedEvent.privateResponsePolicy?.policyHash);
-  const minimizedPolicyDocument = JSON.parse(
-    hostedEvent.privateResponsePolicy.canonicalDocument,
-  );
-  assert.deepEqual(minimizedPolicyDocument.members, [{ id: inviteeId }]);
-  assert.equal(
-    hostedEvent.privateResponsePolicy.canonicalDocument.includes("Avery Johnson"),
-    false,
-  );
-  assert.equal(
-    hostedEvent.privateResponsePolicy.canonicalDocument.includes("+14155550137"),
-    false,
-  );
-  assert.equal(
-    hostedEvent.privateResponsePolicy.canonicalDocument.includes("phoneAssignment"),
-    false,
-  );
-
-  const mutateFrozenEventResponse = await api(
-    miniflare,
-    `/api/events/${eventId}`,
-    jsonRequest(
-      "PUT",
-      {
-        ...hostedEvent,
-        title: "Changed after sending",
-      },
-      cookie,
-    ),
-  );
-  assert.equal(mutateFrozenEventResponse.status, 409);
-  assert.equal(
-    (await mutateFrozenEventResponse.json()).error.code,
-    "event_policy_frozen",
-  );
-
-  for (const participantCount of [5, 10, 20]) {
-    const scenario = stagingScenario(participantCount);
-    const scenarioResponse = await api(
-      miniflare,
-      `/api/events/${scenario.event.id}`,
-      jsonRequest("PUT", scenario.event, cookie),
-    );
-    assert.equal(scenarioResponse.status, 200);
-    const scenarioEvent = (await scenarioResponse.json()).event;
-    assert.equal(scenarioEvent.invitees.length + 1, participantCount);
-    const frozenPolicy = JSON.parse(
-      scenarioEvent.privateResponsePolicy.canonicalDocument,
-    );
-    assert.equal(frozenPolicy.limits.maximumParticipants, participantCount);
-    assert.equal(
-      frozenPolicy.limits.maximumConditionGroups,
-      participantCount - 1,
-    );
-    const scenarioDeleteResponse = await api(
-      miniflare,
-      `/api/events/${scenario.event.id}`,
-      { method: "DELETE", headers: { cookie } },
-    );
-    assert.equal(scenarioDeleteResponse.status, 200);
-  }
-
-  const refreshedEventsResponse = await api(miniflare, "/api/events", {
-    headers: { cookie },
-  });
-  const refreshedEvents = (await refreshedEventsResponse.json()).events;
-  assert.equal(
-    refreshedEvents.find(
-      (event) => event.id === publicInvite.invitationPreview.eventId,
-    ).hasResponse,
-    true,
-  );
-  assert.equal(
-    refreshedEvents.find((event) => event.id === eventId).role,
-    "host",
-  );
-
-  const resetResponse = await api(
-    miniflare,
-    "/api/account/key-epoch/reset",
-    jsonRequest(
-      "POST",
-      { expectedAccountKeyEpochId: verified.accountKeyEpochId },
-      cookie,
-    ),
-  );
-  assert.equal(resetResponse.status, 200);
-  const reset = await resetResponse.json();
-  assert.notEqual(reset.accountKeyEpochId, verified.accountKeyEpochId);
-
-  const reclaimedInviteResponse = await api(
-    miniflare,
-    "/api/invites/poker-party",
-    { headers: { cookie } },
-  );
-  assert.equal(reclaimedInviteResponse.status, 200);
-  const reclaimedInvite = await reclaimedInviteResponse.json();
-  assert.equal(
-    reclaimedInvite.inviteMetadata.accountKeyEpochId,
-    reset.accountKeyEpochId,
-  );
-  assert.equal(reclaimedInvite.inviteMetadata.accountKeyCommitment, null);
-  assert.equal(reclaimedInvite.inviteMetadata.responseEnvelope.revision, 2);
-
-  const retryAfterReset = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest("PUT", { envelope }, cookie),
-  );
-  assert.equal(retryAfterReset.status, 200);
-  assert.deepEqual(await retryAfterReset.json(), encryptedResult);
-
-  const replacementEnvelope = encryptedEnvelope({
-    event: reclaimedInvite.event,
-    inviteeId: currentInvitee.id,
-    accountKeyEpochId: reset.accountKeyEpochId,
-    revision: 3,
-    responseSigningIdentity: replacementResponseSigningIdentity,
-  });
-  const uninitializedReplacement = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest("PUT", { envelope: replacementEnvelope }, cookie),
-  );
-  assert.equal(uninitializedReplacement.status, 409);
-  assert.equal(
-    (await uninitializedReplacement.json()).error.code,
-    "account_key_not_initialized",
-  );
-
-  const replacementCommitment = encodedBytes(32, 32);
-  const initializeReplacement = await api(
-    miniflare,
-    "/api/account/key-epoch/initialize",
-    jsonRequest(
-      "POST",
-      {
-        expectedAccountKeyEpochId: reset.accountKeyEpochId,
-        keyCommitment: replacementCommitment,
-      },
-      cookie,
-    ),
-  );
-  assert.equal(initializeReplacement.status, 200);
-  const replacementResponse = await api(
-    miniflare,
-    "/api/invites/poker-party/rsvp",
-    jsonRequest("PUT", { envelope: replacementEnvelope }, cookie),
-  );
-  assert.equal(replacementResponse.status, 409);
-  assert.equal(
-    (await replacementResponse.json()).error.code,
-    "response_authorization_locked",
-  );
-  const durableRevisionCount = await database
-    .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE invitee_id = ?")
-    .bind(currentInvitee.id)
-    .first();
-  assert.equal(durableRevisionCount.count, 2);
-
-  const deleteEventResponse = await api(miniflare, `/api/events/${eventId}`, {
-    method: "DELETE",
-    headers: { cookie },
-  });
-  assert.equal(deleteEventResponse.status, 200);
-
-  const nowIso = new Date().toISOString();
-  await database
-    .prepare(
-      `UPDATE auth_phone_rate_limits
-       SET request_count = 0,
-           last_requested_at = '2000-01-01T00:00:00.000Z',
-           window_started_at = ?`,
-    )
-    .bind(nowIso)
-    .run();
-  await database
-    .prepare(
-      `UPDATE auth_ip_rate_limits
-       SET request_count = 30, window_started_at = ?, last_requested_at = ?`,
-    )
-    .bind(nowIso, nowIso)
-    .run();
-  const ipThrottledResponse = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: testPhone }),
-  );
-  assert.equal(ipThrottledResponse.status, 429);
-  assert.equal(
-    (await ipThrottledResponse.json()).error.code,
-    "ip_request_throttled",
-  );
-
-  const logoutResponse = await api(miniflare, "/api/auth/session", {
-    method: "DELETE",
-    headers: { cookie },
-  });
-  assert.equal(logoutResponse.status, 200);
-  assert.match(logoutResponse.headers.get("set-cookie") ?? "", /Max-Age=0/i);
-  const expiredSessionResponse = await api(miniflare, "/api/me", {
-    headers: { cookie },
-  });
-  assert.equal(expiredSessionResponse.status, 401);
+  const response = await api(miniflare, "/api/invites/poker-party");
+  assert.equal(response.status, 404);
 });

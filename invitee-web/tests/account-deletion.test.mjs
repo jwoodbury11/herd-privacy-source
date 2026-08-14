@@ -13,7 +13,7 @@ const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
 const migrationDirectory = path.join(projectRoot, "drizzle");
 const testPepper = "herd-test-pepper-0123456789-abcdefghijklmnopqrstuvwxyz";
-const qaBypassGeneration = "herd-test-generation-v1";
+const testAccessGeneration = "herd-test-generation-v1";
 const evaluatorPublicKey = Buffer.from(
   `04${
     "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
@@ -58,10 +58,8 @@ async function createHarness() {
     d1Databases: { DB: `herd-account-deletion-${process.pid}-${Date.now()}` },
     bindings: {
       HERD_AUTH_PEPPER: testPepper,
-      HERD_TEST_BYPASS_ENABLED: "true",
-      HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-      HERD_QA_BYPASS_GENERATION: qaBypassGeneration,
-      HERD_TEST_PHONE_E164: "+14155550187",
+      HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+      HERD_TEST_ACCOUNT_ACCESS_GENERATION: testAccessGeneration,
       HERD_TEST_HOST_PHONE_E164: "+14155550111",
       HERD_EVALUATOR_KEY_ID: "test-evaluator-v1",
       HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
@@ -102,7 +100,7 @@ function jsonRequest(method, body, accessToken, extraHeaders = {}) {
   };
 }
 
-async function qaSession(miniflare, phoneInput) {
+async function testSession(miniflare, phoneInput) {
   const response = await api(
     miniflare,
     "/api/auth/request-code",
@@ -120,8 +118,8 @@ test("account deletion requires recent phone authentication and erases all recov
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
-  const host = await qaSession(miniflare, "1");
-  const deletee = await qaSession(miniflare, "2");
+  const host = await testSession(miniflare, "1");
+  const deletee = await testSession(miniflare, "2");
   const deleteePhone = "+14155550102";
   const deleteePhoneHash = pepperedTestHash("phone", deleteePhone);
   const originalInviteToken = "account-deletion-test-invite-token";
@@ -316,9 +314,9 @@ test("account deletion requires recent phone authentication and erases all recov
     .bind(deleteePhoneHash)
     .run();
 
-  // Reauthentication accepts the canonical QA phone as well as its short test
-  // alias, which lets the real profile deletion flow exercise its own phone.
-  const freshDeletee = await qaSession(miniflare, deleteePhone);
+  // Only the explicit one-digit alias bypasses SMS. It still resolves to the
+  // same durable account for reauthentication.
+  const freshDeletee = await testSession(miniflare, "2");
   assert.equal(freshDeletee.user.id, deletee.user.id);
 
   const missingConfirmation = await api(
@@ -457,7 +455,7 @@ test("account deletion requires recent phone authentication and erases all recov
     assert.equal(deletedSession.status, 401);
   }
 
-  const recreated = await qaSession(miniflare, "2");
+  const recreated = await testSession(miniflare, "2");
   assert.notEqual(recreated.user.id, deletee.user.id);
   const preservedTombstone = await database
     .prepare("SELECT user_id AS userId FROM invitees WHERE id = ?")
@@ -470,7 +468,7 @@ test("an in-flight SMS verification cannot recreate an account after deletion", 
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
-  const account = await qaSession(miniflare, "3");
+  const account = await testSession(miniflare, "3");
   const phoneNumber = "+14155550103";
   const phoneHash = pepperedTestHash("phone", phoneNumber);
   const challengeId = "challenge_deletion_race_regression";
