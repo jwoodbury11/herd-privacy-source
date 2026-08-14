@@ -178,6 +178,9 @@ const manifest = {
         audience: AUDIENCE,
         maxAgeSeconds: 300,
         keyBindingHash: await bindingHash(keyBinding),
+        allowedImageDigests: [
+          { algorithm: "sha256", value: IMAGE_DIGEST.slice(7) },
+        ],
         projectId: PROJECT_ID,
         serviceAccount: SERVICE_ACCOUNT,
         allowedSwversions: [SW_VERSION],
@@ -300,6 +303,24 @@ test("independent monitor verifies a direct nonce challenge against its offline 
     keyBindingHash: manifest.trust.workload.attestationClaimPolicy.keyBindingHash,
     rootFingerprint,
   });
+});
+
+test("independent monitor accepts the bounded second rollout image digest", async () => {
+  const rolloutImage = `sha256:${"2".repeat(64)}`;
+  const rolloutConfiguration = structuredClone(configuration);
+  rolloutConfiguration.manifest.trust.workload.attestationClaimPolicy.allowedImageDigests.push({
+    algorithm: "sha256",
+    value: rolloutImage.slice(7),
+  });
+  const result = await verifyLiveEvaluatorAttestation(
+    rolloutConfiguration,
+    verifierOptions({
+      claims: (claims) => {
+        claims.submods.container.image_digest = rolloutImage;
+      },
+    }),
+  );
+  assert.equal(result.imageDigest, rolloutImage);
 });
 
 test("live attestation fails closed across token, key, claim, and root attacks", async (t) => {

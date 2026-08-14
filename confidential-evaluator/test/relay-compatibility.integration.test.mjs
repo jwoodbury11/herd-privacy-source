@@ -330,6 +330,7 @@ test("relay response is accepted unmodified by the invitee-web completion contra
     policyHash: fixture.inner.evaluationRequest.policy.policyHash,
     batchHash: fixture.inner.evaluationRequest.batchHash,
     evaluatorKeyId: fixture.inner.evaluationRequest.policy.evaluatorKeyId,
+    revealAttendance: true,
     status: "not_confirmed",
   });
   assert.deepEqual(Object.keys(value.attestation), [

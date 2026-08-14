@@ -9,7 +9,7 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "qa:browser": "node scripts/browser-qa-harness.mjs",
+    "test:browser-harness": "node scripts/browser-acceptance-harness.mjs",
     "test:browser-ui": "playwright test --config playwright.config.mjs",
     "test": "npm run build && npm --prefix ../evaluator-service run build && node --test --test-concurrency=1 tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -39,7 +39,7 @@
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
-    "vinext": "0.0.50",
+    "vinext": "0.0.45",
     "vite": "8.2.0",
     "wrangler": "4.116.0"
   },
@@ -47,6 +47,7 @@
     "@esbuild-kit/core-utils": {
       "esbuild": "0.25.12"
     },
+    "nanoid": "3.3.18",
     "postcss": "8.5.25",
     "sharp": "0.35.3",
     "undici": "7.29.0"

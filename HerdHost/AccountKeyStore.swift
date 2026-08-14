@@ -25,7 +25,16 @@ enum AccountKeyStoreError: LocalizedError, Sendable {
     }
 }
 
-actor AccountKeyStore {
+protocol AccountKeyStoring: Actor {
+    func hasRootSecret(userID: String, epochID: UUID) -> Bool
+    func createRootSecret(userID: String, epochID: UUID) throws -> SymmetricKey
+    func rootSecret(userID: String, epochID: UUID) throws -> SymmetricKey
+    func commitment(for accountRootSecret: SymmetricKey) -> String
+    func replaceRootSecret(userID: String, newEpochID: UUID) throws -> SymmetricKey
+    func deleteAllRootSecretMaterial(userID: String) throws
+}
+
+actor AccountKeyStore: AccountKeyStoring {
     private struct VaultRecord: Codable, Sendable {
         let deviceKeyID: UUID
         let accountKeyEpochID: UUID
@@ -44,8 +53,14 @@ actor AccountKeyStore {
     }
 
     func createRootSecret(userID: String, epochID: UUID) throws -> SymmetricKey {
-        if let existing = try? loadVaultRecord(userID: userID), existing.accountKeyEpochID == epochID {
-            return try unlock(record: existing, userID: userID)
+        do {
+            let existing = try loadVaultRecord(userID: userID)
+            if existing.accountKeyEpochID == epochID {
+                return try unlock(record: existing, userID: userID)
+            }
+            return try replaceRootSecret(userID: userID, newEpochID: epochID)
+        } catch AccountKeyStoreError.missingKey {
+            // No protected account key exists yet, so create the first epoch below.
         }
 
         let deviceKeyID = UUID()

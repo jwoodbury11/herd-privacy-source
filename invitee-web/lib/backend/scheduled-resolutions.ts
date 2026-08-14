@@ -66,7 +66,24 @@ async function dueEvents(
          ON event_resolutions.event_id = events.id
        WHERE events.invitations_sent = 1
          AND events.rsvp_deadline IS NOT NULL
-         AND events.rsvp_deadline <= ?
+         AND (
+           events.rsvp_deadline <= ?
+           OR event_resolutions.status IN ('confirmed', 'not_confirmed')
+           OR EXISTS (
+             SELECT 1
+             FROM response_envelopes AS scheduled_responses
+             JOIN response_transparency_entries AS scheduled_entries
+               ON scheduled_entries.envelope_id = scheduled_responses.id
+              AND scheduled_entries.receipt_signature IS NOT NULL
+              AND scheduled_entries.signed_at IS NOT NULL
+             JOIN response_transparency_heads AS scheduled_heads
+               ON scheduled_heads.log_index = scheduled_entries.log_index
+              AND scheduled_heads.log_id = scheduled_entries.log_id
+              AND scheduled_heads.head_entry_hash = scheduled_entries.entry_hash
+              AND scheduled_heads.signing_key_id = scheduled_entries.signing_key_id
+             WHERE scheduled_responses.event_id = events.id
+           )
+         )
          AND (
            event_resolutions.event_id IS NULL
            OR event_resolutions.status = 'pending'
@@ -75,8 +92,14 @@ async function dueEvents(
              AND event_resolutions.evaluation_lease_expires_at IS NOT NULL
              AND event_resolutions.evaluation_lease_expires_at <= ?
            )
+           OR (
+             event_resolutions.status IN ('confirmed', 'not_confirmed')
+             AND event_resolutions.resolved_at < events.rsvp_deadline
+             AND events.rsvp_deadline <= ?
+           )
          )
-       ORDER BY COALESCE(
+       ORDER BY CASE WHEN events.rsvp_deadline <= ? THEN 0 ELSE 1 END ASC,
+                COALESCE(
                   event_resolutions.updated_at,
                   event_policies.frozen_at
                 ) ASC,
@@ -84,7 +107,7 @@ async function dueEvents(
                 events.id ASC
        LIMIT ?`,
     )
-    .bind(nowIso, nowIso, SCHEDULED_BATCH_LIMIT)
+    .bind(nowIso, nowIso, nowIso, nowIso, SCHEDULED_BATCH_LIMIT)
     .all<DueEventRow>();
   return result.results;
 }
@@ -101,6 +124,28 @@ async function markScheduledAttempt(
     policyHash,
     nowIso,
   ).run();
+  await db
+    .prepare(
+      `UPDATE event_resolutions
+       SET status = 'pending',
+           batch_hash = NULL,
+           attending_member_ids = NULL,
+           resolved_at = NULL,
+           evaluation_request_hash = NULL,
+           result_attestation_protocol_version = NULL,
+           result_attestation_signing_key_id = NULL,
+           result_attestation_evaluated_at = NULL,
+           result_attestation_canonical_document = NULL,
+           result_attestation_signature = NULL,
+           updated_at = ?
+       WHERE event_id = ?
+         AND policy_hash = ?
+         AND status IN ('confirmed', 'not_confirmed')
+         AND resolved_at < (SELECT rsvp_deadline FROM events WHERE id = ?)
+         AND (SELECT rsvp_deadline FROM events WHERE id = ?) <= ?`,
+    )
+    .bind(nowIso, eventId, policyHash, eventId, eventId, nowIso)
+    .run();
   await db
     .prepare(
       `UPDATE event_resolutions

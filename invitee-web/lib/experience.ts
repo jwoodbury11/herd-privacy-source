@@ -52,6 +52,12 @@ type AuthenticationExperience = {
 type HomeExperience = {
   title: string;
   createEventTitle: string;
+  invitesSectionTitle: string;
+  hostedSectionTitle: string;
+  unconfirmedSectionTitle: string;
+  unconfirmedSectionNote: string;
+  pastSectionTitle: string;
+  emptyInvitesMessage: string;
   hostStatus: string;
   inviteeStatus: string;
   dateNotSet: string;

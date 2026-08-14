@@ -24,7 +24,10 @@ import {
   evaluatorKeyEpochSha256,
 } from "../lib/evaluator-key-epoch.mjs";
 import { buildProductionConfig } from "../lib/production-config.mjs";
-import { preflightProductionArtifacts } from "../lib/production-preflight.mjs";
+import {
+  preflightProductionArtifacts,
+  verifyWebArchive,
+} from "../lib/production-preflight.mjs";
 import {
   normalizeProductionReleaseTemplate,
   productionProvenanceArtifacts,
@@ -193,6 +196,7 @@ test("canonical manifest binds distinct operational keys to exact Confidential S
   assert.equal(policy.secboot, true);
   assert.equal(policy.dbgstat, "disabled-since-boot");
   assert.equal(policy.swname, "CONFIDENTIAL_SPACE");
+  assert.deepEqual(policy.allowedImageDigests, [fixture.manifest.trust.workload.imageDigest]);
   assert.deepEqual(policy.allowedSwversions, ["260500", "260600"]);
   assert.equal(policy.oemid, 11129);
   assert.equal(policy.attesterTcb, "INTEL");
@@ -214,6 +218,36 @@ test("manifest rejects an incorrect four-key binding and reused trust keys", () 
   assert.throws(
     () => normalizeReleaseManifest(staleSwversionFormat),
     /allowedSwversions\[0\] is invalid/u,
+  );
+
+  const duplicateImageDigest = structuredClone(fixture.manifest);
+  duplicateImageDigest.trust.workload.attestationClaimPolicy.allowedImageDigests.push(
+    structuredClone(duplicateImageDigest.trust.workload.imageDigest),
+  );
+  assert.throws(
+    () => normalizeReleaseManifest(duplicateImageDigest),
+    /allowedImageDigests contains duplicates/u,
+  );
+
+  const wrongPrimaryImageDigest = structuredClone(fixture.manifest);
+  wrongPrimaryImageDigest.trust.workload.attestationClaimPolicy.allowedImageDigests = [
+    { algorithm: "sha256", value: "44".repeat(32) },
+    structuredClone(wrongPrimaryImageDigest.trust.workload.imageDigest),
+  ];
+  assert.throws(
+    () => normalizeReleaseManifest(wrongPrimaryImageDigest),
+    /allowedImageDigests must begin with trust\.workload\.imageDigest/u,
+  );
+
+  const excessiveImageDigests = structuredClone(fixture.manifest);
+  excessiveImageDigests.trust.workload.attestationClaimPolicy.allowedImageDigests = [
+    structuredClone(excessiveImageDigests.trust.workload.imageDigest),
+    { algorithm: "sha256", value: "44".repeat(32) },
+    { algorithm: "sha256", value: "55".repeat(32) },
+  ];
+  assert.throws(
+    () => normalizeReleaseManifest(excessiveImageDigests),
+    /allowedImageDigests must contain one or two exact digests/u,
   );
 
   const badBinding = structuredClone(fixture.manifest);
@@ -665,18 +699,14 @@ test("production config generation and artifact preflight bind web and iOS build
     }).configurationSha256,
     generated.configurationSha256,
   );
-  assert.equal(generated.webRuntimeVariables.HERD_EVALUATOR_MEASUREMENT, `sha256:${"11".repeat(32)}`);
+  assert.equal(generated.webRuntimeVariables.HERD_EVALUATOR_MEASUREMENT, `sha256:${"33".repeat(32)}`);
   assert.equal(
     generated.webPublicEnvironment.NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT,
-    `sha256:${"11".repeat(32)}`,
+    `sha256:${"33".repeat(32)}`,
   );
   assert.equal(
     generated.webPublicEnvironment.NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR,
-    "false",
-  );
-  assert.equal(
-    generated.webPublicEnvironment.NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE,
-    "production",
+    undefined,
   );
   assert.equal(
     generated.webPublicEnvironment.NEXT_PUBLIC_HERD_ARTIFACT_RELEASE_ID,
@@ -698,11 +728,12 @@ test("production config generation and artifact preflight bind web and iOS build
     generated.iosBuildSettings.HERD_ARTIFACT_RELEASE_ID,
     manifestInput.releaseId,
   );
-  assert.equal(generated.iosBuildSettings.HERD_ALLOW_SOFTWARE_QA_EVALUATOR, "false");
-  assert.equal(generated.iosBuildSettings.HERD_DEPLOYMENT_PROFILE, "production");
+  assert.equal(generated.iosBuildSettings.HERD_ALLOW_SOFTWARE_QA_EVALUATOR, undefined);
+  assert.equal(generated.webRuntimeVariables.HERD_TEST_ACCOUNT_ACCESS_ENABLED, "true");
+  assert.equal(generated.webRuntimeVariables.HERD_ATTESTATION_ROOT_CERTIFICATE, TEST_ROOT_CERTIFICATE);
   assert.equal(
     generated.iosBuildSettings.HERD_EVALUATOR_MEASUREMENT,
-    `sha256:${"11".repeat(32)}`,
+    `sha256:${"33".repeat(32)}`,
   );
   assert.equal(
     generated.webRuntimeVariables.HERD_RELEASE_ID,
@@ -750,7 +781,12 @@ test("production config generation and artifact preflight bind web and iOS build
 
   const webBundle = Buffer.from(JSON.stringify(generated.webPublicEnvironment));
   const webArchive = Buffer.concat([
-    tarEntry("web-deployment/config.js", webBundle, 0o644, manifestInput.sourceDateEpoch),
+    tarEntry(
+      "web-deployment/client/assets/page-production.js",
+      webBundle,
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
     tarEntry(
       "web-deployment/url-parser.js",
       Buffer.from('const relativeUrlBase = "https://localhost";\n'),
@@ -771,6 +807,37 @@ test("production config generation and artifact preflight bind web and iOS build
     ),
     Buffer.alloc(1024),
   ]);
+  const serverOnlyConfigurationArchive = Buffer.concat([
+    tarEntry(
+      "web-deployment/config.js",
+      webBundle,
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
+    tarEntry(
+      "web-deployment/client/assets/page-production.js",
+      Buffer.from("const publicEnvironment = {};\n"),
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
+    tarEntry(
+      "web-deployment/HERD-RELEASE-CONFIG-SHA256",
+      Buffer.from(`${generated.configurationSha256}\n`),
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
+    tarEntry(
+      "web-deployment/HERD-ARTIFACT-RELEASE-ID",
+      Buffer.from(`${manifestInput.releaseId}\n`),
+      0o644,
+      manifestInput.sourceDateEpoch,
+    ),
+    Buffer.alloc(1024),
+  ]);
+  assert.throws(
+    () => verifyWebArchive(serverOnlyConfigurationArchive, generated),
+    /browser JavaScript does not contain every public value/u,
+  );
   const schedulerArchive = Buffer.concat([
     tarEntry(
       "scheduler/scheduler-runtime-vars.json",

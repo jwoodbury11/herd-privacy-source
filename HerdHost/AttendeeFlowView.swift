@@ -12,28 +12,35 @@ struct AttendeeFlowView: View {
     @State private var reviewDrafts: [Invitee]
     @State private var showsReview = false
     @State private var showsContactPicker = false
+    @State private var showsManualRecipientSheet = false
     @State private var contactSelectionSnapshot: Set<String> = []
     @State private var returnsToReviewOnCancel = false
     @State private var showsCancelConfirmation = false
     @FocusState private var isSearchFocused: Bool
     private let startsWithReview: Bool
-    private let excludedPhoneKey: String?
+    private let excludedPhoneKeys: Set<String>
 
     init(
         invitees: Binding<[Invitee]>,
-        excludedPhoneNumber: String? = nil
+        excludedPhoneNumber: String? = nil,
+        excludedPhoneNumbers: [String] = []
     ) {
         _invitees = invitees
 
-        let excludedPhoneKey = excludedPhoneNumber.flatMap {
+        var excludedPhoneKeys = Set(excludedPhoneNumbers.compactMap {
             HerdPhoneNumberFormatter.comparisonKey($0)
+        })
+        if let excludedPhoneNumber,
+           let key = HerdPhoneNumberFormatter.comparisonKey(excludedPhoneNumber) {
+            excludedPhoneKeys.insert(key)
         }
-        self.excludedPhoneKey = excludedPhoneKey
+        self.excludedPhoneKeys = excludedPhoneKeys
 
         let currentInvitees = invitees.wrappedValue.filter { invitee in
-            guard let excludedPhoneKey else { return true }
-            return HerdPhoneNumberFormatter.comparisonKey(invitee.phoneNumber)
-                != excludedPhoneKey
+            guard let key = HerdPhoneNumberFormatter.comparisonKey(invitee.phoneNumber) else {
+                return true
+            }
+            return !excludedPhoneKeys.contains(key)
         }
         startsWithReview = !currentInvitees.isEmpty
         _selectedIDs = State(
@@ -76,6 +83,11 @@ struct AttendeeFlowView: View {
             }
         } message: {
             Text(clearSelectionMessage)
+        }
+        .sheet(isPresented: $showsManualRecipientSheet) {
+            ManualRecipientSheet(excludedPhoneKeys: excludedPhoneKeys) { candidate in
+                addManualRecipient(candidate)
+            }
         }
     }
 
@@ -135,7 +147,7 @@ struct AttendeeFlowView: View {
     private func reviewScreen(isRoot: Bool) -> some View {
         InviteeReviewView(
             invitees: $reviewDrafts,
-            excludedPhoneKey: excludedPhoneKey,
+            excludedPhoneKeys: excludedPhoneKeys,
             onCancel: isRoot ? { dismiss() } : nil,
             onAddMore: showContactPickerFromReview,
             onSave: saveReview
@@ -171,16 +183,33 @@ struct AttendeeFlowView: View {
         }
     }
 
+    private var visibleSelectedCandidates: [ContactCandidate] {
+        visibleCandidates.filter { selectedIDs.contains($0.id) }
+    }
+
+    private var visibleUnselectedCandidates: [ContactCandidate] {
+        visibleCandidates.filter { !selectedIDs.contains($0.id) }
+    }
+
+    private var showsSelectionSections: Bool {
+        !visibleSelectedCandidates.isEmpty && !visibleUnselectedCandidates.isEmpty
+    }
+
     private var allCandidates: [ContactCandidate] {
         var contacts = contactService.candidates.filter { candidate in
             !isExcludedPhoneNumber(candidate.phoneNumber)
         }
         let existingIDs = Set(contacts.map(\.id))
+        let existingPhoneKeys = Set(contacts.compactMap { candidate in
+            HerdPhoneNumberFormatter.comparisonKey(candidate.phoneNumber)
+        })
 
         contacts.append(contentsOf: invitees.compactMap { invitee in
             let identifier = invitee.sourceContactIdentifier ?? "existing-\(invitee.id.uuidString)"
+            let phoneKey = HerdPhoneNumberFormatter.comparisonKey(invitee.phoneNumber)
             guard
                 !existingIDs.contains(identifier),
+                phoneKey.map({ !existingPhoneKeys.contains($0) }) ?? true,
                 !isExcludedPhoneNumber(invitee.phoneNumber)
             else { return nil }
             return ContactCandidate(
@@ -194,37 +223,72 @@ struct AttendeeFlowView: View {
 
     private var contactList: some View {
         List {
-            if allCandidates.isEmpty {
+            if visibleCandidates.isEmpty {
                 Section {
                     VStack(spacing: 14) {
                         Image(systemName: "person.crop.circle.badge.questionmark")
                             .font(.largeTitle)
                             .foregroundStyle(.secondary)
-                        Text("No contacts with phone numbers were found.")
+                        Text(allCandidates.isEmpty
+                            ? "No contacts with phone numbers were found."
+                            : "No matching contacts were found.")
                             .multilineTextAlignment(.center)
-                        Text("Add a phone number in Contacts, then return here and try again.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        if allCandidates.isEmpty {
+                            Text("Add someone manually below or add a phone number in Contacts.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 30)
                 }
+            } else if showsSelectionSections {
+                Section {
+                    candidateRows(visibleSelectedCandidates)
+                } header: {
+                    Text("Selected")
+                        .accessibilityIdentifier("contact-section-selected")
+                }
+
+                Section {
+                    candidateRows(visibleUnselectedCandidates)
+                } header: {
+                    Text("Contacts")
+                        .accessibilityIdentifier("contact-section-contacts")
+                }
             } else {
                 Section {
-                    ForEach(visibleCandidates) { candidate in
-                        Button {
-                            toggle(candidate)
-                        } label: {
-                            ContactCandidateRow(
-                                candidate: candidate,
-                                isSelected: selectedIDs.contains(candidate.id)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("contact-candidate-\(candidate.id)")
-                    }
+                    candidateRows(visibleCandidates)
                 }
+            }
+
+            Section {
+                Button {
+                    isSearchFocused = false
+                    showsManualRecipientSheet = true
+                } label: {
+                    VStack(spacing: 10) {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                        Text("Manually add recipient")
+                            .font(.headline)
+                    }
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 88)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(
+                                Color.secondary.opacity(0.65),
+                                style: StrokeStyle(lineWidth: 1.25, dash: [7, 5])
+                            )
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("manually-add-recipient")
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -232,6 +296,24 @@ struct AttendeeFlowView: View {
         .background(Color.black)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             searchBar
+        }
+    }
+
+    @ViewBuilder
+    private func candidateRows(_ candidates: [ContactCandidate]) -> some View {
+        ForEach(candidates) { candidate in
+            Button {
+                withAnimation(.snappy) {
+                    toggle(candidate)
+                }
+            } label: {
+                ContactCandidateRow(
+                    candidate: candidate,
+                    isSelected: selectedIDs.contains(candidate.id)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("contact-candidate-\(candidate.id)")
         }
     }
 
@@ -334,6 +416,13 @@ struct AttendeeFlowView: View {
         }
     }
 
+    private func addManualRecipient(_ candidate: ContactCandidate) {
+        let savedCandidate = contactService.saveManualContact(candidate)
+        withAnimation(.snappy) {
+            _ = selectedIDs.insert(savedCandidate.id)
+        }
+    }
+
     private func cancelContactPicker() {
         isSearchFocused = false
 
@@ -408,8 +497,111 @@ struct AttendeeFlowView: View {
     }
 
     private func isExcludedPhoneNumber(_ phoneNumber: String) -> Bool {
-        guard let excludedPhoneKey else { return false }
-        return HerdPhoneNumberFormatter.comparisonKey(phoneNumber) == excludedPhoneKey
+        guard let key = HerdPhoneNumberFormatter.comparisonKey(phoneNumber) else { return false }
+        return excludedPhoneKeys.contains(key)
+    }
+}
+
+private struct ManualRecipientSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let excludedPhoneKeys: Set<String>
+    let onSave: (ContactCandidate) -> Void
+
+    @State private var name = ""
+    @State private var phoneNumber = ""
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case name
+        case phoneNumber
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var phoneKey: String? {
+        HerdPhoneNumberFormatter.comparisonKey(phoneNumber)
+    }
+
+    private var isHostPhoneNumber: Bool {
+        guard let phoneKey else { return false }
+        return excludedPhoneKeys.contains(phoneKey)
+    }
+
+    private var canSave: Bool {
+        let digitCount = phoneNumber.filter(\.isWholeNumber).count
+        return !trimmedName.isEmpty &&
+            (7...15).contains(digitCount) &&
+            !isHostPhoneNumber
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .submitLabel(.next)
+                        .focused($focusedField, equals: .name)
+                        .onSubmit {
+                            focusedField = .phoneNumber
+                        }
+                        .accessibilityIdentifier("manual-recipient-name")
+
+                    TextField("Phone number", text: $phoneNumber)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                        .focused($focusedField, equals: .phoneNumber)
+                        .onChange(of: phoneNumber) { _, newValue in
+                            let formatted = HerdPhoneNumberFormatter.format(newValue)
+                            if formatted != newValue {
+                                phoneNumber = formatted
+                            }
+                        }
+                        .accessibilityIdentifier("manual-recipient-phone")
+                } header: {
+                    Text("Recipient")
+                } footer: {
+                    if isHostPhoneNumber {
+                        Text("This person is already on the attendee list.")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(HerdTheme.canvas)
+            .navigationTitle("Add recipient")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let candidate = ContactCandidate(
+                            id: "manual-\(UUID().uuidString)",
+                            displayName: trimmedName,
+                            phoneNumber: HerdPhoneNumberFormatter.format(phoneNumber)
+                        )
+                        onSave(candidate)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("save-manual-recipient")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            focusedField = .name
+        }
     }
 }
 
@@ -444,7 +636,7 @@ private struct ContactCandidateRow: View {
 
 private struct InviteeReviewView: View {
     @Binding var invitees: [Invitee]
-    let excludedPhoneKey: String?
+    let excludedPhoneKeys: Set<String>
     let onCancel: (() -> Void)?
     let onAddMore: () -> Void
     let onSave: () -> Void
@@ -458,9 +650,11 @@ private struct InviteeReviewView: View {
     }
 
     private var containsExcludedPhone: Bool {
-        guard let excludedPhoneKey else { return false }
         return invitees.contains {
-            HerdPhoneNumberFormatter.comparisonKey($0.phoneNumber) == excludedPhoneKey
+            guard let key = HerdPhoneNumberFormatter.comparisonKey($0.phoneNumber) else {
+                return false
+            }
+            return excludedPhoneKeys.contains(key)
         }
     }
 
@@ -474,15 +668,9 @@ private struct InviteeReviewView: View {
                     )
                     .padding(.top, 60)
                 } else {
-                    Text("Review these details before saving the attendee list.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 4)
-
                     if containsExcludedPhone {
                         Label(
-                            "The host already counts as a participant and can’t be invited.",
+                            "This person is already on the attendee list.",
                             systemImage: "person.crop.circle.badge.exclamationmark"
                         )
                         .font(.footnote)
@@ -633,7 +821,7 @@ private struct ReviewColumnLabel: View {
     let icon: String
 
     var body: some View {
-        HStack(alignment: .top, spacing: 7) {
+        HStack(alignment: .center, spacing: 7) {
             Image(systemName: icon)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
@@ -764,7 +952,7 @@ private struct FormattedPhoneTextField: UIViewRepresentable {
     }
 }
 
-private enum HerdPhoneNumberFormatter {
+enum HerdPhoneNumberFormatter {
     static func comparisonKey(_ rawValue: String) -> String? {
         let digits = String(rawValue.filter(\.isWholeNumber).prefix(15))
         guard !digits.isEmpty else { return nil }

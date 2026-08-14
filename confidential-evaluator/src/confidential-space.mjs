@@ -84,7 +84,9 @@ function hasExpectedRuntime(container) {
     environment.PATH ===
       "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" &&
     typeof environment.HOSTNAME === "string" &&
-    /^herd-evaluator-tdx-[a-z0-9]{4}$/u.test(environment.HOSTNAME)
+    /^herd-evaluator-tdx-(?:[a-z][a-z0-9-]{0,20}-)?[a-z0-9]{4}$/u.test(
+      environment.HOSTNAME,
+    )
   );
 }
 

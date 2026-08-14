@@ -5,7 +5,7 @@ resource "google_iam_workload_identity_pool" "evaluator" {
   project                   = var.key_project_id
   workload_identity_pool_id = local.workload_identity_pool_id
   display_name              = "Herd evaluator"
-  description               = "Direct resource access for one pinned Confidential Space image digest."
+  description               = "Direct resource access for the pinned Confidential Space image digest and, only during a reviewed same-key-epoch rollout, its predecessor."
   disabled                  = false
   deletion_policy           = "PREVENT"
 
@@ -24,7 +24,7 @@ resource "google_iam_workload_identity_pool_provider" "google_attestation" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.evaluator[0].workload_identity_pool_id
   workload_identity_pool_provider_id = local.workload_identity_provider_id
   display_name                       = "Google attestation"
-  description                        = "Production Intel TDX, stable Confidential Space, exact project/service account, no overrides, pinned container digest."
+  description                        = "Production Intel TDX, stable Confidential Space, exact project/service account, no overrides, and the bounded rollout digest allowlist."
   disabled                           = false
   deletion_policy                    = "PREVENT"
 
@@ -44,7 +44,7 @@ resource "google_iam_workload_identity_pool_provider" "google_attestation" {
     size(assertion.swversion) == 1 &&
     assertion.swversion[0] in ${jsonencode(var.confidential_space_swversions)} &&
     "STABLE" in assertion.submods.confidential_space.support_attributes &&
-    assertion.submods.container.image_digest == "${local.effective_image_digest}" &&
+    assertion.submods.container.image_digest in ${jsonencode(sort(tolist(local.authorized_image_digests)))} &&
     assertion.submods.gce.project_id == "${var.workload_project_id}" &&
     size(assertion.google_service_accounts) == 1 &&
     assertion.google_service_accounts[0] == "${google_service_account.workload.email}" &&
@@ -73,33 +73,33 @@ resource "google_iam_workload_identity_pool_provider" "google_attestation" {
 
 resource "google_kms_crypto_key_iam_member" "attested_decrypter" {
   provider = google.keys
-  count    = var.runtime_enabled ? 1 : 0
+  for_each = var.runtime_enabled ? local.authorized_image_digests : toset([])
 
   crypto_key_id = google_kms_crypto_key.key_bundle.id
   role          = "roles/cloudkms.cryptoKeyDecrypter"
-  member        = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${local.effective_image_digest}"
+  member        = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${each.value}"
 
   depends_on = [google_iam_workload_identity_pool_provider.google_attestation]
 }
 
 resource "google_kms_crypto_key_iam_member" "attested_transparency_identity_decrypter" {
   provider = google.keys
-  count    = var.runtime_enabled ? 1 : 0
+  for_each = var.runtime_enabled ? local.authorized_image_digests : toset([])
 
   crypto_key_id = google_kms_crypto_key.transparency_identity.id
   role          = "roles/cloudkms.cryptoKeyDecrypter"
-  member        = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${local.effective_image_digest}"
+  member        = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${each.value}"
 
   depends_on = [google_iam_workload_identity_pool_provider.google_attestation]
 }
 
 resource "google_project_iam_member" "attested_transparency_writer" {
   provider = google.keys
-  count    = var.runtime_enabled ? 1 : 0
+  for_each = var.runtime_enabled ? local.authorized_image_digests : toset([])
 
   project = var.key_project_id
   role    = google_project_iam_custom_role.transparency_appender.name
-  member  = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${local.effective_image_digest}"
+  member  = "principalSet://iam.googleapis.com/projects/${var.key_project_number}/locations/global/workloadIdentityPools/${local.workload_identity_pool_id}/attribute.image_digest/${each.value}"
 
   condition {
     title       = "Exact transparency authority database"

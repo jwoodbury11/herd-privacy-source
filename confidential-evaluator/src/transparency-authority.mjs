@@ -174,7 +174,7 @@ function storedPolicy(value) {
     unavailable();
   }
   canonicalHash(value.policyHash);
-  const deadline = canonicalTimestamp(value.rsvpDeadline);
+  canonicalTimestamp(value.rsvpDeadline);
   const unevaluated =
     value.evaluationBatchHash === "" && value.evaluatedAt === "";
   const evaluated =
@@ -183,7 +183,7 @@ function storedPolicy(value) {
     canonicalHash(value.evaluationBatchHash) === value.evaluationBatchHash &&
     typeof value.evaluatedAt === "string" &&
     value.evaluatedAt !== "" &&
-    canonicalTimestamp(value.evaluatedAt) >= deadline;
+    Number.isFinite(canonicalTimestamp(value.evaluatedAt));
   if (!unevaluated && !evaluated) unavailable();
   return value;
 }
@@ -257,6 +257,7 @@ function normalizeEvaluationClaim(value, keyStore) {
     "rsvpDeadline",
     "memberIds",
     "batchHash",
+    "revealAttendance",
     "slots",
   ]);
   const commitments = policyCommitments(
@@ -274,6 +275,7 @@ function normalizeEvaluationClaim(value, keyStore) {
   if (!Array.isArray(input.slots) || input.slots.length !== commitments.memberIds.length) {
     invalidRequest();
   }
+  if (typeof input.revealAttendance !== "boolean") invalidRequest();
   const slots = input.slots.map((rawSlot, index) => {
     const slot = exactKeys(rawSlot, [
       "inviteeId",
@@ -321,11 +323,21 @@ function normalizeEvaluationClaim(value, keyStore) {
       ).toString("base64url"),
     };
   });
+  const batchHash = Buffer.from(decodeBase64Url(input.batchHash, 32)).toString(
+    "base64url",
+  );
+  const expectedBatchHash = sha256Base64Url(Buffer.from(JSON.stringify({
+    protocolVersion: PROTOCOL_VERSION,
+    eventId: commitments.eventId,
+    policyHash: commitments.policyHash,
+    revealAttendance: input.revealAttendance,
+    slots: slots.map(({ inviteeId, envelopeHash }) => ({ inviteeId, envelopeHash })),
+  }), "utf8"));
+  if (batchHash !== expectedBatchHash) invalidRequest();
   return {
     ...commitments,
-    batchHash: Buffer.from(decodeBase64Url(input.batchHash, 32)).toString(
-      "base64url",
-    ),
+    batchHash,
+    revealAttendance: input.revealAttendance,
     slots,
   };
 }
@@ -645,6 +657,16 @@ export class StatefulTransparencyAuthority {
     }
     const tail = await this.store.readEntry(state.treeSize);
     await validateTail(state, tail, this.keyStore);
+    // Reading and verifying the durable tail proves Firestore availability and
+    // public-key continuity, but it does not prove the process can still use
+    // its in-memory transparency private key. Exercise that exact signing
+    // primitive so a key-use failure removes this instance from service before
+    // an RSVP discovers it.
+    await signTransparencyPayload({
+      kind: "log_head",
+      canonicalPayload: state.canonicalHeadPayload,
+      keyStore: this.keyStore,
+    });
     if (state.treeSize < 2_147_483_647) {
       const impossibleSuccessor = await this.store.readEntry(state.treeSize + 1);
       if (impossibleSuccessor) unavailable();
@@ -723,8 +745,7 @@ export class StatefulTransparencyAuthority {
       const policy = storedPolicy(policyValue);
       if (
         !policy.memberIds.includes(receipt.inviteeId) ||
-        receipt.policyHash !== policy.policyHash ||
-        receipt.committedAt > policy.rsvpDeadline
+        receipt.policyHash !== policy.policyHash
       ) {
         conflict();
       }
@@ -744,11 +765,19 @@ export class StatefulTransparencyAuthority {
         );
       }
       const expectedRevision = (member?.revision ?? 0) + 1;
+      const accountEpochChanged = Boolean(
+        member && member.accountKeyEpochId !== receipt.accountKeyEpochId,
+      );
+      const responseSignerChanged = Boolean(
+        member &&
+          member.responseSigningPublicKey !== receipt.responseSigningPublicKey,
+      );
       if (
         receipt.revision !== expectedRevision ||
-        (member &&
-          (member.accountKeyEpochId !== receipt.accountKeyEpochId ||
-            member.responseSigningPublicKey !== receipt.responseSigningPublicKey)) ||
+        // A freshly phone-verified device switch rotates the account epoch and
+        // response signer together. Either identity changing alone is an
+        // unauthorized relabel or key substitution.
+        accountEpochChanged !== responseSignerChanged ||
         !(await verifyResponseAuthorization(receipt))
       ) {
         conflict();
@@ -769,19 +798,10 @@ export class StatefulTransparencyAuthority {
       }
 
       const appendInstant = clockInstant(this.clock);
-      const generatedAt = nextGeneratedAt(appendInstant, state);
-      if (
-        policy.evaluationBatchHash !== "" ||
-        appendInstant.getTime() > Date.parse(policy.rsvpDeadline)
-      ) {
-        await lateMissingEntry(
-          receipt,
-          state,
-          generatedAt,
-          this.keyStore,
-        );
+      if (Date.parse(receipt.committedAt) > appendInstant.getTime() + 30_000) {
+        conflict();
       }
-
+      const generatedAt = nextGeneratedAt(appendInstant, state);
       const canonicalHeadPayload = JSON.stringify({
         protocolVersion: PROTOCOL_VERSION,
         logId: TRANSPARENCY_LOG_ID,
@@ -875,7 +895,12 @@ export class StatefulTransparencyAuthority {
       const policy = storedPolicy(policyValue);
       if (!sameCommitments(policy, claim)) conflict();
       const evaluatedAt = clockInstant(this.clock);
-      if (evaluatedAt.getTime() < Date.parse(policy.rsvpDeadline)) conflict();
+      if (
+        claim.revealAttendance !==
+        (evaluatedAt.getTime() >= Date.parse(policy.rsvpDeadline))
+      ) {
+        conflict();
+      }
 
       // These are deliberately exact per-member reads from the independently
       // administered authority. A backend-supplied subset is never sufficient.
@@ -911,13 +936,14 @@ export class StatefulTransparencyAuthority {
       }
 
       if (policy.evaluationBatchHash !== "") {
-        if (policy.evaluationBatchHash !== claim.batchHash) conflict();
-        return {
-          protocolVersion: PROTOCOL_VERSION,
-          eventId: policy.eventId,
-          batchHash: policy.evaluationBatchHash,
-          evaluatedAt: policy.evaluatedAt,
-        };
+        if (policy.evaluationBatchHash === claim.batchHash) {
+          return {
+            protocolVersion: PROTOCOL_VERSION,
+            eventId: policy.eventId,
+            batchHash: policy.evaluationBatchHash,
+            evaluatedAt: policy.evaluatedAt,
+          };
+        }
       }
 
       const nextPolicy = {

@@ -142,7 +142,7 @@ export async function parseKeyBundles(
   epochPlaintext,
   transparencyPlaintext,
   config,
-  evaluatorMeasurement,
+  attestedImageDigest,
 ) {
   const input = parsePlaintextJson(epochPlaintext);
   const transparencyInput = parsePlaintextJson(transparencyPlaintext);
@@ -156,7 +156,7 @@ export async function parseKeyBundles(
     fail();
   }
   if (input.releaseId !== config.releaseId) fail();
-  const imageDigest = normalizeImageDigest(evaluatorMeasurement);
+  const imageDigest = normalizeImageDigest(attestedImageDigest);
   const requestAuthenticationToken = input.requestAuthenticationToken;
   if (
     typeof requestAuthenticationToken !== "string" ||
@@ -206,7 +206,7 @@ export async function parseKeyBundles(
     keyId: keys.responseDecryption.keyId,
     privateKey: keys.responseDecryption.privateKey,
     publicKey: keys.responseDecryption.publicKey,
-    measurement: imageDigest,
+    measurement: config.policyMeasurement,
     releaseId: config.releaseId,
   };
   Object.defineProperty(evaluatorConfig, "token", {
@@ -221,6 +221,7 @@ export async function parseKeyBundles(
     metadata,
     keyBindingHash,
     evaluatorConfig,
+    attestedImageDigest: imageDigest,
   };
   Object.defineProperty(keyStore, "requestAuthenticationToken", {
     value: requestAuthenticationToken,
@@ -274,11 +275,11 @@ export async function loadKeyStore({
   }
   const plaintext = results[0].value;
   const transparencyPlaintext = results[1].value;
-  let evaluatorMeasurement;
+  let attestedImageDigest;
   try {
-    evaluatorMeasurement = decryptor.getAttestedImageDigest();
+    attestedImageDigest = decryptor.getAttestedImageDigest();
     if (
-      transparencyDecryptor.getAttestedImageDigest() !== evaluatorMeasurement
+      transparencyDecryptor.getAttestedImageDigest() !== attestedImageDigest
     ) {
       fail();
     }
@@ -291,6 +292,6 @@ export async function loadKeyStore({
     plaintext,
     transparencyPlaintext,
     config,
-    evaluatorMeasurement,
+    attestedImageDigest,
   );
 }

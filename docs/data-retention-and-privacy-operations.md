@@ -22,9 +22,10 @@ minimization.
 | Phone/IP rate-limit keys | 24 hours after last request |
 | Expired or revoked sessions | 30 days |
 | Messaging-provider IDs, status text, bounded error details, dispatch time | Scrubbed after 30 days; delivery outcome remains |
+| Events that were not confirmed | Deleted 5 days after the reply deadline |
 | Sealed response envelopes and both key wraps | Deleted 90 days after final event resolution, or earlier when the host deletes the event |
 | Signed response-log commitments and heads | Indefinite, append-only; they contain hashes and identifiers, not condition plaintext or response ciphertext |
-| Event, account, guest, final-result, and signed result-proof records | Until the host/account owner deletes the owning record; the result proof is public verification material and is retained with the final outcome. Invitee deletion preserves a scrubbed mutable member placeholder while the immutable signed policy retains only the opaque event-scoped member ID |
+| Confirmed event, account, guest, final-result, and signed result-proof records | Until the host/account owner deletes the owning record; the result proof is public verification material and is retained with the final outcome. Invitee deletion preserves a scrubbed mutable member placeholder while the immutable signed policy retains only the opaque event-scoped member ID |
 
 The retention task logs counts only. It never logs IDs, phones, tokens,
 ciphertext, conditions, or request bodies. Its behavior is exercised against a
@@ -66,9 +67,9 @@ Before promoting a release:
 3. Export the candidate database schema without data and compare it to the
    release migration snapshot. Reject any unknown table or column before
    serving traffic.
-4. Confirm production has no QA bypass values, test keys, test origins, request
-   body logging, session replay, DOM capture, or third-party scripts on reply
-   screens. The signed production configuration digest records this state.
+4. Confirm production has only the approved SMS-only single-digit access switch,
+   with no test keys, test origins, request-body logging, session replay, DOM
+   capture, or third-party scripts on reply screens.
 5. Confirm the confidential evaluator has container log redirect and memory
    monitoring disabled, no debug access, and only the documented count/status
    operational signals.
@@ -139,7 +140,7 @@ Immediately stop new response submissions if any of the following occurs:
   policy, or memory monitoring;
 - an evaluator/release private key, backend bearer token, or production auth
   pepper may have been exposed;
-- production accepts a QA account or QA session.
+- test access changes any behavior after SMS verification.
 
 Follow the confidential evaluator incident and key-rotation runbooks, preserve
 hash-only evidence, and publish the affected release IDs. Rotate the ordinary

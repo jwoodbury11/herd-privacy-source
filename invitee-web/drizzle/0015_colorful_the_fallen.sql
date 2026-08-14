@@ -1,0 +1,1 @@
+ALTER TABLE `events` ADD `allows_attendees_to_add_guests` integer DEFAULT true NOT NULL;

@@ -185,6 +185,11 @@ Copy `confidential-evaluator/release-config.example/deployment.json` to the same
 approved release directory and fill these deterministic values:
 
 - `releaseId`: exactly the evaluator-key epoch ID in the bundle;
+- `policyMeasurement`: the stable, canonical `sha256:<64 lowercase hex>`
+  protocol identity assigned to this evaluator-key epoch. Preserve it exactly
+  for every artifact-only rebuild in the epoch; change it only with a reviewed
+  epoch transition. For an existing epoch, retain the value already pinned by
+  clients and frozen policies;
 - `kmsKeyResource`: exact `terraform output -raw kms_key_resource`;
 - `transparencyKmsKeyResource`: exact
   `terraform output -raw transparency_kms_key_resource`;
@@ -214,15 +219,18 @@ The release BuildKit context must now contain exactly:
 because the KMS IAM policy is attestation-gated; still treat it as release
 material and do not commit it.
 
-There is intentionally no embedded evaluator-measurement field. Embedding the
-final container digest inside the container would be self-referential. At
-startup the workload extracts `submods.container.image_digest` from the exact
+`policyMeasurement` is a protocol compatibility identity, not proof of which
+artifact ran. Keeping it stable prevents an artifact-only rebuild from
+invalidating unresolved policies. The final container digest cannot be embedded
+as its own security authority because that would be self-referential. At startup
+the workload separately extracts `submods.container.image_digest` from the exact
 launcher OIDC token that Google STS accepts, validates canonical
 `sha256:<64 lowercase hex>` syntax, completes both WIP-authorized KMS decrypts,
-requires both decryptors to report the identical attested image digest,
-and locally requires production Confidential Space, disabled debug, secure
-boot, Intel TDX, Intel attestation root, stable support, empty command/env
-overrides, restart policy `Always`, and memory monitoring disabled. Only then
+requires both decryptors to report the identical attested image digest, and
+uses that exact digest for subsequent WIF access. It also locally requires
+production Confidential Space, disabled debug, secure boot, Intel TDX, Intel
+attestation root, stable support, empty command/env overrides, restart policy
+`Always`, and memory monitoring disabled. Only then
 does it bind that digest into evaluator and policy-signing configuration. The
 server never listens if any step fails. The WIP condition remains the
 independent allowlist for the reviewed digest and repeats these production
@@ -305,7 +313,13 @@ Edit `production.auto.tfvars`:
 
 ```hcl
 runtime_enabled          = true
-image_digest             = "sha256:<pushed workload digest>"
+evaluator_slots = {
+  blue = {
+    image_digest   = "sha256:<pushed workload digest>"
+    instance_count = 3
+    serve_traffic  = true
+  }
+}
 confidential_space_image = "<exact self-link from the previous step>"
 evaluator_domain         = "evaluator.example.com"
 ```
@@ -364,8 +378,8 @@ module deliberately does not claim to create or validate that organization-
 level boundary.
 
 The source commit/tree digest belongs in published release provenance, not in
-the runtime evaluator measurement. The provenance and reproducible-build record
-must map that reviewed source to the exact WIP-pinned container digest.
+the stable policy measurement. The provenance and reproducible-build record
+must map that reviewed source to the exact WIP-pinned attested container digest.
 
 After cost and security approval, apply exactly that plan:
 
@@ -448,11 +462,12 @@ From a clean network, verify:
     evidence for this gate.
 
 Only after all gates pass should the application pin the attested public keys,
-key-binding hash, image digest, evaluator-key epoch ID, artifact release ID, and
-evaluator URL. Never overlap old and new attested Firestore writer grants.
-Artifact-only cutovers reuse the epoch and global identities; an evaluator-key
-epoch may rotate only after every policy frozen to its response-decryption key
-has resolved.
+key-binding hash, stable policy measurement, exact attested image digest,
+evaluator-key epoch ID, artifact release ID, and evaluator URL. Artifact-only
+cutovers may use the runbook's bounded two-digest transition only when the
+encrypted epoch/global bundles, public keys, key IDs, and `policyMeasurement`
+are identical. An evaluator-key epoch may rotate only after every policy frozen
+to its response-decryption key has resolved.
 
 ## Official references
 

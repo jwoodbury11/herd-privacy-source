@@ -4,12 +4,12 @@ import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { startBrowserQaHarness } from "../scripts/browser-qa-harness.mjs";
+import { startBrowserAcceptanceHarness } from "../scripts/browser-acceptance-harness.mjs";
 import ts from "typescript";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const temporaryDirectory = await mkdtemp(
-  path.join(projectRoot, ".browser-qa-harness-"),
+  path.join(projectRoot, ".browser-acceptance-harness-"),
 );
 
 after(async () => {
@@ -58,7 +58,7 @@ await transpile(
 );
 
 const moduleUrl = (name) =>
-  `${pathToFileURL(path.join(temporaryDirectory, name)).href}?browser-qa=1`;
+  `${pathToFileURL(path.join(temporaryDirectory, name)).href}?browser-acceptance=1`;
 const deviceVault = await import(moduleUrl("device-vault.mjs"));
 const evaluatorAttestation = await import(moduleUrl("evaluator-attestation.mjs"));
 const trustVerification = await import(moduleUrl("trust-verification.mjs"));
@@ -69,6 +69,7 @@ function installClientTrustPins(release) {
     NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID: release.responseDecryption.id,
     NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY:
       release.responseDecryption.publicKey,
+    NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT: release.measurement,
     NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_KEY_ID:
       release.evaluationResultSigning.id,
     NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY:
@@ -86,6 +87,8 @@ function installClientTrustPins(release) {
     NEXT_PUBLIC_HERD_ATTESTATION_SERVICE_ACCOUNT:
       release.attestation.serviceAccount,
     NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST:
+      release.attestation.imageDigest,
+    NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGESTS:
       release.attestation.imageDigest,
     NEXT_PUBLIC_HERD_ATTESTATION_ROOT_FINGERPRINT:
       release.attestation.rootFingerprint,
@@ -125,21 +128,21 @@ async function authenticate(baseUrl, alias) {
 }
 
 test(
-  "browser QA harness serves one isolated signed nine-alias scenario",
+  "browser acceptance harness serves one isolated signed nine-account scenario",
   { timeout: 30_000 },
   async (t) => {
-    const harness = await startBrowserQaHarness({ build: false });
+    const harness = await startBrowserAcceptanceHarness({ build: false });
     t.after(() => harness.stop());
 
     assert.equal(harness.baseUrl.hostname, "127.0.0.1");
-    assert.equal(harness.migrationCount, 14);
-    assert.equal(harness.scenario.counts.qaAccountCount, 10);
-    assert.equal(harness.scenario.counts.inviteeCount, 9);
-    assert.equal(harness.scenario.counts.suppressedCount, 9);
+    assert.equal(harness.migrationCount, 17);
+    assert.equal(harness.scenario.counts.testAccountCount, 9);
+    assert.equal(harness.scenario.counts.inviteeCount, 8);
+    assert.equal(harness.scenario.counts.sentCount, 8);
     assert.equal(harness.scenario.counts.signedPolicyCount, 1);
-    assert.equal(harness.scenario.invitePaths.length, 9);
-    assert.equal(new Set(harness.scenario.invitePaths).size, 9);
-    assert.equal(harness.scenario.inviteApiPaths.length, 9);
+    assert.equal(harness.scenario.invitePaths.length, 8);
+    assert.equal(new Set(harness.scenario.invitePaths).size, 8);
+    assert.equal(harness.scenario.inviteApiPaths.length, 8);
 
     const page = await fetch(harness.browserUrl);
     assert.equal(page.status, 200);
@@ -166,7 +169,7 @@ test(
     assert.equal(anonymousBody.invitationPreview.requiresAuthentication, true);
     assert.equal(Object.hasOwn(anonymousBody, "event"), false);
 
-    const aliasOne = await authenticate(harness.baseUrl, "1");
+    const aliasOne = await authenticate(harness.baseUrl, "2");
     const eventList = await fetch(new URL("/api/events", harness.baseUrl), {
       headers: { authorization: `Bearer ${aliasOne.accessToken}` },
     });
@@ -302,7 +305,7 @@ test(
       publicationCount: 1,
     });
 
-    const aliasTwo = await authenticate(harness.baseUrl, "2");
+    const aliasTwo = await authenticate(harness.baseUrl, "3");
     const wrong = await fetch(
       new URL(harness.scenario.inviteApiPath, harness.baseUrl),
       { headers: { authorization: `Bearer ${aliasTwo.accessToken}` } },

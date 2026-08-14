@@ -10,6 +10,7 @@ struct HerdUITestEnvironment {
     enum Scenario: String {
         case hostCreate = "host-create"
         case hostEdit = "host-edit"
+        case hostDelete = "host-delete"
         case invitationAccountSwitch = "invitation-account-switch"
     }
 
@@ -35,7 +36,7 @@ struct HerdUITestEnvironment {
     }
 
     var startsWithAuthenticatedHost: Bool {
-        scenario == .hostCreate || scenario == .hostEdit
+        scenario == .hostCreate || scenario == .hostEdit || scenario == .hostDelete
     }
 
     var prefilledCreateEvent: HerdEvent? {
@@ -152,14 +153,12 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private static var scenario: HerdUITestEnvironment.Scenario = .hostCreate
     private static var events: [[String: Any]] = []
-    private static var shouldResolveSentEvents = false
     private static var invitationSignInCount = 0
 
     static func reset(to scenario: HerdUITestEnvironment.Scenario) {
         lock.lock()
         defer { lock.unlock() }
         self.scenario = scenario
-        shouldResolveSentEvents = false
         invitationSignInCount = 0
         switch scenario {
         case .hostCreate, .invitationAccountSwitch:
@@ -171,6 +170,26 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                     title: "Fixture Draft"
                 )
             )]
+        case .hostDelete:
+            var saved = HerdUITestEnvironment.hostDraft(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000003")!,
+                title: "Deletable Fixture Event"
+            )
+            saved.invitees = [Invitee(
+                id: UUID(uuidString: "50000000-0000-0000-0000-000000000006")!,
+                sourceContactIdentifier: "herd-ui-contact-2",
+                displayName: "_2 herdTestUser",
+                phoneNumber: "+14155550102"
+            )]
+            saved.invitationsSent = true
+            var event = hostEventDictionary(saved)
+            event["privateResponsePolicy"] = frozenPolicyDictionary()
+            event["resolution"] = [
+                "status": "pending",
+                "retrying": false,
+            ]
+            event["invitationDelivery"] = deliveryDictionary(for: event)
+            events = [event]
         }
     }
 
@@ -191,12 +210,30 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         let result = Self.response(
             method: request.httpMethod ?? "GET",
             path: url.path,
-            authorization: request.value(forHTTPHeaderField: "Authorization")
+            authorization: request.value(forHTTPHeaderField: "Authorization"),
+            body: requestBodyData()
         )
         finish(status: result.status, object: result.object)
     }
 
     override func stopLoading() {}
+
+    private func requestBodyData() -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1_024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count >= 0 else { return nil }
+            if count == 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
 
     private func finish(status: Int, object: Any) {
         guard
@@ -222,7 +259,8 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
     private static func response(
         method: String,
         path: String,
-        authorization: String?
+        authorization: String?,
+        body: Data?
     ) -> (status: Int, object: Any) {
         lock.lock()
         defer { lock.unlock() }
@@ -231,11 +269,23 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             return (200, ["user": userDictionary(for: authorization)])
         }
 
-        if method == "GET", path == "/api/events" {
-            if shouldResolveSentEvents {
-                events = events.map(resolvedEventDictionary)
-                shouldResolveSentEvents = false
+        if method == "PATCH", path == "/api/me" {
+            guard
+                let body,
+                let profile = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                let name = profile["name"] as? String,
+                let address = profile["address"] as? String
+            else {
+                return (400, ["error": "Invalid profile update fixture"])
             }
+            var user = HerdUITestEnvironment.hostUser
+            user.name = name
+            user.address = address
+            return (200, ["user": userDictionary(user)])
+        }
+
+        if method == "GET", path == "/api/events" {
+            events = events.map(resolvedEventDictionary)
             return (200, ["events": events])
         }
 
@@ -264,7 +314,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                     "retrying": false,
                 ]
                 event["invitationDelivery"] = deliveryDictionary(for: event)
-                shouldResolveSentEvents = true
+                event = resolvedEventDictionary(event)
             case .hostEdit:
                 guard path == "/api/events/20000000-0000-0000-0000-000000000002" else {
                     return (404, ["error": "Unexpected edit event identifier"])
@@ -275,11 +325,21 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                         title: "Edited Fixture Draft"
                     )
                 )
-            case .invitationAccountSwitch:
+            case .hostDelete, .invitationAccountSwitch:
                 return (400, ["error": "Invitation fixtures cannot edit events"])
             }
             upsert(event)
             return (200, ["event": event])
+        }
+
+        if method == "DELETE",
+           path == "/api/events/20000000-0000-0000-0000-000000000003",
+           scenario == .hostDelete {
+            events.removeAll { $0["id"] as? String == path.split(separator: "/").last.map(String.init) }
+            return (200, [
+                "deleted": true,
+                "id": "20000000-0000-0000-0000-000000000003",
+            ])
         }
 
         if method == "POST", path == "/api/auth/request-code" {
@@ -316,7 +376,17 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                     ],
                 ])
             }
-            return (200, ["event": invitationEventDictionary()])
+            return (200, [
+                "event": invitationEventDictionary(),
+                "inviteMetadata": [
+                    "id": "30000000-0000-0000-0000-000000000003",
+                    "accountKeyEpochId": "80000000-0000-0000-0000-000000000008",
+                    // A commitment without a matching local key deterministically
+                    // exercises the fresh-device recovery path.
+                    "accountKeyCommitment": canonicalHashFixture,
+                    "hasResponse": false,
+                ],
+            ])
         }
 
         return (404, ["error": "No UI fixture for \(method) \(path)"])

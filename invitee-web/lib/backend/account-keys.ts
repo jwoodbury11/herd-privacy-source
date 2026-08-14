@@ -7,8 +7,6 @@ import { randomUuid } from "./crypto";
 import { ApiError } from "./http";
 import type { AccountKeyEpoch, AuthenticatedSession } from "./types";
 
-const FRESH_SMS_SECONDS = 10 * 60;
-
 type AccountKeyEpochRow = {
   id: string;
   userId: string;
@@ -26,6 +24,8 @@ const ACCOUNT_KEY_EPOCH_SELECT = `SELECT
   created_at AS createdAt,
   superseded_at AS supersededAt
 FROM account_key_epochs`;
+
+const DEVICE_SWITCH_VERIFICATION_WINDOW_MS = 10 * 60 * 1_000;
 
 export async function getActiveAccountKeyEpoch(
   db: D1Database,
@@ -87,24 +87,24 @@ export async function resetAccountKeyEpoch(
   expectedAccountKeyEpochId: string,
 ) {
   const now = Date.now();
-  const authenticatedAt = Date.parse(session.createdAt);
+  const verifiedAt = Date.parse(session.createdAt);
   if (
-    !Number.isFinite(authenticatedAt) ||
-    authenticatedAt < now - FRESH_SMS_SECONDS * 1_000
+    !Number.isFinite(verifiedAt) ||
+    verifiedAt > now + 30_000 ||
+    now - verifiedAt > DEVICE_SWITCH_VERIFICATION_WINDOW_MS
   ) {
     throw new ApiError(
       403,
-      "fresh_sms_required",
-      "Confirm this phone number again before starting over.",
+      "fresh_phone_verification_required",
+      "Confirm your phone number again before switching private replies to this device.",
     );
   }
-
   const active = await getActiveAccountKeyEpoch(db, session.user.id);
   if (!active || active.id !== expectedAccountKeyEpochId) {
     throw new ApiError(
       409,
       "account_key_epoch_changed",
-      "The account encryption key changed. Refresh before starting over.",
+      "The private-reply key changed. Refresh before switching devices.",
       { accountKeyEpochId: active?.id ?? null },
     );
   }
@@ -143,7 +143,7 @@ export async function resetAccountKeyEpoch(
       throw new ApiError(
         409,
         "account_key_epoch_changed",
-        "The account encryption key changed. Refresh before starting over.",
+        "The private-reply key changed. Refresh before switching devices.",
       );
     }
   } catch (error) {
@@ -151,7 +151,7 @@ export async function resetAccountKeyEpoch(
     throw new ApiError(
       409,
       "account_key_epoch_changed",
-      "The account encryption key changed. Refresh before starting over.",
+      "The private-reply key changed. Refresh before switching devices.",
     );
   }
 
@@ -198,7 +198,7 @@ export async function initializeAccountKeyEpoch(
     throw new ApiError(
       409,
       "account_key_commitment_conflict",
-      "This account key was already initialized on another device.",
+      "Private replies were already set up with a different key on this device.",
     );
   }
   const result = await db
@@ -214,7 +214,7 @@ export async function initializeAccountKeyEpoch(
     throw new ApiError(
       409,
       "account_key_commitment_conflict",
-      "This account key was already initialized on another device.",
+      "Private replies were already set up with a different key on this device.",
     );
   }
   return {

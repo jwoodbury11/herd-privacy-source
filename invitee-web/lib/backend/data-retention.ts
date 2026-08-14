@@ -7,6 +7,7 @@ export const HERD_DATA_RETENTION = Object.freeze({
   expiredSessionMilliseconds: 30 * DAY_MS,
   deliveryDiagnosticMilliseconds: 30 * DAY_MS,
   resolvedResponseMilliseconds: 90 * DAY_MS,
+  unconfirmedEventMilliseconds: 5 * DAY_MS,
 });
 
 export type DataRetentionSweepSummary = {
@@ -16,6 +17,7 @@ export type DataRetentionSweepSummary = {
   deletedIpRateLimits: number;
   scrubbedDeliveryDiagnostics: number;
   deletedEncryptedResponses: number;
+  deletedUnconfirmedEvents: number;
 };
 
 function canonicalInstant(value: string): number {
@@ -67,6 +69,10 @@ export async function runDataRetentionSweep(
     now,
     HERD_DATA_RETENTION.resolvedResponseMilliseconds,
   );
+  const unconfirmedEventCutoff = cutoff(
+    now,
+    HERD_DATA_RETENTION.unconfirmedEventMilliseconds,
+  );
 
   const results = await db.batch([
     db
@@ -115,6 +121,20 @@ export async function runDataRetentionSweep(
          )`,
       )
       .bind(responseCutoff),
+    db
+      .prepare(
+        `DELETE FROM events
+         WHERE invitations_sent = 1
+           AND rsvp_deadline IS NOT NULL
+           AND rsvp_deadline < ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM event_resolutions
+             WHERE event_resolutions.event_id = events.id
+               AND event_resolutions.status = 'confirmed'
+           )`,
+      )
+      .bind(unconfirmedEventCutoff),
   ]);
 
   return {
@@ -124,5 +144,6 @@ export async function runDataRetentionSweep(
     deletedIpRateLimits: changes(results[3]),
     scrubbedDeliveryDiagnostics: changes(results[4]),
     deletedEncryptedResponses: changes(results[5]),
+    deletedUnconfirmedEvents: changes(results[6]),
   };
 }

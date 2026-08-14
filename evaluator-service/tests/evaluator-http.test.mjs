@@ -444,6 +444,7 @@ async function makeFixture({
     eventId: EVENT_ID,
     policy,
     batchHash: "",
+    revealAttendance: Date.now() >= Date.parse(deadline),
     slots,
   };
   request.batchHash = await computeBatchHash(request);
@@ -463,6 +464,7 @@ async function computeBatchHash(request) {
       protocolVersion: PROTOCOL_VERSION,
       eventId: request.eventId,
       policyHash: request.policy.policyHash,
+      revealAttendance: request.revealAttendance,
       slots: request.slots.map(({ inviteeId, envelopeHash }) => ({
         inviteeId,
         envelopeHash,
@@ -714,6 +716,7 @@ test("confirms a valid committed batch and returns only the allowed projection",
     batchHash: fixture.request.batchHash,
     evaluatorKeyId: KEY_ID,
     status: "confirmed",
+    revealAttendance: true,
     attendingMemberIds: ["host", INVITEE_A, INVITEE_B],
   });
 });
@@ -730,6 +733,7 @@ test("not-confirmed omits all guest-level response and condition details", async
     batchHash: fixture.request.batchHash,
     evaluatorKeyId: KEY_ID,
     status: "not_confirmed",
+    revealAttendance: true,
   });
   assert.deepEqual(Object.keys(result), [
     "protocolVersion",
@@ -738,6 +742,7 @@ test("not-confirmed omits all guest-level response and condition details", async
     "batchHash",
     "evaluatorKeyId",
     "status",
+    "revealAttendance",
   ]);
 });
 
@@ -780,14 +785,17 @@ test("rejects unauthenticated calls before processing their body", async () => {
   }
 });
 
-test("rejects evaluation before the frozen deadline", async () => {
+test("evaluates before the frozen deadline without revealing attendance", async () => {
   const fixture = await makeFixture({
     deadline: "2099-01-01T00:00:00.000Z",
     eventDate: "2100-01-01T00:00:00.000Z",
   });
   const response = await serviceFetch({ body: fixture.request, bindings: fixture.bindings });
-  assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), { error: { code: "deadline_not_reached" } });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.status, "confirmed");
+  assert.equal(result.revealAttendance, false);
+  assert.equal("attendingMemberIds" in result, false);
 });
 
 test("rejects policy, member order, and batch commitment tampering", async (context) => {
@@ -885,6 +893,7 @@ test("isolates authenticated ciphertext tampering as a privacy-safe nonresponse"
     batchHash: request.batchHash,
     evaluatorKeyId: KEY_ID,
     status: "confirmed",
+    revealAttendance: true,
     attendingMemberIds: ["host", INVITEE_B],
   });
 });
@@ -912,6 +921,7 @@ test("all undecryptable envelopes resolve without exposing failure details", asy
     batchHash: request.batchHash,
     evaluatorKeyId: KEY_ID,
     status: "not_confirmed",
+    revealAttendance: true,
   });
   assert.deepEqual(Object.keys(result), [
     "protocolVersion",
@@ -920,6 +930,7 @@ test("all undecryptable envelopes resolve without exposing failure details", asy
     "batchHash",
     "evaluatorKeyId",
     "status",
+    "revealAttendance",
   ]);
 });
 
@@ -1006,6 +1017,7 @@ test("relay evaluates a fixed-size opaque request and returns a verifiable bound
   assert.equal(body.relayRequestId, RELAY_REQUEST_ID);
   assert.equal(body.leaseId, LEASE_ID);
   assert.equal(body.result.status, "confirmed");
+  assert.equal(body.result.revealAttendance, true);
   assert.deepEqual(body.result.attendingMemberIds, [
     "host",
     INVITEE_A,

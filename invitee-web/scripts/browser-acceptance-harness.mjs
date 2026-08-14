@@ -14,18 +14,23 @@ import {
   cryptoProvider,
 } from "@peculiar/x509";
 
+import { testAccountNameForAlias } from "../lib/backend/test-accounts.mjs";
+
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
 const migrationDirectory = path.join(projectRoot, "drizzle");
-const evaluatorOrigin = "https://herd-browser-qa-evaluator.invalid";
+const evaluatorOrigin = "https://herd-browser-acceptance-evaluator.invalid";
 const evaluatorToken =
-  "herd_browser_qa_evaluator_token_0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  "herd_browser_acceptance_evaluator_token_0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const schedulerToken =
-  "herd_browser_qa_scheduler_token_0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const hostPhoneNumber = "+14155550187";
-const qaPhoneNumbers = Array.from(
-  { length: 9 },
-  (_, index) => `+1415555010${index + 1}`,
+  "herd_browser_acceptance_scheduler_token_0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const messagingAccountSid = `AC${"1".repeat(32)}`;
+const messagingApiKeySid = `SK${"2".repeat(32)}`;
+const messagingServiceSid = `MG${"3".repeat(32)}`;
+const verifyServiceSid = `VA${"4".repeat(32)}`;
+const testPhoneNumbers = Array.from(
+  { length: 8 },
+  (_, index) => `+1415555010${index + 2}`,
 );
 const eventId = "b7000000-0000-4000-8000-000000000001";
 const policySignatureDomain = "HERD-POLICY-DESCRIPTOR-SIGNATURE-V1";
@@ -33,30 +38,30 @@ const receiptSignatureDomain = "HERD-TRANSPARENCY-RECEIPT-SIGNATURE-V1";
 const logHeadSignatureDomain = "HERD-TRANSPARENCY-LOG-HEAD-SIGNATURE-V1";
 const keyBindingDomain = "HERD-CONFIDENTIAL-EVALUATOR-KEY-BINDING-V1";
 const attestationIssuer = "https://confidentialcomputing.googleapis.com";
-const attestationAudience = "https://herd-browser-qa.invalid/evaluator-attestation/v1";
-const attestationProjectId = "herd-browser-qa-project";
+const attestationAudience = "https://herd-browser-acceptance.invalid/evaluator-attestation/v1";
+const attestationProjectId = "herd-browser-acceptance-project";
 const attestationServiceAccount =
-  "evaluator@herd-browser-qa-project.iam.gserviceaccount.com";
+  "evaluator@herd-browser-acceptance-project.iam.gserviceaccount.com";
 const attestationSwVersion = "260600";
 
 cryptoProvider.set(webcrypto);
 
-class BrowserQaHarnessError extends Error {
+class BrowserAcceptanceHarnessError extends Error {
   constructor(message) {
     super(message);
-    this.name = "BrowserQaHarnessError";
+    this.name = "BrowserAcceptanceHarnessError";
   }
 }
 
 function ensure(condition, message) {
-  if (!condition) throw new BrowserQaHarnessError(message);
+  if (!condition) throw new BrowserAcceptanceHarnessError(message);
 }
 
 function validateNodeVersion() {
   const [major, minor] = process.versions.node.split(".").map(Number);
   ensure(
     major > 22 || (major === 22 && minor >= 13),
-    `The browser QA harness requires Node.js 22.13 or newer; found ${process.version}.`,
+    `The browser acceptance harness requires Node.js 22.13 or newer; found ${process.version}.`,
   );
 }
 
@@ -109,7 +114,7 @@ async function createAttestationFixture(release) {
   const rootKeys = await rsaKeyPair();
   const root = await X509CertificateGenerator.createSelfSigned({
     serialNumber: "01",
-    name: "CN=Herd Browser QA Root",
+    name: "CN=Herd Browser acceptance Root",
     notBefore,
     notAfter,
     signingAlgorithm: certificateSigningAlgorithm,
@@ -125,7 +130,7 @@ async function createAttestationFixture(release) {
   const intermediateKeys = await rsaKeyPair();
   const intermediate = await X509CertificateGenerator.create({
     serialNumber: "02",
-    subject: "CN=Herd Browser QA Intermediate",
+    subject: "CN=Herd Browser acceptance Intermediate",
     issuer: root.subject,
     notBefore,
     notAfter,
@@ -143,7 +148,7 @@ async function createAttestationFixture(release) {
   const leafKeys = await rsaKeyPair();
   const leaf = await X509CertificateGenerator.create({
     serialNumber: "03",
-    subject: "CN=Herd Browser QA Attestation Leaf",
+    subject: "CN=Herd Browser acceptance Attestation Leaf",
     issuer: intermediate.subject,
     notBefore,
     notAfter,
@@ -172,30 +177,30 @@ async function createAttestationFixture(release) {
   };
 }
 
-export async function createLocalQaRelease() {
+export async function createLocalAcceptanceRelease() {
   const nonce = randomUUID();
   const responseDecryption = await p256KeyFixture(
-    `browser-qa-response-${nonce}`,
+    `browser-acceptance-response-${nonce}`,
     "ECDH",
     ["deriveBits"],
   );
   const evaluationResultSigning = await p256KeyFixture(
-    `browser-qa-result-${nonce}`,
+    `browser-acceptance-result-${nonce}`,
     "ECDSA",
     ["sign", "verify"],
   );
   const policySigning = await p256KeyFixture(
-    `browser-qa-policy-${nonce}`,
+    `browser-acceptance-policy-${nonce}`,
     "ECDSA",
     ["sign", "verify"],
   );
   const transparencySigning = await p256KeyFixture(
-    `browser-qa-transparency-${nonce}`,
+    `browser-acceptance-transparency-${nonce}`,
     "ECDSA",
     ["sign", "verify"],
   );
   const release = {
-    id: `browser-qa-release-${nonce}`,
+    id: `browser-acceptance-release-${nonce}`,
     measurement: `sha256:${"a".repeat(64)}`,
     responseDecryption,
     evaluationResultSigning,
@@ -218,12 +223,12 @@ function sanitizedBuildEnvironment(release) {
   }
   Object.assign(environment, {
     HERD_DEPLOYMENT_PROFILE: "test",
-    HERD_TEST_BYPASS_ENABLED: "false",
-    HERD_ALLOW_INSECURE_QA_BYPASS: "false",
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "false",
     NEXT_PUBLIC_HERD_RELEASE_ID: release.id,
     NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID: release.responseDecryption.id,
     NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY:
       release.responseDecryption.publicKey,
+    NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT: release.measurement,
     NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_KEY_ID:
       release.evaluationResultSigning.id,
     NEXT_PUBLIC_HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY:
@@ -241,6 +246,8 @@ function sanitizedBuildEnvironment(release) {
     NEXT_PUBLIC_HERD_ATTESTATION_SERVICE_ACCOUNT:
       release.attestation.serviceAccount,
     NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST:
+      release.attestation.imageDigest,
+    NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGESTS:
       release.attestation.imageDigest,
     NEXT_PUBLIC_HERD_ATTESTATION_ROOT_FINGERPRINT:
       release.attestation.rootFingerprint,
@@ -269,7 +276,7 @@ async function runBuild(release) {
       if (code === 0) resolve();
       else {
         reject(
-          new BrowserQaHarnessError(
+          new BrowserAcceptanceHarnessError(
             `The local Worker build failed${signal ? ` (${signal})` : ""}.`,
           ),
         );
@@ -378,8 +385,6 @@ async function localAttestationResponse(release, nonce) {
       container: {
         image_digest: release.attestation.imageDigest,
         restart_policy: "Always",
-        env_override: {},
-        cmd_override: [],
       },
       confidential_space: {
         support_attributes: ["USABLE", "STABLE"],
@@ -415,7 +420,17 @@ async function localAttestationResponse(release, nonce) {
 }
 
 function installLocalSigner(fetchMock, release) {
+  let failNextAttestation = false;
+  let failNextTransparency = false;
   fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://api.twilio.com")
+    .intercept({
+      method: "POST",
+      path: `/2010-04-01/Accounts/${messagingAccountSid}/Messages.json`,
+    })
+    .reply(201, () => ({ sid: `SM${randomBytes(16).toString("hex")}`, status: "accepted" }))
+    .persist();
   const evaluator = fetchMock.get(evaluatorOrigin);
   const appendResponses = new Map();
   let lastLogIndex = 0;
@@ -518,6 +533,10 @@ function installLocalSigner(fetchMock, release) {
             typeof body.canonicalReceiptPayload === "string",
           "The Worker sent an invalid transparency-signing request.",
         );
+        if (failNextTransparency) {
+          failNextTransparency = false;
+          return JSON.stringify({ error: "temporary transparency failure" });
+        }
         let certification = appendResponses.get(body.canonicalReceiptPayload);
         if (!certification) {
           certification = appendCertification(body.canonicalReceiptPayload);
@@ -546,27 +565,43 @@ function installLocalSigner(fetchMock, release) {
             base64Url(Buffer.from(body.nonce, "base64url")) === body.nonce,
           "The Worker sent an invalid local attestation nonce.",
         );
-        return JSON.stringify(
-          await localAttestationResponse(release, body.nonce),
-        );
+        const response = await localAttestationResponse(release, body.nonce);
+        if (failNextAttestation) {
+          failNextAttestation = false;
+          response.attestationToken = "invalid";
+        }
+        return JSON.stringify(response);
       },
       { headers: { "content-type": "application/json" } },
     )
     .persist();
+
+  return {
+    failNextAttestation() {
+      failNextAttestation = true;
+    },
+    failNextTransparency() {
+      failNextTransparency = true;
+    },
+  };
 }
 
 function workerBindings(release) {
   return {
     HERD_DEPLOYMENT_PROFILE: "test",
     HERD_AUTH_PEPPER:
-      `browser-qa-only-${randomBytes(48).toString("base64url")}`,
-    HERD_TEST_BYPASS_ENABLED: "true",
-    HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-    HERD_QA_BYPASS_GENERATION: `browser-qa-${randomUUID()}`,
-    HERD_TEST_PHONE_E164: hostPhoneNumber,
+      `browser-acceptance-only-${randomBytes(48).toString("base64url")}`,
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+    HERD_TEST_ACCOUNT_ACCESS_GENERATION: `browser-acceptance-${randomUUID()}`,
     HERD_TEST_HOST_PHONE_E164: "+14155550111",
     HERD_PHONE_REQUESTS_PER_HOUR: "20",
     HERD_IP_REQUESTS_PER_HOUR: "200",
+    HERD_PUBLIC_APP_URL: "https://app.herdprivacy.com",
+    TWILIO_ACCOUNT_SID: messagingAccountSid,
+    TWILIO_API_KEY_SID: messagingApiKeySid,
+    TWILIO_API_KEY_SECRET: "browser-acceptance-messaging-secret",
+    TWILIO_VERIFY_SERVICE_SID: verifyServiceSid,
+    TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid,
     HERD_RELEASE_ID: release.id,
     HERD_EVALUATOR_KEY_ID: release.responseDecryption.id,
     HERD_EVALUATOR_PUBLIC_KEY: release.responseDecryption.publicKey,
@@ -581,6 +616,15 @@ function workerBindings(release) {
     HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY:
       release.transparencySigning.publicKey,
     HERD_EVALUATOR_MEASUREMENT: release.measurement,
+    HERD_ATTESTATION_AUDIENCE: release.attestation.audience,
+    HERD_ATTESTATION_PROJECT_ID: release.attestation.projectId,
+    HERD_ATTESTATION_SERVICE_ACCOUNT: release.attestation.serviceAccount,
+    HERD_ATTESTATION_IMAGE_DIGEST: release.attestation.imageDigest,
+    HERD_ATTESTATION_IMAGE_DIGESTS: release.attestation.imageDigest,
+    HERD_ATTESTATION_ROOT_FINGERPRINT: release.attestation.rootFingerprint,
+    HERD_ATTESTATION_ROOT_CERTIFICATE: release.attestation.rootCertificate,
+    HERD_ATTESTATION_SWVERSIONS: release.attestation.swVersion,
+    HERD_ATTESTATION_MAX_AGE_SECONDS: "300",
     HERD_EVALUATOR_TRANSPORT: "client_relay",
     HERD_EVALUATOR_URL: `${evaluatorOrigin}/api/v1/relay/`,
     HERD_ATTESTATION_URL: `${evaluatorOrigin}/api/v1/attestation`,
@@ -646,39 +690,39 @@ async function updateProfile(baseUrl, session, name) {
   const result = await apiJson(baseUrl, "/api/me", {
     method: "PATCH",
     accessToken: session.accessToken,
-    body: { name, address: "Local browser QA only" },
+    body: { name, address: "Local browser acceptance only" },
   });
   await requireStatus(result, 200, `Profile update for ${name}`);
 }
 
-function qaInvitees() {
-  return qaPhoneNumbers.map((phoneNumber, index) => ({
+function testInvitees() {
+  return testPhoneNumbers.map((phoneNumber, index) => ({
     id: `b7100000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-    displayName: `QA account ${index + 1}`,
+    displayName: testAccountNameForAlias(String(index + 2)),
     phoneNumber,
   }));
 }
 
 async function seedBrowserScenario(baseUrl, database) {
-  const host = await authenticate(baseUrl, hostPhoneNumber);
-  await updateProfile(baseUrl, host, "Local QA Host");
+  const host = await authenticate(baseUrl, "1");
+  await updateProfile(baseUrl, host, testAccountNameForAlias("1"));
   const aliases = [];
-  for (let alias = 1; alias <= 9; alias += 1) {
+  for (let alias = 2; alias <= 9; alias += 1) {
     const session = await authenticate(baseUrl, String(alias));
-    await updateProfile(baseUrl, session, `QA account ${alias}`);
+    await updateProfile(baseUrl, session, testAccountNameForAlias(String(alias)));
     aliases.push(session);
   }
 
   const now = Date.now();
-  const invitees = qaInvitees();
+  const invitees = testInvitees();
   const eventPayload = {
     id: eventId,
-    title: "Local QA reply composer",
+    title: "Local acceptance reply composer",
     eventDate: new Date(now + 14 * 24 * 60 * 60 * 1_000).toISOString(),
     endDate: new Date(now + 14 * 24 * 60 * 60 * 1_000 + 3_600_000)
       .toISOString(),
-    hostName: "Local QA Host",
-    locationName: "Herd browser QA",
+    hostName: testAccountNameForAlias("1"),
+    locationName: "Herd browser acceptance",
     locationAddress: "Local test data — never sent",
     invitees,
     minimumParticipants: 4,
@@ -690,7 +734,7 @@ async function seedBrowserScenario(baseUrl, database) {
     ],
     rsvpDeadline: new Date(now + 7 * 24 * 60 * 60 * 1_000).toISOString(),
     eventDescription:
-      "A disposable local scenario for anonymous, account-bound, event-detail, and reply-composer QA.",
+      "A disposable local scenario for anonymous, account-bound, event-detail, and reply-composer acceptance.",
     createdAt: new Date(now).toISOString(),
     invitationsSent: true,
   };
@@ -720,8 +764,8 @@ async function seedBrowserScenario(baseUrl, database) {
     inviteViews.push(event);
   }
   ensure(
-    new Set(inviteViews.map((event) => event.inviteToken)).size === 9,
-    "The aliases did not receive nine distinct invite links.",
+    new Set(inviteViews.map((event) => event.inviteToken)).size === 8,
+    "The invitee aliases did not receive eight distinct invite links.",
   );
 
   const invitePaths = inviteViews.map(
@@ -773,21 +817,21 @@ async function seedBrowserScenario(baseUrl, database) {
       `SELECT
          (SELECT COUNT(*) FROM users) AS userCount,
          (SELECT COUNT(*) FROM users
-          WHERE phone_number = ? OR phone_number LIKE '+1415555010_') AS qaAccountCount,
+          WHERE phone_number LIKE '+1415555010_') AS testAccountCount,
          (SELECT COUNT(*) FROM events WHERE id = ?) AS eventCount,
          (SELECT COUNT(*) FROM invitees WHERE event_id = ?) AS inviteeCount,
          (SELECT COUNT(*) FROM invitation_deliveries
-          WHERE event_id = ? AND status = 'suppressed') AS suppressedCount,
+          WHERE event_id = ? AND status = 'sent') AS sentCount,
          (SELECT COUNT(*) FROM event_policies
           WHERE event_id = ? AND policy_signature IS NOT NULL) AS signedPolicyCount`,
     )
-    .bind(hostPhoneNumber, eventId, eventId, eventId, eventId)
+    .bind(eventId, eventId, eventId, eventId)
     .first();
   ensure(
-    counts?.qaAccountCount === 10 &&
+    counts?.testAccountCount === 9 &&
       counts.eventCount === 1 &&
-      counts.inviteeCount === 9 &&
-      counts.suppressedCount === 9 &&
+      counts.inviteeCount === 8 &&
+      counts.sentCount === 8 &&
       counts.signedPolicyCount === 1,
     `The local seed counts are invalid: ${JSON.stringify(counts)}`,
   );
@@ -812,18 +856,18 @@ async function seedBrowserScenario(baseUrl, database) {
   };
 }
 
-export async function startBrowserQaHarness(options = {}) {
+export async function startBrowserAcceptanceHarness(options = {}) {
   validateNodeVersion();
-  const release = options.release ?? await createLocalQaRelease();
+  const release = options.release ?? await createLocalAcceptanceRelease();
   if (options.build !== false) await runBuild(release);
   await access(path.join(serverRoot, "index.js")).catch(() => {
-    throw new BrowserQaHarnessError(
-      "The built Worker is missing. Run `npm run build` or launch `npm run qa:browser`.",
+    throw new BrowserAcceptanceHarnessError(
+      "The built Worker is missing. Run `npm run build` or launch `npm run test:browser-harness`.",
     );
   });
 
   const fetchMock = createFetchMock();
-  installLocalSigner(fetchMock, release);
+  const signerControls = installLocalSigner(fetchMock, release);
   const modulePaths = await javascriptModules(serverRoot);
   const entryPath = path.join(serverRoot, "index.js");
   modulePaths.sort((left, right) => {
@@ -842,7 +886,7 @@ export async function startBrowserQaHarness(options = {}) {
     host: options.host ?? "127.0.0.1",
     port: options.port ?? 0,
     d1Databases: {
-      DB: `herd-browser-qa-${process.pid}-${Date.now()}-${randomUUID()}`,
+      DB: `herd-browser-acceptance-${process.pid}-${Date.now()}-${randomUUID()}`,
     },
     d1Persist: false,
     assets: {
@@ -867,6 +911,8 @@ export async function startBrowserQaHarness(options = {}) {
       scenario,
       baseUrl: readyUrl,
       browserUrl,
+      failNextAttestation: signerControls.failNextAttestation,
+      failNextTransparency: signerControls.failNextTransparency,
       stop: () => miniflare.dispose(),
     };
   } catch (error) {
@@ -879,13 +925,13 @@ function parsePort(argumentsList) {
   if (argumentsList.length === 0) return 0;
   ensure(
     argumentsList.length === 2 && argumentsList[0] === "--port",
-    "Usage: npm run qa:browser -- [--port 8788]",
+    "Usage: npm run test:browser-harness -- [--port 8788]",
   );
-  ensure(/^\d+$/u.test(argumentsList[1]), "The QA port must be a whole number.");
+  ensure(/^\d+$/u.test(argumentsList[1]), "The acceptance port must be a whole number.");
   const port = Number(argumentsList[1]);
   ensure(
     Number.isSafeInteger(port) && port >= 1 && port <= 65_535,
-    "The QA port must be between 1 and 65535.",
+    "The acceptance port must be between 1 and 65535.",
   );
   return port;
 }
@@ -899,9 +945,9 @@ async function waitForInterruption() {
 
 async function main() {
   const port = parsePort(process.argv.slice(2));
-  console.log("Building the current Worker with ephemeral browser-QA public pins…");
-  const harness = await startBrowserQaHarness({ port });
-  console.log(`\nLocal QA URL: ${harness.browserUrl.href}`);
+  console.log("Building the current Worker with ephemeral browser-acceptance public pins…");
+  const harness = await startBrowserAcceptanceHarness({ port });
+  console.log(`\nLocal acceptance URL: ${harness.browserUrl.href}`);
   console.log("\nUse the same URL for each check:");
   console.log("  • Signed out: anonymous invitation landing");
   console.log("  • Enter 1: correct-account event list, detail, and reply composer");
@@ -921,7 +967,7 @@ const isMain = process.argv[1] &&
 if (isMain) {
   main().catch((error) => {
     console.error(
-      error instanceof Error ? error.message : "The browser QA harness failed.",
+      error instanceof Error ? error.message : "The browser acceptance harness failed.",
     );
     process.exitCode = 1;
   });

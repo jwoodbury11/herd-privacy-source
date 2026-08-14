@@ -299,18 +299,23 @@ function memberDocument(name, member) {
 }
 
 export class FirestoreTransparencyStore {
+  #availabilityCheck = null;
+  #availabilityVerifiedUntil = 0;
+
   constructor({
     projectId,
     databaseId,
     collectionId,
     accessTokenProvider,
     fetchImplementation = globalThis.fetch,
+    clock = () => Date.now(),
   }) {
     if (!accessTokenProvider || typeof accessTokenProvider.getAccessToken !== "function") {
       throw new TypeError("a federated access-token provider is required");
     }
     this.accessTokenProvider = accessTokenProvider;
     this.fetch = fetchImplementation;
+    this.clock = clock;
     this.databaseName = `projects/${projectId}/databases/${databaseId}`;
     this.databaseUrl = `${GOOGLE_FIRESTORE_ENDPOINT}/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}`;
     this.documentsRoot = `${GOOGLE_FIRESTORE_ENDPOINT}/projects/${encodeURIComponent(projectId)}/databases/${encodeURIComponent(databaseId)}/documents`;
@@ -396,6 +401,17 @@ export class FirestoreTransparencyStore {
   }
 
   async checkAvailable() {
+    if (this.clock() < this.#availabilityVerifiedUntil) return true;
+    if (this.#availabilityCheck) return this.#availabilityCheck;
+    this.#availabilityCheck = this.#checkAvailable();
+    try {
+      return await this.#availabilityCheck;
+    } finally {
+      this.#availabilityCheck = null;
+    }
+  }
+
+  async #checkAvailable() {
     let response;
     try {
       response = await this.fetch(this.databaseUrl, {
@@ -417,6 +433,11 @@ export class FirestoreTransparencyStore {
     ) {
       unavailable();
     }
+    // The database-administration metadata endpoint has a substantially lower
+    // operational budget than document reads. Reconfirm the immutable safety
+    // flags once per minute per replica while every readiness check continues
+    // to read and validate the durable log tail below this store layer.
+    this.#availabilityVerifiedUntil = this.clock() + 60_000;
     return true;
   }
 

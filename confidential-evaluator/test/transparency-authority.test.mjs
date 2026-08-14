@@ -26,6 +26,7 @@ function canonicalReceipt(
     previousEntryHash = GENESIS_HASH,
     discriminator = 1,
     revision = 1,
+    committedAt,
   } = {},
 ) {
   const suffix = String(discriminator).padStart(12, "0");
@@ -58,7 +59,8 @@ function canonicalReceipt(
     revision,
     ciphertextHash,
     ...authorization,
-    committedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, discriminator)).toISOString(),
+    committedAt:
+      committedAt ?? new Date(Date.UTC(2026, 0, 1, 0, 0, discriminator)).toISOString(),
   };
   const entryHash = sha256Base64Url(
     domainSeparatedBytes(
@@ -178,7 +180,7 @@ test("a new evaluator epoch continues the existing log under the same global ide
     Uint8Array.from(Buffer.from(JSON.stringify(await makeBundle()))),
     Uint8Array.from(Buffer.from(transparencyPlaintext)),
     firstConfig,
-    firstConfig.evaluatorMeasurement,
+    firstConfig.attestedImageDigest,
   );
   const secondKeyStore = await parseKeyBundles(
     Uint8Array.from(
@@ -188,7 +190,7 @@ test("a new evaluator epoch continues the existing log under the same global ide
     ),
     Uint8Array.from(Buffer.from(transparencyPlaintext)),
     secondConfig,
-    secondConfig.evaluatorMeasurement,
+    secondConfig.attestedImageDigest,
   );
   const store = new InMemoryTransparencyStore();
   const first = await authority(store, firstKeyStore).append(
@@ -317,6 +319,7 @@ test("head timestamps remain monotonic when a restarted replica clock moves back
     logIndex: 2,
     previousEntryHash: firstHead.headEntryHash,
     discriminator: 2,
+    committedAt: "2025-12-31T00:00:00.000Z",
   });
   const second = await authority(
     store,
@@ -359,6 +362,26 @@ test("readiness rejects a stored tail signed under any other log identity", asyn
   const wrongKeyStore = await makeKeyStore();
   await assert.rejects(
     authority(durable, wrongKeyStore).checkReady(),
+    (error) => error?.status === 503 && error?.code === "service_unavailable",
+  );
+});
+
+test("readiness rejects an instance that cannot use its transparency signing key", async () => {
+  const keyStore = await makeKeyStore();
+  const durable = new InMemoryTransparencyStore();
+  await authority(durable, keyStore).append(canonicalReceipt(keyStore));
+  const unusableKeyStore = {
+    ...keyStore,
+    keys: {
+      ...keyStore.keys,
+      transparencySigning: {
+        ...keyStore.keys.transparencySigning,
+        privateKey: null,
+      },
+    },
+  };
+  await assert.rejects(
+    authority(durable, unusableKeyStore).checkReady(),
     (error) => error?.status === 503 && error?.code === "service_unavailable",
   );
 });

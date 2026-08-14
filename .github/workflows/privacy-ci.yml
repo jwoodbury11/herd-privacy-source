@@ -2,8 +2,14 @@ name: Privacy boundary CI
 
 on:
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "Partiful iOS Oct 2025/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "Partiful iOS Oct 2025/**"
   workflow_dispatch:
 
 concurrency:
@@ -166,6 +172,8 @@ jobs:
 
   ios-native:
     name: Native iOS privacy, erasure, and UI tests from public source
+    needs: release-evidence
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.release-evidence.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 30
     permissions:

@@ -81,7 +81,10 @@ struct HerdHostApp: App {
                     }
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase != .active {
+                    // Face ID and Touch ID temporarily make the scene inactive.
+                    // Only seal replies when the app actually enters the background,
+                    // otherwise a successful authentication clears its own result.
+                    if phase == .background {
                         eventStore.lockPrivateResponses()
                     }
                 }

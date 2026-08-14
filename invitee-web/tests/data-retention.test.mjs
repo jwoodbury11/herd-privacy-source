@@ -46,10 +46,8 @@ async function harness() {
       HERD_DEPLOYMENT_PROFILE: "test",
       HERD_AUTH_PEPPER:
         "herd-retention-test-pepper-0123456789-abcdefghijklmnopqrstuvwxyz",
-      HERD_TEST_BYPASS_ENABLED: "true",
-      HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-      HERD_QA_BYPASS_GENERATION: "herd-retention-generation-v1",
-      HERD_TEST_PHONE_E164: "+14155550187",
+      HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+      HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-retention-generation-v1",
     },
   });
   const database = await miniflare.getD1Database("DB");
@@ -144,6 +142,34 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     ]);
   }
 
+  const expiredUnconfirmedID = "60000000-0000-4000-8000-000000000001";
+  const recentUnconfirmedID = "60000000-0000-4000-8000-000000000002";
+  const expiredConfirmedID = "60000000-0000-4000-8000-000000000003";
+  await database.batch([
+    database.prepare(
+      `INSERT INTO events
+       (id, host_user_id, title, event_date, end_date, host_name,
+        location_name, location_address, minimum_participants, rsvp_deadline,
+        event_description, invitations_sent, created_at, updated_at)
+       VALUES
+       (?, ?, 'Expired unconfirmed', ?, NULL, 'Host', '', '', 1, ?, '', 1, ?, ?),
+       (?, ?, 'Recent unconfirmed', ?, NULL, 'Host', '', '', 1, ?, '', 1, ?, ?),
+       (?, ?, 'Expired confirmed', ?, NULL, 'Host', '', '', 1, ?, '', 1, ?, ?)`,
+    ).bind(
+      expiredUnconfirmedID, userID, oldResponse, oldResponse, oldResponse, oldResponse,
+      recentUnconfirmedID, userID, recent, recent, recent, recent,
+      expiredConfirmedID, userID, oldResponse, oldResponse, oldResponse, oldResponse,
+    ),
+    database.prepare(
+      `INSERT INTO event_resolutions
+       (event_id, policy_hash, status, batch_hash, attending_member_ids,
+        resolved_at, evaluation_lease_id, evaluation_lease_expires_at,
+        evaluation_request_hash, created_at, updated_at)
+       VALUES (?, 'confirmed-policy', 'confirmed', 'confirmed-batch', '[]',
+        ?, NULL, NULL, NULL, ?, ?)`,
+    ).bind(expiredConfirmedID, oldResponse, oldResponse, oldResponse),
+  ]);
+
   await database.batch([
     database.prepare(
       `INSERT INTO challenges
@@ -157,7 +183,7 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     ).bind(oldAuth, oldAuth, oldAuth, recent, recent, recent),
     database.prepare(
       `INSERT INTO sessions
-       (id, user_id, token_hash, auth_mode, qa_bypass_generation, created_at,
+       (id, user_id, token_hash, auth_mode, test_access_generation, created_at,
         expires_at, last_seen_at, revoked_at)
        VALUES ('old-session', ?, 'old-token', 'twilio', NULL, ?, ?, ?, NULL),
        ('new-session', ?, 'new-token', 'twilio', NULL, ?, ?, ?, NULL)`,
@@ -203,6 +229,18 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
   assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM auth_phone_rate_limits"), 1);
   assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM auth_ip_rate_limits"), 1);
   assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM response_envelopes"), 1);
+  assert.equal(
+    await scalar(database, `SELECT COUNT(*) AS value FROM events WHERE id = '${expiredUnconfirmedID}'`),
+    0,
+  );
+  assert.equal(
+    await scalar(database, `SELECT COUNT(*) AS value FROM events WHERE id = '${recentUnconfirmedID}'`),
+    1,
+  );
+  assert.equal(
+    await scalar(database, `SELECT COUNT(*) AS value FROM events WHERE id = '${expiredConfirmedID}'`),
+    1,
+  );
   assert.equal(
     await scalar(database, "SELECT COUNT(*) AS value FROM response_transparency_entries"),
     1,

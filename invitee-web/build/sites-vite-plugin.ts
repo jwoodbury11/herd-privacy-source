@@ -68,7 +68,7 @@ export function sites(): Plugin {
         await cp(privateAssetManifest, publicAssetManifest);
       }
       // The signed production preflight requires this marker inside the exact
-      // deployment archive. Remove any stale marker on ordinary QA builds.
+      // deployment archive. Remove any stale marker on ordinary test builds.
       await rm(releaseMarker, { force: true });
       await rm(artifactReleaseMarker, { force: true });
       const publicDigest =

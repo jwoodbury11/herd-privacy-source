@@ -8,6 +8,10 @@ resource "google_compute_global_address" "evaluator" {
   ip_version   = "IPV4"
 
   depends_on = [terraform_data.runtime_guard]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_security_policy" "evaluator" {
@@ -95,15 +99,28 @@ resource "google_compute_backend_service" "evaluator" {
   enable_cdn            = false
   session_affinity      = "NONE"
 
-  backend {
-    group           = google_compute_region_instance_group_manager.evaluator[0].instance_group
-    balancing_mode  = "UTILIZATION"
-    capacity_scaler = 1.0
-    max_utilization = 0.8
+  dynamic "backend" {
+    for_each = {
+      for name, manager in google_compute_region_instance_group_manager.evaluator :
+      name => manager if var.evaluator_slots[name].serve_traffic
+    }
+    content {
+      group           = backend.value.instance_group
+      balancing_mode  = "UTILIZATION"
+      capacity_scaler = 1.0
+      max_utilization = 0.8
+    }
   }
 
   log_config {
     enable = false
+  }
+
+  # A targeted slot teardown can otherwise expand through Terraform's reverse
+  # dependency graph and remove the public edge. Edge replacement requires an
+  # explicit reviewed configuration change that first removes this guard.
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -114,6 +131,10 @@ resource "google_compute_url_map" "evaluator" {
   project         = var.workload_project_id
   name            = "${var.name_prefix}-https"
   default_service = google_compute_backend_service.evaluator[0].id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_managed_ssl_certificate" "evaluator" {
@@ -129,6 +150,7 @@ resource "google_compute_managed_ssl_certificate" "evaluator" {
 
   lifecycle {
     create_before_destroy = true
+    prevent_destroy       = true
   }
 }
 
@@ -141,6 +163,10 @@ resource "google_compute_target_https_proxy" "evaluator" {
   url_map          = google_compute_url_map.evaluator[0].id
   ssl_certificates = [google_compute_managed_ssl_certificate.evaluator[0].id]
   quic_override    = "DISABLE"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_compute_global_forwarding_rule" "evaluator_https" {
@@ -154,4 +180,8 @@ resource "google_compute_global_forwarding_rule" "evaluator_https" {
   target                = google_compute_target_https_proxy.evaluator[0].id
   load_balancing_scheme = "EXTERNAL_MANAGED"
   ip_protocol           = "TCP"
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

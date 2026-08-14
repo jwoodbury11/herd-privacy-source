@@ -79,6 +79,29 @@ function json(value, status = 200) {
   });
 }
 
+export function operationalFailureClass(error) {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (/(storage|durable|kv mirror)/u.test(message)) {
+    return "monitor_storage";
+  }
+  if (/(target|configured|configuration|status_kv|required)/u.test(message)) {
+    return "configuration";
+  }
+  if (/(attestation|certificate|confidential|nonce|workload|image digest)/u.test(message)) {
+    return "evaluator_attestation";
+  }
+  if (/(http [45][0-9]{2}|fetch|timeout|unavailable|network|redirect)/u.test(message)) {
+    return "availability";
+  }
+  if (/(transparency|witness|log index|entry hash|signed head|fork|rewind)/u.test(message)) {
+    return "response_transparency";
+  }
+  if (/(release|manifest|deployment|predecessor|rollback|artifact|resource hash)/u.test(message)) {
+    return "release_integrity";
+  }
+  return "unknown";
+}
+
 async function hmacHex(secret, bytes) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -91,6 +114,31 @@ async function hmacHex(secret, bytes) {
   return [...signature].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function operationalAlert(status) {
+  return {
+    schemaVersion: 1,
+    ok: status?.ok === true,
+    checkedAt: typeof status?.checkedAt === "string" ? status.checkedAt : null,
+    configurationFailureClass: status?.configurationError
+      ? operationalFailureClass(status.configurationError)
+      : null,
+    storageFailureClass: status?.storageError
+      ? operationalFailureClass(status.storageError)
+      : null,
+    targets: Array.isArray(status?.targets)
+      ? status.targets.map((target) => ({
+          target: typeof target?.target === "string" ? target.target : "invalid-target",
+          ok: target?.ok === true,
+          durationMs: Number.isSafeInteger(target?.durationMs) ? target.durationMs : null,
+          failureClass: target?.ok === true
+            ? null
+            : (typeof target?.failureClass === "string" ? target.failureClass : "unknown"),
+          releaseId: typeof target?.releaseId === "string" ? target.releaseId : null,
+        }))
+      : [],
+  };
+}
+
 async function sendAlert(env, status) {
   if (!env.ALERT_WEBHOOK_URL) return;
   if (!env.ALERT_HMAC_SECRET || env.ALERT_HMAC_SECRET.length < 32) {
@@ -100,7 +148,7 @@ async function sendAlert(env, status) {
   if (url.protocol !== "https:" || url.username || url.password || url.hash) {
     throw new TypeError("ALERT_WEBHOOK_URL must be a safe HTTPS URL.");
   }
-  const bytes = new TextEncoder().encode(canonicalJson(status));
+  const bytes = new TextEncoder().encode(canonicalJson(operationalAlert(status)));
   const response = await fetch(url, {
     method: "POST",
     redirect: "manual",
@@ -293,6 +341,7 @@ export async function runChecks(env, store) {
   const results = await Promise.all(
     configuredTargets.map(async (target) => {
       const targetName = typeof target?.name === "string" ? target.name : "invalid-target";
+      const startedAt = Date.now();
       try {
         const prior = validatePriorWitness(await store.getWitness(targetName), targetName);
         const result = await verifyTarget(target, {
@@ -314,13 +363,18 @@ export async function runChecks(env, store) {
             throw new TypeError("deployment changed at an already witnessed deployment timestamp.");
           }
         }
-        return result;
+        return {
+          ...result,
+          durationMs: Math.max(0, Date.now() - startedAt),
+        };
       } catch (error) {
         return {
           schemaVersion: 1,
           target: targetName,
           ok: false,
           checkedAt: new Date().toISOString(),
+          durationMs: Math.max(0, Date.now() - startedAt),
+          failureClass: operationalFailureClass(error),
           error: error instanceof Error ? error.message : String(error),
         };
       }

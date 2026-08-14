@@ -15,6 +15,12 @@ struct EventEditorView: View {
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
     @State private var saveAlertTitle = "Couldn’t save event"
+    @FocusState private var focusedField: FocusedField?
+
+    private enum FocusedField: Hashable {
+        case title
+        case description
+    }
 
     init(event: HerdEvent) {
         _draft = State(initialValue: event)
@@ -50,6 +56,7 @@ struct EventEditorView: View {
                                 .textFieldStyle(.plain)
                                 .accessibilityLabel("Event title")
                                 .accessibilityIdentifier("event-title")
+                                .focused($focusedField, equals: .title)
 
                             Image(systemName: "pencil")
                                 .font(.subheadline.weight(.semibold))
@@ -59,6 +66,10 @@ struct EventEditorView: View {
                                 .accessibilityHidden(true)
                         }
                         .padding(16)
+                        .contentShape(.rect)
+                        .onTapGesture {
+                            focusedField = .title
+                        }
                     }
 
                     EditorGroup(title: "Event description") {
@@ -75,8 +86,13 @@ struct EventEditorView: View {
                                 .scrollContentBackground(.hidden)
                                 .frame(minHeight: 130)
                                 .accessibilityLabel("Event description")
+                                .focused($focusedField, equals: .description)
                         }
                         .padding(16)
+                        .contentShape(.rect)
+                        .onTapGesture {
+                            focusedField = .description
+                        }
                     }
 
                     EditorGroup(title: "Details") {
@@ -92,6 +108,26 @@ struct EventEditorView: View {
                                 )
                             }
                             .buttonStyle(GroupedRowButtonStyle())
+                            .accessibilityIdentifier("event-date")
+
+                            GroupDivider()
+
+                            Button {
+                                showsDeadline = true
+                            } label: {
+                                EventEditorRow(
+                                    icon: "hourglass",
+                                    title: "RSVP deadline",
+                                    value: draft.eventDate == nil
+                                        ? "Set the event date first"
+                                        : deadlineSummary,
+                                    showsChevron: true
+                                )
+                            }
+                            .buttonStyle(GroupedRowButtonStyle())
+                            .disabled(draft.eventDate == nil)
+                            .opacity(draft.eventDate == nil ? 0.48 : 1)
+                            .accessibilityIdentifier("event-rsvp-deadline")
 
                             GroupDivider()
 
@@ -115,6 +151,7 @@ struct EventEditorView: View {
                                 )
                             }
                             .buttonStyle(GroupedRowButtonStyle())
+                            .accessibilityIdentifier("event-location")
                         }
                     }
 
@@ -142,7 +179,7 @@ struct EventEditorView: View {
                                 HStack(spacing: 12) {
                                     EditorRowIcon(systemName: "person.3")
                                     VStack(alignment: .leading, spacing: 3) {
-                                        Text("Minimum participants")
+                                        Text("Minimum attendees")
                                         Text("\(draft.minimumParticipants) people")
                                             .font(.footnote.weight(.medium))
                                             .foregroundStyle(.secondary)
@@ -155,21 +192,15 @@ struct EventEditorView: View {
 
                             GroupDivider()
 
-                            Button {
-                                showsDeadline = true
-                            } label: {
-                                EventEditorRow(
-                                    icon: "hourglass",
-                                    title: "RSVP deadline",
-                                    value: draft.eventDate == nil
-                                        ? "Set the event date first"
-                                        : deadlineSummary,
-                                    showsChevron: true
-                                )
+                            Toggle(isOn: $draft.allowsAttendeesToAddGuests) {
+                                HStack(spacing: 12) {
+                                    EditorRowIcon(systemName: "person.badge.plus")
+                                    Text("Allow attendees to add guests")
+                                }
                             }
-                            .buttonStyle(GroupedRowButtonStyle())
-                            .disabled(draft.eventDate == nil)
-                            .opacity(draft.eventDate == nil ? 0.48 : 1)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 66)
+                            .accessibilityIdentifier("event-allow-attendee-guests")
                         }
                     }
 
@@ -203,6 +234,7 @@ struct EventEditorView: View {
                 .padding(.bottom, 36)
                 .disabled(draft.invitationsSent)
             }
+            .accessibilityIdentifier("event-editor-scroll")
             .scrollDismissesKeyboard(.interactively)
             .background(HerdTheme.canvas)
             .navigationTitle(
@@ -228,6 +260,14 @@ struct EventEditorView: View {
                     .disabled(!draft.isValid || isSaving)
                     .accessibilityIdentifier("event-primary-action")
                 }
+
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        focusedField = nil
+                    }
+                    .accessibilityIdentifier("event-keyboard-done")
+                }
             }
         }
         .sheet(isPresented: $showsEventDate) {
@@ -240,7 +280,8 @@ struct EventEditorView: View {
         .sheet(isPresented: $showsLocation) {
             LocationSearchView(
                 locationName: $draft.locationName,
-                locationAddress: $draft.locationAddress
+                locationAddress: $draft.locationAddress,
+                profileAddress: authStore.user?.address ?? ""
             )
         }
         .sheet(isPresented: $showsDeadline) {
@@ -444,7 +485,9 @@ struct EventEditorView: View {
     }
 
     private var inviteeSummary: String? {
-        draft.invitees.isEmpty ? "Add from Contacts" : "\(draft.invitees.count) invited"
+        draft.participantCount == 1
+            ? "1 person"
+            : "\(draft.participantCount) people"
     }
 
     private var deadlineSummary: String? {
@@ -568,10 +611,10 @@ private struct SendInviteConfirmationView: View {
                             .frame(width: 46, height: 46)
                             .background(HerdTheme.raisedSurface, in: .circle)
 
-                        Text("Send one-time invitations?")
+                        Text("Send invitations?")
                             .font(.title2.weight(.bold))
 
-                        Text("Herd will send one message to each guest you selected. No automatic reminders will follow.")
+                        Text("Herd will text each selected guest with the event details and a private response link.")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
@@ -588,8 +631,8 @@ private struct SendInviteConfirmationView: View {
 
                         confirmationRow(
                             icon: "message",
-                            title: "One message per guest",
-                            detail: "STOP and HELP work by text"
+                            title: "Invitations by text",
+                            detail: "Guests can reply STOP or HELP"
                         )
                     }
                     .background(HerdTheme.surface, in: .rect(cornerRadius: 18))
@@ -598,42 +641,19 @@ private struct SendInviteConfirmationView: View {
                             .stroke(HerdTheme.subtleBorder, lineWidth: 1)
                     }
 
-                    Text("By tapping Send, you confirm that you know these people and have their permission to receive this one-time event invitation.")
+                    Text("By tapping Send, you confirm that you know these people and have their permission to receive event invitations from Herd.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .padding(14)
+                        .padding(.vertical, 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(HerdTheme.raisedSurface.opacity(0.72), in: .rect(cornerRadius: 14))
-
-                    VStack(spacing: 10) {
-                        Button(action: onSend) {
-                            Text("Send \(inviteeCountLabel)")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .frame(minHeight: 50)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.white)
-                        .foregroundStyle(.black)
-                        .accessibilityIdentifier("confirm-send-invitations")
-
-                        Text("Message and data rates may apply. Reply STOP to opt out or HELP for help.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-
-                        HStack(spacing: 6) {
-                            Link("Terms", destination: Self.termsURL)
-                            Text("•")
-                            Link("Privacy", destination: Self.privacyURL)
-                        }
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    }
                 }
                 .padding(20)
             }
             .background(HerdTheme.canvas)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                sendFooter
+            }
             .navigationTitle("Confirm invitations")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
@@ -645,6 +665,51 @@ private struct SendInviteConfirmationView: View {
                 }
             }
         }
+    }
+
+    private var sendFooter: some View {
+        VStack(spacing: 10) {
+            Button(action: onSend) {
+                Text("Send \(inviteeCountLabel)")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 50)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white)
+            .foregroundStyle(.black)
+            .accessibilityIdentifier("confirm-send-invitations")
+
+            Text(legalDisclosure)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .tint(.secondary)
+                .accessibilityIdentifier("invitation-legal-disclosure")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(HerdTheme.canvas)
+    }
+
+    private var legalDisclosure: AttributedString {
+        var disclosure = AttributedString(
+            "Message and data rates may apply. Reply STOP to opt out or HELP for help. See our "
+        )
+
+        var terms = AttributedString("Terms")
+        terms.link = Self.termsURL
+        terms.underlineStyle = .single
+        disclosure.append(terms)
+        disclosure.append(AttributedString(" and "))
+
+        var privacy = AttributedString("Privacy Policy")
+        privacy.link = Self.privacyURL
+        privacy.underlineStyle = .single
+        disclosure.append(privacy)
+        disclosure.append(AttributedString("."))
+        return disclosure
     }
 
     private func confirmationRow(icon: String, title: String, detail: String) -> some View {
@@ -701,6 +766,7 @@ private struct EventEditorRow: View {
             }
         }
         .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 66)
         .contentShape(.rect)
     }

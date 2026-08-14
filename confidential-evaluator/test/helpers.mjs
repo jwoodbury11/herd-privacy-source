@@ -202,6 +202,7 @@ export function testDeploymentConfig(overrides = {}) {
   return normalizeDeploymentConfig({
     protocolVersion: 1,
     releaseId: "herd-confidential-test-v1",
+    policyMeasurement: TEST_IMAGE_DIGEST,
     keyBundleCiphertextFile: "/test/key-bundle.ciphertext",
     kmsKeyResource:
       "projects/herd-key-test/locations/us-central1/keyRings/herd-evaluator/cryptoKeys/key-bundle",
@@ -289,7 +290,7 @@ export async function makeKeyStore(config = testConfig(), overrides = {}) {
       Buffer.from(JSON.stringify(transparencyBundle), "utf8"),
     ),
     config,
-    config.evaluatorMeasurement,
+    config.attestedImageDigest,
   );
 }
 
@@ -354,6 +355,7 @@ export async function evaluationRequest(config, keyStore) {
     protocolVersion: 1,
     eventId: EVENT_ID,
     policyHash,
+    revealAttendance: true,
     slots: slots.map(({ inviteeId, envelopeHash }) => ({ inviteeId, envelopeHash })),
   });
   const batchHash = Buffer.from(
@@ -375,6 +377,7 @@ export async function evaluationRequest(config, keyStore) {
       frozenAt: "2025-11-01T18:00:00.000Z",
     },
     batchHash,
+    revealAttendance: true,
     slots,
   };
 }

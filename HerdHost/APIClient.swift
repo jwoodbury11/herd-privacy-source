@@ -375,6 +375,26 @@ actor APIClient {
         _ = try await performData(request)
     }
 
+    func addAttendees(eventID: UUID, invitees: [Invitee]) async throws -> HerdEvent {
+        struct Response: Decodable {
+            let event: RemoteEvent
+        }
+        struct Payload: Encodable {
+            let invitees: [HostInviteePayload]
+        }
+
+        var request = try makeRequest(
+            path: "/api/events/\(eventID.uuidString.lowercased())/attendees",
+            method: "POST",
+            authenticated: true
+        )
+        request.httpBody = try HerdJSON.makeEncoder().encode(
+            Payload(invitees: invitees.map(HostInviteePayload.init))
+        )
+        let response = try await perform(request, as: Response.self)
+        return EventResolutionVerifier.failClosed(response.event.herdEvent)
+    }
+
     func fetchInvitePrivateResponse(inviteToken: String) async throws -> InvitePrivateResponseContext {
         struct InviteMetadata: Decodable {
             let id: UUID
@@ -383,6 +403,7 @@ actor APIClient {
             let responseEnvelope: StoredPrivateResponseEnvelopeV1?
             let hasResponse: Bool?
             let responseRevision: Int?
+            let responseCertificationStatus: PrivateResponseCertificationStatus?
         }
 
         struct Response: Decodable {
@@ -406,25 +427,44 @@ actor APIClient {
         guard let epochID = response.inviteMetadata.accountKeyEpochId ?? event.accountKeyEpochId else {
             throw APIError.invalidResponse
         }
+        let responseEnvelope = response.inviteMetadata.responseEnvelope
+        let hasResponse = response.inviteMetadata.hasResponse
+            ?? (responseEnvelope != nil)
+            || event.hasResponse
+        let certificationStatus = response.inviteMetadata.responseCertificationStatus
+            ?? event.responseCertificationStatus
+        guard
+            hasResponse == (responseEnvelope != nil),
+            (responseEnvelope == nil) == (certificationStatus == nil)
+        else { throw APIError.invalidResponse }
         return InvitePrivateResponseContext(
             event: event,
             inviteeID: response.inviteMetadata.id,
             accountKeyEpochID: epochID,
             accountKeyCommitment: response.inviteMetadata.accountKeyCommitment
                 ?? event.accountKeyCommitment,
-            responseEnvelope: response.inviteMetadata.responseEnvelope,
-            hasResponse: response.inviteMetadata.hasResponse
-                ?? (response.inviteMetadata.responseEnvelope != nil)
-                || event.hasResponse,
+            responseEnvelope: responseEnvelope,
+            hasResponse: hasResponse,
             responseRevision: response.inviteMetadata.responseRevision
                 ?? response.inviteMetadata.responseEnvelope?.revision
-                ?? event.responseRevision
+                ?? event.responseRevision,
+            responseCertificationStatus: certificationStatus
         )
     }
 
     func fetchInvitation(inviteToken: String) async throws -> HerdEvent {
+        struct InviteMetadata: Decodable {
+            let accountKeyEpochId: UUID?
+            let accountKeyCommitment: String?
+            let responseEnvelope: StoredPrivateResponseEnvelopeV1?
+            let hasResponse: Bool?
+            let responseRevision: Int?
+            let responseCertificationStatus: PrivateResponseCertificationStatus?
+        }
+
         struct Response: Decodable {
             let event: RemoteEvent
+            let inviteMetadata: InviteMetadata?
         }
 
         guard let token = InvitationToken.normalize(inviteToken) else {
@@ -436,9 +476,22 @@ actor APIClient {
             authenticated: true
         )
         let response = try await perform(request, as: Response.self)
-        let event = EventResolutionVerifier.failClosed(response.event.herdEvent)
+        var event = EventResolutionVerifier.failClosed(response.event.herdEvent)
         guard event.role != .invitee || event.inviteToken == token else {
             throw APIError.invalidResponse
+        }
+        if let metadata = response.inviteMetadata {
+            event.accountKeyEpochId = metadata.accountKeyEpochId ?? event.accountKeyEpochId
+            event.accountKeyCommitment = metadata.accountKeyCommitment
+                ?? event.accountKeyCommitment
+            event.hasResponse = metadata.hasResponse
+                ?? (metadata.responseEnvelope != nil)
+                || event.hasResponse
+            event.responseRevision = metadata.responseRevision
+                ?? metadata.responseEnvelope?.revision
+                ?? event.responseRevision
+            event.responseCertificationStatus = metadata.responseCertificationStatus
+                ?? event.responseCertificationStatus
         }
         return event
     }
@@ -777,9 +830,23 @@ actor APIClient {
             let message = error["message"] as? String,
             !message.isEmpty
         {
+            if
+                error["code"] as? String == "code_request_throttled",
+                let details = error["details"] as? [String: Any],
+                let retryAtValue = details["retryAt"] as? String,
+                let retryAt = Self.iso8601Date(retryAtValue)
+            {
+                return "\(message) Try again at \(retryAt.formatted(date: .omitted, time: .shortened))."
+            }
             return message
         }
         return "Herd couldn’t complete that request (error \(statusCode))."
+    }
+
+    private static func iso8601Date(_ value: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)
     }
 
     private func errorCode(from data: Data) -> String? {
@@ -805,11 +872,7 @@ actor APIClient {
         {
             return url
         }
-#if DEBUG
-        return URL(string: "https://herd-invitee-preview.jimmy4.chatgpt.site")!
-#else
-        return URL(string: "https://configuration.invalid")!
-#endif
+        return URL(string: "https://app.herdprivacy.com")!
     }
 
     private static func makeEvaluatorURLSession() -> URLSession {
@@ -893,6 +956,7 @@ private struct RemoteEvent: Decodable, Sendable {
     var locationAddress: String
     var invitees: [RemoteInvitee]
     var minimumParticipants: Int
+    var allowsAttendeesToAddGuests: Bool?
     var requiredGroups: [RequiredAttendeeGroup]
     var rsvpDeadline: Date?
     var eventDescription: String
@@ -904,6 +968,7 @@ private struct RemoteEvent: Decodable, Sendable {
     var accountKeyCommitment: String?
     var hasResponse: Bool?
     var responseRevision: Int?
+    var responseCertificationStatus: PrivateResponseCertificationStatus?
     var privateResponsePolicy: PrivateResponsePolicyV1?
     var resolution: EventResolution?
     var invitationDelivery: InvitationDeliverySummary?
@@ -919,6 +984,7 @@ private struct RemoteEvent: Decodable, Sendable {
             locationAddress: locationAddress,
             invitees: invitees.map(\.invitee),
             minimumParticipants: minimumParticipants,
+            allowsAttendeesToAddGuests: allowsAttendeesToAddGuests ?? true,
             requiredGroups: requiredGroups,
             rsvpDeadline: rsvpDeadline,
             eventDescription: eventDescription,
@@ -930,6 +996,7 @@ private struct RemoteEvent: Decodable, Sendable {
             accountKeyCommitment: accountKeyCommitment,
             hasResponse: hasResponse ?? false,
             responseRevision: responseRevision,
+            responseCertificationStatus: responseCertificationStatus,
             privateResponsePolicy: privateResponsePolicy,
             resolution: resolution,
             invitationDelivery: invitationDelivery
@@ -959,6 +1026,7 @@ private struct HostEventPayload: Encodable, Sendable {
     let locationAddress: String
     let invitees: [HostInviteePayload]
     let minimumParticipants: Int
+    let allowsAttendeesToAddGuests: Bool
     let requiredGroups: [RequiredAttendeeGroup]
     let rsvpDeadline: Date?
     let eventDescription: String
@@ -975,6 +1043,7 @@ private struct HostEventPayload: Encodable, Sendable {
         case locationAddress
         case invitees
         case minimumParticipants
+        case allowsAttendeesToAddGuests
         case requiredGroups
         case rsvpDeadline
         case eventDescription
@@ -992,6 +1061,7 @@ private struct HostEventPayload: Encodable, Sendable {
         locationAddress = event.locationAddress
         invitees = event.invitees.map(HostInviteePayload.init)
         minimumParticipants = event.minimumParticipants
+        allowsAttendeesToAddGuests = event.allowsAttendeesToAddGuests
         requiredGroups = event.requiredGroups
         rsvpDeadline = event.rsvpDeadline
         eventDescription = event.eventDescription
@@ -1018,6 +1088,7 @@ private struct HostEventPayload: Encodable, Sendable {
         try container.encode(locationAddress, forKey: .locationAddress)
         try container.encode(invitees, forKey: .invitees)
         try container.encode(minimumParticipants, forKey: .minimumParticipants)
+        try container.encode(allowsAttendeesToAddGuests, forKey: .allowsAttendeesToAddGuests)
         try container.encode(requiredGroups, forKey: .requiredGroups)
         if let rsvpDeadline {
             try container.encode(rsvpDeadline, forKey: .rsvpDeadline)

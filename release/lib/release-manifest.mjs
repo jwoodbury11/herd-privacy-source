@@ -185,6 +185,7 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
       "keyBindingHashEncoding",
       "keyBindingHash",
       "imageDigest",
+      "allowedImageDigests",
       "projectId",
       "serviceAccount",
       "hwmodel",
@@ -225,6 +226,27 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
   ) {
     throw new TypeError(`${label}.imageDigest must exactly match trust.workload.imageDigest.`);
   }
+  if (
+    !Array.isArray(value.allowedImageDigests) ||
+    value.allowedImageDigests.length === 0 ||
+    value.allowedImageDigests.length > 2
+  ) {
+    throw new TypeError(`${label}.allowedImageDigests must contain one or two exact digests.`);
+  }
+  const allowedImageDigests = value.allowedImageDigests.map((digest, index) =>
+    normalizeDigest(digest, `${label}.allowedImageDigests[${index}]`, { sha256Only: true }),
+  );
+  const allowedImageDigestValues = allowedImageDigests.map(
+    (digest) => `${digest.algorithm}:${digest.value}`,
+  );
+  if (new Set(allowedImageDigestValues).size !== allowedImageDigestValues.length) {
+    throw new TypeError(`${label}.allowedImageDigests contains duplicates.`);
+  }
+  if (allowedImageDigestValues[0] !== `${imageDigest.algorithm}:${imageDigest.value}`) {
+    throw new TypeError(
+      `${label}.allowedImageDigests must begin with trust.workload.imageDigest.`,
+    );
+  }
   const expectedKeyBindingHash = computeWorkloadKeyBindingHash(binding);
   if (value.keyBindingHash !== expectedKeyBindingHash) {
     throw new TypeError(
@@ -262,6 +284,7 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
       pattern: /^[A-Za-z0-9_-]{43}$/u,
     }),
     imageDigest: normalizedImageDigest,
+    allowedImageDigests,
     projectId: requireString(value.projectId, `${label}.projectId`, {
       maximum: 30,
       pattern: GCP_PROJECT_ID,
@@ -288,6 +311,7 @@ function normalizeWorkload(value, binding) {
     [
       "platform",
       "imageDigest",
+      "policyMeasurement",
       "measurements",
       "attestationProvider",
       "attestationClaimPolicy",
@@ -316,9 +340,15 @@ function normalizeWorkload(value, binding) {
   const imageDigest = normalizeDigest(value.imageDigest, "trust.workload.imageDigest", {
       sha256Only: true,
     });
+  const policyMeasurement = normalizeDigest(
+    value.policyMeasurement,
+    "trust.workload.policyMeasurement",
+    { sha256Only: true },
+  );
   return {
     platform: CONFIDENTIAL_SPACE_PLATFORM,
     imageDigest,
+    policyMeasurement,
     measurements: measurements.sort((left, right) =>
       compareStrings(`${left.algorithm}:${left.value}`, `${right.algorithm}:${right.value}`),
     ),

@@ -1,6 +1,9 @@
 import { getBindings, getD1 } from "@/db";
 import { getAuthenticatedSession } from "@/lib/backend/auth";
-import { getEventsForUser } from "@/lib/backend/events";
+import {
+  getEventsForUser,
+  getInviteeResponseHistories,
+} from "@/lib/backend/events";
 import { jsonResponse, withApiErrors } from "@/lib/backend/http";
 import { attachEventResolutions } from "@/lib/backend/resolutions";
 
@@ -16,6 +19,15 @@ export async function GET(request: Request) {
       bindings,
       await getEventsForUser(db, bindings, session!.user),
     );
-    return jsonResponse({ events });
+    const responseHistories = await getInviteeResponseHistories(db, events);
+    return jsonResponse({
+      events: events.map((event) => ({
+        ...event,
+        invitees: event.invitees.map((invitee) => ({
+          ...invitee,
+          responseHistory: responseHistories.get(`${event.id}:${invitee.id}`),
+        })),
+      })),
+    });
   });
 }

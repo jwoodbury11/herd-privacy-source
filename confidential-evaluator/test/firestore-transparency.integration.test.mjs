@@ -147,13 +147,14 @@ class FakeFirestore {
   };
 }
 
-function store(service) {
+function store(service, { clock } = {}) {
   return new FirestoreTransparencyStore({
     projectId: PROJECT,
     databaseId: DATABASE,
     collectionId: COLLECTION,
     accessTokenProvider: { async getAccessToken() { return TOKEN; } },
     fetchImplementation: service.fetch,
+    ...(clock ? { clock } : {}),
   });
 }
 
@@ -305,4 +306,35 @@ test("readiness fails if the custodian database loses delete protection or PITR"
       (error) => error?.status === 503 && error?.code === "service_unavailable",
     );
   }
+});
+
+test("readiness coalesces low-quota database metadata checks without caching the log tail", async () => {
+  const service = new FakeFirestore();
+  let now = 1_000;
+  const keyStore = await makeKeyStore();
+  const transparencyStore = store(service, { clock: () => now });
+  const signer = new StatefulTransparencyAuthority({
+    store: transparencyStore,
+    keyStore,
+    clock: () => new Date("2026-01-01T00:00:10.000Z"),
+  });
+
+  await Promise.all([signer.checkReady(), signer.checkReady(), signer.checkReady()]);
+  assert.equal(
+    service.requests.filter(({ url }) =>
+      decodeURIComponent(new URL(url).pathname).endsWith(
+        `/projects/${PROJECT}/databases/${DATABASE}`,
+      )
+    ).length,
+    1,
+  );
+  const tailReads = service.requests.length - 1;
+  assert.ok(tailReads >= 3);
+
+  now += 60_001;
+  service.deleteProtectionState = "DELETE_PROTECTION_DISABLED";
+  await assert.rejects(
+    signer.checkReady(),
+    (error) => error?.status === 503 && error?.code === "service_unavailable",
+  );
 });

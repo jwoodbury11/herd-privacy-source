@@ -145,23 +145,27 @@ export function normalizeExportPolicy(value) {
   };
 }
 
-export function assertSafePath(relativePath, policy) {
+function isProhibitedPath(relativePath, policy) {
   const lowered = relativePath.toLowerCase();
   const segments = lowered.split("/");
+  return policy.prohibitedPathFragments.some((fragment) => {
+    if (fragment.includes("/")) return lowered.includes(fragment);
+    return segments.some(
+      (segment) => segment === fragment || segment.startsWith(`${fragment}-`),
+    );
+  });
+}
+
+export function assertSafePath(relativePath, policy) {
+  const lowered = relativePath.toLowerCase();
   const exactPinnedPng = policy.includes.some(
     (entry) => entry.binarySha256 && entry.path.toLowerCase() === lowered,
   );
   const exactPinnedExample = policy.includes.some(
     (entry) => entry.exampleSha256 && entry.path.toLowerCase() === lowered,
   );
-  for (const fragment of policy.prohibitedPathFragments) {
-    if (fragment.includes("/")) {
-      if (lowered.includes(fragment)) throw new TypeError(`Prohibited path entered export: ${relativePath}`);
-    } else if (
-      segments.some((segment) => segment === fragment || segment.startsWith(`${fragment}-`))
-    ) {
-      throw new TypeError(`Prohibited path entered export: ${relativePath}`);
-    }
+  if (isProhibitedPath(relativePath, policy)) {
+    throw new TypeError(`Prohibited path entered export: ${relativePath}`);
   }
   const extension = path.posix.extname(lowered);
   if (policy.prohibitedExtensions.includes(extension) && !exactPinnedPng) {
@@ -249,7 +253,9 @@ async function walk(root, relativePath, entry, policy, output) {
     const children = await readdir(absolutePath);
     children.sort();
     for (const child of children) {
-      await walk(root, `${relativePath}/${child}`, entry, policy, output);
+      const childPath = `${relativePath}/${child}`;
+      if (isProhibitedPath(childPath, policy)) continue;
+      await walk(root, childPath, entry, policy, output);
     }
     return;
   }

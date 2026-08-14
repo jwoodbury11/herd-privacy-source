@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "databaseSnapshot": "invitee-web/drizzle/meta/0013_snapshot.json",
-  "reviewedAt": "2026-08-02",
+  "databaseSnapshot": "invitee-web/drizzle/meta/0016_snapshot.json",
+  "reviewedAt": "2026-08-12",
   "externalStores": {
     "transparencyAuthorityFirestore": {
       "purpose": "Independently administered monotonic authority for immutable event-policy commitments, authenticated latest-response state, response-log append order, one-time canonical evaluation consumption, and byte-identical certifications across evaluator replicas and restarts.",
@@ -80,7 +80,7 @@
     },
     "events": {
       "purpose": "Host-created public event details and reply policy timing.",
-      "ordinaryMetadata": ["created_at", "end_date", "event_date", "event_description", "host_name", "host_user_id", "id", "invitations_sent", "location_address", "location_name", "minimum_participants", "rsvp_deadline", "title", "updated_at"],
+      "ordinaryMetadata": ["allows_attendees_to_add_guests", "created_at", "end_date", "event_date", "event_description", "host_name", "host_user_id", "id", "invitations_sent", "location_address", "location_name", "minimum_participants", "rsvp_deadline", "title", "updated_at"],
       "pseudonymousOrHashed": [],
       "sensitivePlaintext": [],
       "sealed": [],
@@ -118,6 +118,14 @@
       "sealed": ["token_ciphertext", "token_nonce"],
       "retention": "Event lifetime; removed when the host deletes the event. Invitee account deletion unlinks the account, invalidates the invitation token, and scrubs name, phone, phone hash, and sealed token while preserving an anonymous member placeholder required by frozen event rules."
     },
+    "resolution_notifications": {
+      "purpose": "Durable delivery status and bounded provider diagnostics for final event-resolution notifications.",
+      "ordinaryMetadata": ["batch_hash", "created_at", "delivery_status", "error_code", "event_id", "id", "provider_message_sid", "status", "updated_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": ["phone_number"],
+      "sealed": [],
+      "retention": "Event lifetime; hosted-event deletion cascades to notification rows, and account deletion removes events hosted by the account."
+    },
     "response_envelopes": {
       "purpose": "Fixed-size, server-blind invitee reply revisions and their two key wraps.",
       "ordinaryMetadata": ["account_key_epoch_id", "cipher_suite", "ciphertext_hash", "created_at", "evaluator_key_id", "event_id", "id", "invitee_id", "policy_hash", "protocol_version", "response_signature", "revision", "updated_at"],
@@ -144,7 +152,7 @@
     },
     "sessions": {
       "purpose": "Revocable phone-authenticated sessions.",
-      "ordinaryMetadata": ["auth_mode", "created_at", "expires_at", "id", "last_seen_at", "qa_bypass_generation", "revoked_at", "user_id"],
+      "ordinaryMetadata": ["auth_mode", "created_at", "expires_at", "id", "last_seen_at", "revoked_at", "test_access_generation", "user_id"],
       "pseudonymousOrHashed": ["token_hash"],
       "sensitivePlaintext": [],
       "sealed": [],

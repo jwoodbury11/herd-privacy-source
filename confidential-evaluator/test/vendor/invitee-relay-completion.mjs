@@ -314,7 +314,8 @@ function p256SigningPublicKey(value, bindingName) {
 }
 function getDeploymentProfile(bindings) {
   const value = bindings.HERD_DEPLOYMENT_PROFILE?.trim().toLowerCase();
-  if (value === "production" || value === "test") return value;
+  if (value === "production" || !value) return "production";
+  if (value === "test") return "test";
   if (value) {
     throw new ApiError(
       500,
@@ -322,7 +323,7 @@ function getDeploymentProfile(bindings) {
       "HERD_DEPLOYMENT_PROFILE must be production or test."
     );
   }
-  return bindings.HERD_TEST_BYPASS_ENABLED?.trim().toLowerCase() === "true" ? "test" : "production";
+  return "production";
 }
 function getEvaluatorServiceConfig(bindings) {
   const rawUrl = requiredBounded(bindings.HERD_EVALUATOR_URL, "HERD_EVALUATOR_URL", 2048);
@@ -512,6 +513,61 @@ function getEvaluatorTrustSigningConfig(bindings) {
     transparencySigningPublicKey
   };
 }
+function twilioSid(value, name, prefix) {
+  const result = requiredBounded(value, name, 34);
+  if (!new RegExp(`^${prefix}[0-9a-fA-F]{32}$`, "u").test(result)) {
+    throw new ApiError(500, "server_misconfigured", `${name} is invalid.`);
+  }
+  return result;
+}
+function getInvitationDeliveryConfig(bindings) {
+  const activationValues = [
+    bindings.HERD_PUBLIC_APP_URL,
+    bindings.TWILIO_ACCOUNT_SID,
+    bindings.TWILIO_MESSAGING_SERVICE_SID
+  ];
+  if (!activationValues.some((value) => Boolean(value?.trim()))) return null;
+  const rawPublicAppUrl = requiredBounded(
+    bindings.HERD_PUBLIC_APP_URL,
+    "HERD_PUBLIC_APP_URL",
+    2048
+  );
+  let publicAppUrl;
+  try {
+    publicAppUrl = new URL(rawPublicAppUrl);
+  } catch {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "HERD_PUBLIC_APP_URL must be a valid HTTPS URL."
+    );
+  }
+  if (publicAppUrl.protocol !== "https:" || publicAppUrl.username || publicAppUrl.password || publicAppUrl.search || publicAppUrl.hash || publicAppUrl.origin === "null") {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "HERD_PUBLIC_APP_URL must be a valid HTTPS URL without credentials, query, or fragment."
+    );
+  }
+  publicAppUrl.pathname = publicAppUrl.pathname.replace(/\/+$/u, "") || "/";
+  return {
+    publicAppUrl: publicAppUrl.toString().replace(/\/$/u, ""),
+    twilio: {
+      accountSid: twilioSid(bindings.TWILIO_ACCOUNT_SID, "TWILIO_ACCOUNT_SID", "AC"),
+      apiKeySid: twilioSid(bindings.TWILIO_API_KEY_SID, "TWILIO_API_KEY_SID", "SK"),
+      apiKeySecret: requiredBounded(
+        bindings.TWILIO_API_KEY_SECRET,
+        "TWILIO_API_KEY_SECRET",
+        512
+      ),
+      messagingServiceSid: twilioSid(
+        bindings.TWILIO_MESSAGING_SERVICE_SID,
+        "TWILIO_MESSAGING_SERVICE_SID",
+        "MG"
+      )
+    }
+  };
+}
 
 // invitee-web/lib/backend/evaluator-trust.ts
 var TransparencyLateMissingEntryError = class extends ApiError {
@@ -620,116 +676,6 @@ async function sha256Base64Url(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return bytesToBase64Url(new Uint8Array(digest));
 }
-async function importLocalQaSigningKey(keyId, publicKey, privateJwk) {
-  let parsed;
-  try {
-    parsed = JSON.parse(privateJwk ?? "");
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-  if (parsed.kty !== "EC" || parsed.crv !== "P-256" || typeof parsed.x !== "string" || typeof parsed.y !== "string" || typeof parsed.d !== "string") {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-  const derivedPublicKey = bytesToBase64Url(
-    Uint8Array.from([
-      4,
-      ...base64UrlToBytes(parsed.x),
-      ...base64UrlToBytes(parsed.y)
-    ])
-  );
-  if (derivedPublicKey !== publicKey) {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key does not match its release pin.");
-  }
-  try {
-    const privateKey = await crypto.subtle.importKey(
-      "jwk",
-      { ...parsed, ext: false, key_ops: ["sign"] },
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"]
-    );
-    return { keyId, publicKey, privateKey };
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-}
-async function localQaTrustSigner(bindings) {
-  const enabled = bindings.HERD_SOFTWARE_QA_LOCAL_TRUST_SIGNER_ENABLED?.trim().toLowerCase() === "true";
-  if (!enabled) return null;
-  if (getDeploymentProfile(bindings) !== "test") {
-    throw new ApiError(500, "server_misconfigured", "The local QA trust signer is forbidden in production.");
-  }
-  const config = getEvaluatorTrustSigningConfig(bindings);
-  if (!config) {
-    throw new ApiError(500, "server_misconfigured", "The local QA trust signer pins are missing.");
-  }
-  const [policy, transparency] = await Promise.all([
-    importLocalQaSigningKey(
-      config.policySigningKeyId,
-      config.policySigningPublicKey,
-      bindings.HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK
-    ),
-    importLocalQaSigningKey(
-      config.transparencySigningKeyId,
-      config.transparencySigningPublicKey,
-      bindings.HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK
-    )
-  ]);
-  return { policy, transparency };
-}
-async function localSignature(key, domain, canonicalPayload) {
-  const signature = new Uint8Array(
-    await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      key.privateKey,
-      ownedArrayBuffer(domainSeparatedUtf8(domain, canonicalPayload))
-    )
-  );
-  if (signature.length !== PRIVATE_RESPONSE_SIGNATURE_BYTES) {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer returned an invalid signature.");
-  }
-  return bytesToBase64Url(signature);
-}
-async function locallyAppendTransparency(signer, canonicalReceiptPayload) {
-  let receipt;
-  try {
-    receipt = JSON.parse(canonicalReceiptPayload);
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA transparency receipt is invalid.");
-  }
-  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || JSON.stringify(receipt) !== canonicalReceiptPayload || !Number.isSafeInteger(receipt.logIndex) || receipt.logIndex < 1 || typeof receipt.entryHash !== "string") {
-    throw new ApiError(500, "server_misconfigured", "The QA transparency receipt is invalid.");
-  }
-  const generatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const canonicalHead = JSON.stringify({
-    protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
-    logId: PRIVATE_RESPONSE_LOG_ID,
-    treeSize: receipt.logIndex,
-    headEntryHash: canonicalHash(receipt.entryHash),
-    generatedAt,
-    signingKeyId: signer.transparency.keyId
-  });
-  return {
-    signingKeyId: signer.transparency.keyId,
-    receipt: {
-      payloadHash: await sha256Base64Url(canonicalReceiptPayload),
-      signature: await localSignature(
-        signer.transparency,
-        PRIVATE_RESPONSE_RECEIPT_SIGNATURE_DOMAIN,
-        canonicalReceiptPayload
-      )
-    },
-    logHead: {
-      canonicalPayload: canonicalHead,
-      payloadHash: await sha256Base64Url(canonicalHead),
-      signature: await localSignature(
-        signer.transparency,
-        PRIVATE_RESPONSE_LOG_HEAD_SIGNATURE_DOMAIN,
-        canonicalHead
-      )
-    }
-  };
-}
 async function verifyP256Signature(publicKey, domain, canonicalPayload, signature) {
   const publicKeyBytes = base64UrlToBytes(publicKey);
   const signatureBytes = base64UrlToBytes(signature);
@@ -784,7 +730,10 @@ async function callTransparencyAuthority(config, canonicalReceiptPayload) {
       }),
       redirect: "manual"
     });
-  } catch {
+  } catch (error) {
+    console.error("evaluator_transparency_request_failed", {
+      reason: error instanceof Error ? error.name : "unknown"
+    });
     throw new ApiError(
       503,
       "evaluator_trust_unavailable",
@@ -792,6 +741,9 @@ async function callTransparencyAuthority(config, canonicalReceiptPayload) {
     );
   }
   if (!response.ok) {
+    console.error("evaluator_transparency_certification_rejected", {
+      status: response.status
+    });
     if (response.status === 409) {
       let value;
       try {
@@ -888,10 +840,6 @@ async function callTransparencyAuthority(config, canonicalReceiptPayload) {
   }
 }
 async function appendTransparencyEntry(bindings, canonicalReceiptPayload) {
-  const localSigner = await localQaTrustSigner(bindings);
-  if (localSigner) {
-    return locallyAppendTransparency(localSigner, canonicalReceiptPayload);
-  }
   const config = getEvaluatorTrustSigningConfig(bindings);
   return config ? callTransparencyAuthority(config, canonicalReceiptPayload) : null;
 }
@@ -1048,15 +996,14 @@ function authorityHead(canonicalPayload, signature) {
   return head;
 }
 async function certifyStoredEntry(db, bindings, entry) {
-  const localQaSigner = getDeploymentProfile(bindings) === "test" && bindings.HERD_SOFTWARE_QA_LOCAL_TRUST_SIGNER_ENABLED?.trim().toLowerCase() === "true";
   let head = await db.prepare(`${HEAD_SELECT} WHERE log_index = ?`).bind(entry.logIndex).first();
   const certification = entry.receiptSignature && entry.signedAt && head ? null : await appendTransparencyEntry(bindings, entry.canonicalReceiptPayload);
   if ((!entry.receiptSignature || !head) && !certification) corruptLog();
   if (certification && certification.signingKeyId !== entry.signingKeyId) {
     corruptLog();
   }
-  let receiptSignature = entry.receiptSignature ?? certification.receipt.signature;
-  if (certification && !localQaSigner && entry.receiptSignature && entry.receiptSignature !== certification.receipt.signature) {
+  const receiptSignature = entry.receiptSignature ?? certification.receipt.signature;
+  if (certification && entry.receiptSignature && entry.receiptSignature !== certification.receipt.signature) {
     corruptLog();
   }
   const certifiedHead = certification ? authorityHead(
@@ -1107,16 +1054,8 @@ async function certifyStoredEntry(db, bindings, entry) {
            AND (receipt_signature IS NULL OR signed_at IS NULL)`
     ).bind(receiptSignature, (/* @__PURE__ */ new Date()).toISOString(), entry.logIndex).run();
   }
-  if (localQaSigner) {
-    const stored = await db.prepare(
-      `SELECT receipt_signature AS receiptSignature
-         FROM response_transparency_entries WHERE log_index = ?`
-    ).bind(entry.logIndex).first();
-    if (!stored?.receiptSignature) corruptLog();
-    receiptSignature = stored.receiptSignature;
-  }
   if (!head) corruptLog();
-  if (certification && !localQaSigner && (head.canonicalPayload !== certification.logHead.canonicalPayload || head.signature !== certification.logHead.signature)) {
+  if (certification && (head.canonicalPayload !== certification.logHead.canonicalPayload || head.signature !== certification.logHead.signature)) {
     corruptLog();
   }
   const canonicalHead = canonicalPrivateResponseLogHeadPayload({
@@ -1251,6 +1190,116 @@ async function recoverPendingResponseTransparency(db, bindings) {
   }
 }
 
+// invitee-web/lib/backend/crypto.ts
+var encoder = new TextEncoder();
+function randomUuid() {
+  return crypto.randomUUID();
+}
+
+// invitee-web/lib/backend/resolution-notifications.ts
+var TWILIO_MESSAGES_ORIGIN = "https://api.twilio.com";
+var DISPATCH_TIMEOUT_MILLISECONDS = 1e4;
+function messageBody(title, status) {
+  return status === "confirmed" ? `Herd: ${title} is confirmed. Replies can still change; guest statuses stay private until the deadline.` : `Herd: ${title} is no longer confirmed. Replies can still change.`;
+}
+async function sendResolutionTransitionNotifications(db, bindings, event, batchHash, status) {
+  const previous = await db.prepare(
+    `SELECT status
+       FROM resolution_notifications
+       WHERE event_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`
+  ).bind(event.id).first();
+  if (previous?.status === status || !previous && status === "not_confirmed") return;
+  const recipients = await db.prepare(
+    `SELECT users.phone_number AS phoneNumber
+       FROM events
+       JOIN users ON users.id = events.host_user_id
+       WHERE events.id = ?
+       UNION
+       SELECT invitees.phone_number AS phoneNumber
+       FROM invitees
+       WHERE invitees.event_id = ?
+         AND EXISTS (
+           SELECT 1 FROM response_envelopes
+           WHERE response_envelopes.invitee_id = invitees.id
+         )
+       ORDER BY phoneNumber ASC`
+  ).bind(event.id, event.id).all();
+  const config = getInvitationDeliveryConfig(bindings);
+  const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+  for (const recipient of recipients.results) {
+    const id = randomUuid();
+    const inserted = await db.prepare(
+      `INSERT INTO resolution_notifications
+          (id, event_id, batch_hash, status, phone_number, delivery_status,
+           provider_message_sid, error_code, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+         ON CONFLICT(event_id, batch_hash, phone_number) DO NOTHING`
+    ).bind(
+      id,
+      event.id,
+      batchHash,
+      status,
+      recipient.phoneNumber,
+      "dispatching",
+      nowIso,
+      nowIso
+    ).run();
+    if ((inserted.meta.changes ?? 0) !== 1) continue;
+    if (!config) {
+      await db.prepare(
+        `UPDATE resolution_notifications
+           SET delivery_status = 'failed', error_code = 'messaging_unavailable', updated_at = ?
+           WHERE id = ?`
+      ).bind((/* @__PURE__ */ new Date()).toISOString(), id).run();
+      continue;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DISPATCH_TIMEOUT_MILLISECONDS);
+    try {
+      const response = await fetch(
+        `${TWILIO_MESSAGES_ORIGIN}/2010-04-01/Accounts/${encodeURIComponent(config.twilio.accountSid)}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${btoa(`${config.twilio.apiKeySid}:${config.twilio.apiKeySecret}`)}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: new URLSearchParams({
+            To: recipient.phoneNumber,
+            MessagingServiceSid: config.twilio.messagingServiceSid,
+            Body: messageBody(event.title || "Your event", status)
+          }),
+          signal: controller.signal
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      const providerSid = typeof payload.sid === "string" ? payload.sid.slice(0, 80) : null;
+      const errorCode = response.ok ? null : typeof payload.code === "string" || typeof payload.code === "number" ? String(payload.code).slice(0, 80) : `http_${response.status}`;
+      await db.prepare(
+        `UPDATE resolution_notifications
+           SET delivery_status = ?, provider_message_sid = ?, error_code = ?, updated_at = ?
+           WHERE id = ? AND delivery_status = 'dispatching'`
+      ).bind(
+        response.ok ? "sent" : response.status >= 500 ? "unknown" : "failed",
+        providerSid,
+        errorCode,
+        (/* @__PURE__ */ new Date()).toISOString(),
+        id
+      ).run();
+    } catch {
+      await db.prepare(
+        `UPDATE resolution_notifications
+           SET delivery_status = 'unknown', error_code = 'request_ambiguous', updated_at = ?
+           WHERE id = ? AND delivery_status = 'dispatching'`
+      ).bind((/* @__PURE__ */ new Date()).toISOString(), id).run();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 // invitee-web/lib/backend/resolutions.ts
 var EVENT_RESOLUTION_SELECT = `SELECT
   event_id AS eventId,
@@ -1381,12 +1430,21 @@ function parseStoredResolution(row, eventId, policyHash) {
     };
   }
   if (row.status === "confirmed") {
-    if (!isCanonicalBase64UrlBytes(row.batchHash, 32) || !row.attendingMemberIds || !row.resolvedAt || !Number.isFinite(Date.parse(row.resolvedAt)) || row.evaluationLeaseId || row.evaluationLeaseExpiresAt || row.evaluationRequestHash !== null && !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32)) {
+    if (!isCanonicalBase64UrlBytes(row.batchHash, 32) || !row.resolvedAt || !Number.isFinite(Date.parse(row.resolvedAt)) || row.evaluationLeaseId || row.evaluationLeaseExpiresAt || row.evaluationRequestHash !== null && !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32)) {
       throw new ApiError(
         500,
         "event_resolution_corrupt",
         "The stored event result is invalid."
       );
+    }
+    if (row.attendingMemberIds === null) {
+      const attestation = storedResultAttestation(row);
+      return {
+        status: "confirmed",
+        attendanceRevealed: false,
+        resolvedAt: row.resolvedAt,
+        ...attestation ? { attestation } : {}
+      };
     }
     try {
       const attendingMemberIds = JSON.parse(row.attendingMemberIds);
@@ -1397,6 +1455,7 @@ function parseStoredResolution(row, eventId, policyHash) {
       return {
         status: "confirmed",
         attendingMemberIds,
+        attendanceRevealed: true,
         resolvedAt: row.resolvedAt,
         ...attestation ? { attestation } : {}
       };
@@ -1413,6 +1472,54 @@ function parseStoredResolution(row, eventId, policyHash) {
     "event_resolution_corrupt",
     "The stored event result has an unsupported status."
   );
+}
+function requiresDeadlineReveal(row, event, nowIso) {
+  return Boolean(
+    event.rsvpDeadline && nowIso >= event.rsvpDeadline && (row.status === "confirmed" || row.status === "not_confirmed") && row.resolvedAt && row.resolvedAt < event.rsvpDeadline
+  );
+}
+async function withRevealedGuestStates(db, event, resolution) {
+  if (resolution?.status !== "confirmed" || !resolution.attendanceRevealed || !resolution.attendingMemberIds || !event.rsvpDeadline) {
+    return resolution;
+  }
+  const rows = await db.prepare(
+    `SELECT invitees.id AS memberId,
+              MIN(response_envelopes.created_at) AS firstResponseAt
+       FROM invitees
+       LEFT JOIN response_envelopes
+         ON response_envelopes.invitee_id = invitees.id
+       WHERE invitees.event_id = ?
+       GROUP BY invitees.id
+       ORDER BY invitees.id ASC`
+  ).bind(event.id).all();
+  const attending = new Set(resolution.attendingMemberIds);
+  return {
+    ...resolution,
+    guestStates: rows.results.map(({ memberId, firstResponseAt }) => ({
+      memberId,
+      status: attending.has(memberId) ? "going" : firstResponseAt ? "cant_commit" : "no_response",
+      missedDeadline: !firstResponseAt || firstResponseAt > event.rsvpDeadline
+    }))
+  };
+}
+async function resetResolvedForReevaluation(db, eventId, policyHash, nowIso) {
+  await db.prepare(
+    `UPDATE event_resolutions
+       SET status = 'pending',
+           batch_hash = NULL,
+           attending_member_ids = NULL,
+           resolved_at = NULL,
+           evaluation_lease_id = NULL,
+           evaluation_lease_expires_at = NULL,
+           evaluation_request_hash = NULL,
+           result_attestation_protocol_version = NULL,
+           result_attestation_signing_key_id = NULL,
+           result_attestation_evaluated_at = NULL,
+           result_attestation_canonical_document = NULL,
+           result_attestation_signature = NULL,
+           updated_at = ?
+       WHERE event_id = ? AND policy_hash = ?`
+  ).bind(nowIso, eventId, policyHash).run();
 }
 async function loadResolutionRow(db, eventId) {
   return db.prepare(`${EVENT_RESOLUTION_SELECT} WHERE event_id = ?`).bind(eventId).first();
@@ -1511,7 +1618,7 @@ async function canonicalPolicyFacts(bindings, event, policy) {
     requiredGroups
   };
 }
-async function buildEvaluatorBatch(db, bindings, event, policy, facts) {
+async function buildEvaluatorBatch(db, bindings, event, policy, facts, nowIso) {
   const databaseMembers = await db.prepare("SELECT id FROM invitees WHERE event_id = ? ORDER BY id ASC").bind(event.id).all();
   if (databaseMembers.results.length !== facts.inviteeIds.length || databaseMembers.results.some((member, index) => member.id !== facts.inviteeIds[index])) {
     throw new ApiError(
@@ -1543,7 +1650,7 @@ async function buildEvaluatorBatch(db, bindings, event, policy, facts) {
   for (const row of rows.results) {
     if (!inviteeSet.has(row.inviteeId) || latest.has(row.inviteeId)) continue;
     const stored = parseResponseEnvelope(row);
-    if (!stored || stored.eventId !== event.id || stored.inviteeId !== row.inviteeId || stored.policyHash !== policy.policyHash || stored.evaluatorKeyId !== policy.evaluatorKeyId || stored.createdAt > event.rsvpDeadline) {
+    if (!stored || stored.eventId !== event.id || stored.inviteeId !== row.inviteeId || stored.policyHash !== policy.policyHash || stored.evaluatorKeyId !== policy.evaluatorKeyId) {
       continue;
     }
     const envelope = unstoredResponseEnvelope(stored);
@@ -1557,16 +1664,22 @@ async function buildEvaluatorBatch(db, bindings, event, policy, facts) {
     const { ciphertextHash, ...envelope } = response;
     return { inviteeId, envelopeHash: ciphertextHash, envelope };
   });
+  const revealAttendance = nowIso >= event.rsvpDeadline;
   const batchDocument = JSON.stringify({
     protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
     eventId: event.id,
     policyHash: policy.policyHash,
+    revealAttendance,
     slots: slots.map(({ inviteeId, envelopeHash }) => ({
       inviteeId,
       envelopeHash
     }))
   });
-  return { batchHash: await sha256Base64Url2(batchDocument), slots };
+  return {
+    batchHash: await sha256Base64Url2(batchDocument),
+    revealAttendance,
+    slots
+  };
 }
 function evaluatorPolicyDescriptor(policy) {
   const {
@@ -1578,10 +1691,11 @@ function evaluatorPolicyDescriptor(policy) {
   void _policySignature;
   return descriptor;
 }
-function validateEvaluatorResult(value, event, policy, facts, batchHash) {
+function validateEvaluatorResult(value, event, policy, facts, batchHash, revealAttendance) {
   if (!isRecord2(value) || value.status !== "confirmed" && value.status !== "not_confirmed") {
     throw new ApiError(502, "invalid_evaluator_response", "The evaluator returned an invalid result.");
   }
+  const legacyFormat = revealAttendance && !("revealAttendance" in value);
   const expectedKeys = [
     "protocolVersion",
     "eventId",
@@ -1589,12 +1703,18 @@ function validateEvaluatorResult(value, event, policy, facts, batchHash) {
     "batchHash",
     "evaluatorKeyId",
     "status",
-    ...value.status === "confirmed" ? ["attendingMemberIds"] : []
+    ...legacyFormat ? [] : ["revealAttendance"],
+    ...value.status === "confirmed" && revealAttendance ? ["attendingMemberIds"] : []
   ];
-  if (!hasExactKeys(value, expectedKeys) || value.protocolVersion !== PRIVATE_RESPONSE_PROTOCOL_VERSION || value.eventId !== event.id || value.policyHash !== policy.policyHash || value.batchHash !== batchHash || value.evaluatorKeyId !== policy.evaluatorKeyId) {
+  if (!hasExactKeys(value, expectedKeys) || value.protocolVersion !== PRIVATE_RESPONSE_PROTOCOL_VERSION || value.eventId !== event.id || value.policyHash !== policy.policyHash || value.batchHash !== batchHash || value.evaluatorKeyId !== policy.evaluatorKeyId || !legacyFormat && value.revealAttendance !== revealAttendance) {
     throw new ApiError(502, "invalid_evaluator_response", "The evaluator returned an invalid result.");
   }
-  if (value.status === "not_confirmed") return { status: "not_confirmed" };
+  if (value.status === "not_confirmed") {
+    return { status: "not_confirmed", revealAttendance, legacyFormat };
+  }
+  if (!revealAttendance) {
+    return { status: "confirmed", revealAttendance: false, legacyFormat: false };
+  }
   if (!Array.isArray(value.attendingMemberIds) || value.attendingMemberIds.some((id) => typeof id !== "string") || new Set(value.attendingMemberIds).size !== value.attendingMemberIds.length) {
     throw new ApiError(502, "invalid_evaluator_response", "The evaluator returned invalid attendance.");
   }
@@ -1606,9 +1726,14 @@ function validateEvaluatorResult(value, event, policy, facts, batchHash) {
   )) {
     throw new ApiError(502, "invalid_evaluator_response", "The evaluator returned invalid attendance.");
   }
-  return { status: "confirmed", attendingMemberIds: ordered };
+  return {
+    status: "confirmed",
+    revealAttendance: true,
+    attendingMemberIds: ordered,
+    legacyFormat
+  };
 }
-async function callEvaluator(bindings, event, policy, facts, batchHash, slots) {
+async function callEvaluator(bindings, event, policy, facts, batchHash, revealAttendance, slots) {
   const service = getEvaluatorServiceConfig(bindings);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1e4);
@@ -1629,6 +1754,7 @@ async function callEvaluator(bindings, event, policy, facts, batchHash, slots) {
         eventId: event.id,
         policy: evaluatorPolicyDescriptor(policy),
         batchHash,
+        revealAttendance,
         slots
       }),
       redirect: "manual",
@@ -1661,7 +1787,14 @@ async function callEvaluator(bindings, event, policy, facts, batchHash, slots) {
   } catch {
     throw new ApiError(502, "invalid_evaluator_response", "The evaluator returned an invalid result.");
   }
-  return validateEvaluatorResult(value, event, policy, facts, batchHash);
+  return validateEvaluatorResult(
+    value,
+    event,
+    policy,
+    facts,
+    batchHash,
+    revealAttendance
+  );
 }
 function utf8(value) {
   return new TextEncoder().encode(value);
@@ -1900,13 +2033,6 @@ async function startClientRelayEvaluation(db, bindings, event, nowIso = (/* @__P
       "This event is not ready for private evaluation."
     );
   }
-  if (nowIso < event.rsvpDeadline) {
-    throw new ApiError(
-      409,
-      "evaluation_not_ready",
-      "The reply deadline has not passed."
-    );
-  }
   const policy = event.privateResponsePolicy;
   if (policy.evaluatorKeyId !== relay.evaluatorKeyId || policy.evaluatorPublicKey !== relay.evaluatorPublicKey) {
     throw new ApiError(
@@ -1915,12 +2041,16 @@ async function startClientRelayEvaluation(db, bindings, event, nowIso = (/* @__P
       "The frozen event evaluator key is not available."
     );
   }
-  const row = await ensurePendingResolution(
+  let row = await ensurePendingResolution(
     db,
     event.id,
     policy.policyHash,
     nowIso
   );
+  if (requiresDeadlineReveal(row, event, nowIso)) {
+    await resetResolvedForReevaluation(db, event.id, policy.policyHash, nowIso);
+    row = await loadResolutionRow(db, event.id);
+  }
   const existing = parseStoredResolution(row, event.id, policy.policyHash);
   if (existing.status !== "pending") {
     return { kind: "resolved", resolution: existing };
@@ -1929,12 +2059,13 @@ async function startClientRelayEvaluation(db, bindings, event, nowIso = (/* @__P
     return { kind: "pending" };
   }
   const facts = await canonicalPolicyFacts(bindings, event, policy);
-  const { batchHash, slots } = await buildEvaluatorBatch(
+  const { batchHash, revealAttendance, slots } = await buildEvaluatorBatch(
     db,
     bindings,
     event,
     policy,
-    facts
+    facts,
+    nowIso
   );
   const relayRequestId = crypto.randomUUID();
   const leaseId = crypto.randomUUID();
@@ -1946,6 +2077,7 @@ async function startClientRelayEvaluation(db, bindings, event, nowIso = (/* @__P
     eventId: event.id,
     policy: evaluatorPolicyDescriptor(policy),
     batchHash,
+    revealAttendance,
     slots
   };
   const { relayRequest, requestHash } = await sealEvaluatorRelayRequest(
@@ -2064,7 +2196,8 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     event,
     policy,
     facts,
-    row.batchHash
+    row.batchHash,
+    isRecord2(value.result) && value.result.revealAttendance === true
   );
   const canonicalResult = {
     protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
@@ -2073,7 +2206,8 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     batchHash: row.batchHash,
     evaluatorKeyId: policy.evaluatorKeyId,
     status: evaluatorResult.status,
-    ...evaluatorResult.status === "confirmed" ? { attendingMemberIds: evaluatorResult.attendingMemberIds } : {}
+    ...evaluatorResult.legacyFormat ? {} : { revealAttendance: evaluatorResult.revealAttendance },
+    ...evaluatorResult.status === "confirmed" && evaluatorResult.revealAttendance ? { attendingMemberIds: evaluatorResult.attendingMemberIds } : {}
   };
   if (!isRecord2(value.attestation)) invalidRelayAttestation();
   const attestation = value.attestation;
@@ -2087,7 +2221,7 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     invalidRelayAttestation();
   }
   const evaluatedAt = canonicalIsoTimestamp(attestation.evaluatedAt);
-  if (evaluatedAt < event.rsvpDeadline || evaluatedAt > row.evaluationLeaseExpiresAt || Date.parse(evaluatedAt) > Date.parse(nowIso) + 3e4) {
+  if (evaluatorResult.revealAttendance !== evaluatedAt >= event.rsvpDeadline || evaluatedAt > row.evaluationLeaseExpiresAt || Date.parse(evaluatedAt) > Date.parse(nowIso) + 3e4) {
     invalidRelayAttestation();
   }
   const canonicalDocument = JSON.stringify({
@@ -2130,7 +2264,7 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     invalidRelayAttestation();
   }
   if (!verified) invalidRelayAttestation();
-  const attendingMemberIds = evaluatorResult.status === "confirmed" ? JSON.stringify(evaluatorResult.attendingMemberIds) : null;
+  const attendingMemberIds = evaluatorResult.status === "confirmed" && evaluatorResult.revealAttendance ? JSON.stringify(evaluatorResult.attendingMemberIds) : null;
   const persisted = await db.prepare(
     `UPDATE event_resolutions
        SET status = ?,
@@ -2185,6 +2319,17 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
       "The private event result could not be saved."
     );
   }
+  try {
+    await sendResolutionTransitionNotifications(
+      db,
+      bindings,
+      event,
+      row.batchHash,
+      evaluatorResult.status
+    );
+  } catch (error) {
+    reportEvaluationFailure(event.id, error);
+  }
   return finalResolution;
 }
 async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PURE__ */ new Date()).toISOString()) {
@@ -2196,18 +2341,30 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
       "A sent event is missing its reply deadline."
     );
   }
-  const row = await ensurePendingResolution(
+  let row = await ensurePendingResolution(
     db,
     event.id,
     event.privateResponsePolicy.policyHash,
     nowIso
   );
+  if (requiresDeadlineReveal(row, event, nowIso)) {
+    await resetResolvedForReevaluation(
+      db,
+      event.id,
+      event.privateResponsePolicy.policyHash,
+      nowIso
+    );
+    row = await loadResolutionRow(db, event.id);
+  }
   const resolution = parseStoredResolution(
     row,
     event.id,
     event.privateResponsePolicy.policyHash
   );
-  if (resolution.status !== "pending" || nowIso < event.rsvpDeadline) {
+  if (resolution.status !== "pending") {
+    return withRevealedGuestStates(db, event, resolution);
+  }
+  if (nowIso < event.rsvpDeadline) {
     return resolution;
   }
   if (getEvaluatorTransport(bindings) === "client_relay") {
@@ -2221,10 +2378,14 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
   );
   if (!leaseId) {
     const current = await loadResolutionRow(db, event.id);
-    return parseStoredResolution(
-      current,
-      event.id,
-      event.privateResponsePolicy.policyHash
+    return withRevealedGuestStates(
+      db,
+      event,
+      parseStoredResolution(
+        current,
+        event.id,
+        event.privateResponsePolicy.policyHash
+      )
     );
   }
   try {
@@ -2233,12 +2394,13 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
       event,
       event.privateResponsePolicy
     );
-    const { batchHash, slots } = await buildEvaluatorBatch(
+    const { batchHash, revealAttendance, slots } = await buildEvaluatorBatch(
       db,
       bindings,
       event,
       event.privateResponsePolicy,
-      facts
+      facts,
+      nowIso
     );
     const evaluatorResult = await callEvaluator(
       bindings,
@@ -2246,10 +2408,11 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
       event.privateResponsePolicy,
       facts,
       batchHash,
+      revealAttendance,
       slots
     );
     const resolvedAt = (/* @__PURE__ */ new Date()).toISOString();
-    const attendingMemberIds = evaluatorResult.status === "confirmed" ? JSON.stringify(evaluatorResult.attendingMemberIds) : null;
+    const attendingMemberIds = evaluatorResult.status === "confirmed" && evaluatorResult.revealAttendance ? JSON.stringify(evaluatorResult.attendingMemberIds) : null;
     await db.prepare(
       `UPDATE event_resolutions
          SET status = ?,
@@ -2281,10 +2444,25 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
         "The private event result could not be saved."
       );
     }
-    return parseStoredResolution(
-      persisted,
-      event.id,
-      event.privateResponsePolicy.policyHash
+    try {
+      await sendResolutionTransitionNotifications(
+        db,
+        bindings,
+        event,
+        batchHash,
+        evaluatorResult.status
+      );
+    } catch (error) {
+      reportEvaluationFailure(event.id, error);
+    }
+    return withRevealedGuestStates(
+      db,
+      event,
+      parseStoredResolution(
+        persisted,
+        event.id,
+        event.privateResponsePolicy.policyHash
+      )
     );
   } catch (error) {
     try {
@@ -2321,7 +2499,7 @@ async function attachEventResolutions(db, bindings, events) {
           event,
           nowIso
         );
-        if (resolution?.status === "pending" && getEvaluatorTransport(bindings) === "client_relay" && event.role === "host" && event.rsvpDeadline !== null && nowIso >= event.rsvpDeadline) {
+        if (resolution?.status === "pending" && getEvaluatorTransport(bindings) === "client_relay" && event.role === "host") {
           resolution = { ...resolution, relayNeeded: true };
         }
         return {

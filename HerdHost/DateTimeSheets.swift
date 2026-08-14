@@ -20,7 +20,7 @@ struct EventDateSheet: View {
         _endDate = endDate
         _rsvpDeadline = rsvpDeadline
 
-        let defaultStart = eventDate.wrappedValue ?? Date.oneWeekFromNowAtSeven
+        let defaultStart = eventDate.wrappedValue ?? EventDraftDefaults.eventDate()
         _workingDate = State(initialValue: defaultStart)
         _includesEndDate = State(initialValue: endDate.wrappedValue != nil)
         _workingEndDate = State(
@@ -77,7 +77,7 @@ struct EventDateSheet: View {
                         if rsvpDeadline == nil ||
                             rsvpDeadline! >= workingDate ||
                             !EventDeadlineRules.canSubmit(deadline: rsvpDeadline!) {
-                            rsvpDeadline = Self.qaReplyDeadline(before: workingDate)
+                            rsvpDeadline = Self.testReplyDeadline(before: workingDate)
                                 ?? EventDeadlineRules.suggestedReplyDeadline(before: workingDate)
                         }
                         dismiss()
@@ -92,13 +92,13 @@ struct EventDateSheet: View {
         workingDate.addingTimeInterval(EventDeadlineRules.minimumEventSeparation)
     }
 
-    private static func qaReplyDeadline(before eventDate: Date) -> Date? {
+    private static func testReplyDeadline(before eventDate: Date) -> Date? {
 #if DEBUG
-        // Simulator-only release QA can exercise real post-deadline resolution
+        // Simulator-only acceptance testing can exercise real post-deadline resolution
         // without changing production defaults or waiting several days.
         let arguments = ProcessInfo.processInfo.arguments
         guard
-            let flagIndex = arguments.firstIndex(of: "--herd-qa-rsvp-seconds"),
+            let flagIndex = arguments.firstIndex(of: "--herd-test-rsvp-seconds"),
             arguments.indices.contains(flagIndex + 1),
             let seconds = TimeInterval(arguments[flagIndex + 1]),
             (60...3_600).contains(seconds)
@@ -186,13 +186,5 @@ struct RSVPDeadlineSheet: View {
                 }
             }
         }
-    }
-}
-
-private extension Date {
-    static var oneWeekFromNowAtSeven: Date {
-        let calendar = Calendar.current
-        let nextWeek = calendar.date(byAdding: .day, value: 7, to: .now)!
-        return calendar.date(bySettingHour: 19, minute: 0, second: 0, of: nextWeek)!
     }
 }

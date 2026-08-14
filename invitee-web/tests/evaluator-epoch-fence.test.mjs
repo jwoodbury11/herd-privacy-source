@@ -64,7 +64,7 @@ async function epochBindings({
   return {
     HERD_DEPLOYMENT_PROFILE: "test",
     HERD_AUTH_PEPPER: authPepper,
-    HERD_TEST_BYPASS_ENABLED: "false",
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "false",
     HERD_EVALUATOR_KEY_ID: responseDecryption.keyId,
     HERD_EVALUATOR_PUBLIC_KEY: responseDecryption.publicKey,
     HERD_EVALUATOR_MEASUREMENT: measurement,
@@ -271,6 +271,31 @@ test("D1 enforces a single drained evaluator epoch and preserves transition evid
   assert.equal(status.state.generation, 1);
   assert.equal(status.runtimeMatchesState, true);
   assert.equal(status.epochDescriptorSha256, oldBindings.HERD_EVALUATOR_KEY_EPOCH_SHA256);
+
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/release-readiness",
+  );
+  assert.equal(response.status, 200);
+  let readiness = await response.json();
+  assert.equal(readiness.readyForPrivateEventCreation, true);
+  assert.equal(readiness.runtimeMatchesState, true);
+
+  const mismatchedDescriptorBindings = {
+    ...oldBindings,
+    HERD_EVALUATOR_MEASUREMENT: `sha256:${"9".repeat(64)}`,
+  };
+  await harness.updateBindings(mismatchedDescriptorBindings);
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/release-readiness",
+  );
+  assert.equal(response.status, 500);
+  assert.match(
+    (await response.json()).error?.message,
+    /signed evaluator epoch descriptor does not match/u,
+  );
+  await harness.updateBindings(oldBindings);
 
   const firstEventId = await insertEvent(harness.database, 1);
   await insertPolicy(harness.database, {
@@ -721,4 +746,167 @@ test("a conflicting drain record cannot strand the singleton in draining mode", 
       .first(),
     { mode: "active", drainStartedAt: null },
   );
+});
+
+test("authenticated epoch retirement deletes only the exact unresolved event set", async (t) => {
+  const epoch = {
+    epochId: "evaluator-key-epoch-retirement-1",
+    measurement: `sha256:${"7".repeat(64)}`,
+    responseDecryption: {
+      keyId: "response-decryption-retirement-1",
+      publicKey: await publicKey(),
+    },
+    evaluationResultSigning: {
+      keyId: "result-signing-retirement-1",
+      publicKey: await publicKey(),
+    },
+    policySigning: {
+      keyId: "policy-signing-retirement-1",
+      publicKey: await publicKey(),
+    },
+    responseTransparency: {
+      keyId: "global-response-transparency-v1",
+      publicKey: await publicKey(),
+    },
+  };
+  const bindings = await epochBindings(epoch);
+  const harness = await createHarness(bindings);
+  t.after(() => harness.miniflare.dispose());
+
+  let response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-status",
+  );
+  assert.equal(response.status, 200);
+
+  const eventId = await insertEvent(harness.database, 91);
+  await insertPolicy(harness.database, {
+    eventId,
+    epochId: epoch.epochId,
+    descriptorSha256: bindings.HERD_EVALUATOR_KEY_EPOCH_SHA256,
+    keyId: epoch.responseDecryption.keyId,
+    publicKey: epoch.responseDecryption.publicKey,
+    measurement: epoch.measurement,
+    suffix: 91,
+  });
+  await harness.database
+    .prepare(
+      `INSERT INTO event_resolutions
+        (event_id, policy_hash, status, created_at, updated_at)
+       VALUES (?, 'policy-hash-91', 'pending', ?, ?)`,
+    )
+    .bind(
+      eventId,
+      "2026-08-02T00:00:00.000Z",
+      "2026-08-02T00:00:00.000Z",
+    )
+    .run();
+
+  const retirement = {
+    schemaVersion: 1,
+    expectedGeneration: 1,
+    expectedEvaluatorKeyEpochId: epoch.epochId,
+    expectedUnresolvedPolicyCount: 2,
+    confirmation: "RETIRE_UNRESOLVED_BETA_EVENTS",
+  };
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-retire",
+    { body: retirement },
+  );
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await response.json()).error?.code,
+    "evaluator_epoch_retirement_conflict",
+  );
+
+  retirement.expectedUnresolvedPolicyCount = 1;
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-retire",
+    { body: retirement },
+  );
+  const result = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(result));
+  assert.equal(result.retiredEventCount, 1);
+  assert.match(result.retiredEventSetSha256, /^[0-9a-f]{64}$/u);
+  assert.deepEqual(result.remaining, {
+    unresolvedPolicyCount: 0,
+    activeEvaluationLeaseCount: 0,
+    activeEvaluationJobCount: 0,
+    uncertifiedTransparencyCount: 0,
+  });
+  assert.equal(
+    (await harness.database
+      .prepare("SELECT COUNT(*) AS count FROM events")
+      .first()).count,
+    0,
+  );
+});
+
+test("serving-off successor runtime can begin drain without reopening policy creation", async (t) => {
+  const transparency = {
+    keyId: "global-response-transparency-v1",
+    publicKey: await publicKey(),
+  };
+  const oldEpoch = {
+    epochId: "evaluator-serving-off-old",
+    measurement: `sha256:${"4".repeat(64)}`,
+    responseDecryption: { keyId: "serving-off-decryption-old", publicKey: await publicKey() },
+    evaluationResultSigning: { keyId: "serving-off-result-old", publicKey: await publicKey() },
+    policySigning: { keyId: "serving-off-policy-old", publicKey: await publicKey() },
+    responseTransparency: transparency,
+  };
+  const newEpoch = {
+    epochId: "evaluator-serving-off-new",
+    measurement: `sha256:${"5".repeat(64)}`,
+    responseDecryption: { keyId: "serving-off-decryption-new", publicKey: await publicKey() },
+    evaluationResultSigning: { keyId: "serving-off-result-new", publicKey: await publicKey() },
+    policySigning: { keyId: "serving-off-policy-new", publicKey: await publicKey() },
+    responseTransparency: transparency,
+  };
+  const oldBindings = await epochBindings(oldEpoch);
+  const harness = await createHarness(oldBindings);
+  t.after(() => harness.miniflare.dispose());
+  let response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-status",
+  );
+  assert.equal(response.status, 200);
+
+  const sameEpochDifferentImage = await epochBindings({
+    ...oldEpoch,
+    measurement: `sha256:${"6".repeat(64)}`,
+  });
+  await harness.updateBindings(sameEpochDifferentImage);
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-drain",
+    {
+      body: {
+        schemaVersion: 1,
+        expectedGeneration: 1,
+        expectedEvaluatorKeyEpochId: oldEpoch.epochId,
+      },
+    },
+  );
+  assert.equal(response.status, 409);
+
+  await harness.updateBindings(await epochBindings(newEpoch));
+  response = await dispatch(
+    harness.miniflare,
+    "/api/internal/evaluator-epoch-drain",
+    {
+      body: {
+        schemaVersion: 1,
+        expectedGeneration: 1,
+        expectedEvaluatorKeyEpochId: oldEpoch.epochId,
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  const status = await response.json();
+  assert.equal(status.state.mode, "draining");
+  assert.equal(status.runtimeMatchesState, false);
+  assert.equal(status.evaluatorKeyEpochId, newEpoch.epochId);
 });

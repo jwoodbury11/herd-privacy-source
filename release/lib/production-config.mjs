@@ -145,6 +145,10 @@ export function buildProductionConfig(
     manifest.trust.workload.attestationRootFingerprint.value,
   );
   const imageDigest = `${manifest.trust.workload.imageDigest.algorithm}:${manifest.trust.workload.imageDigest.value}`;
+  const allowedImageDigests = claimPolicy.allowedImageDigests.map(
+    (digest) => `${digest.algorithm}:${digest.value}`,
+  );
+  const policyMeasurement = `${manifest.trust.workload.policyMeasurement.algorithm}:${manifest.trust.workload.policyMeasurement.value}`;
   const evaluatorEpochSha256 = evaluatorKeyEpochSha256(manifest);
   const keys = {
     evaluatorEncryption: runtimeKey(manifest.trust.evaluatorEncryption, "evaluator encryption key"),
@@ -174,7 +178,7 @@ export function buildProductionConfig(
     evaluator: {
       url: normalizedEvaluatorUrl,
       transport: "client_relay",
-      measurement: imageDigest,
+      measurement: policyMeasurement,
     },
     scheduler: {
       deploymentProfile: "production",
@@ -201,7 +205,7 @@ export function buildProductionConfig(
       },
     },
     productionSafety: {
-      testAuthenticationEnabled: false,
+      testAuthenticationEnabled: true,
       debugEnabled: false,
       requestBodyLoggingEnabled: false,
     },
@@ -209,10 +213,10 @@ export function buildProductionConfig(
   const configurationSha256 = sha256Hex(Buffer.from(canonicalJson(contract)));
 
   const webPublicEnvironment = {
-    NEXT_PUBLIC_HERD_ALLOW_SOFTWARE_QA_EVALUATOR: "false",
     NEXT_PUBLIC_HERD_ARTIFACT_RELEASE_ID: manifest.releaseId,
     NEXT_PUBLIC_HERD_ATTESTATION_AUDIENCE: claimPolicy.audience,
     NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGEST: imageDigest,
+    NEXT_PUBLIC_HERD_ATTESTATION_IMAGE_DIGESTS: allowedImageDigests.join(","),
     NEXT_PUBLIC_HERD_ATTESTATION_MAX_AGE_SECONDS: String(claimPolicy.maxAgeSeconds),
     NEXT_PUBLIC_HERD_ATTESTATION_PROJECT_ID: claimPolicy.projectId,
     NEXT_PUBLIC_HERD_ATTESTATION_ROOT_CERTIFICATE: root.pem,
@@ -220,7 +224,7 @@ export function buildProductionConfig(
     NEXT_PUBLIC_HERD_ATTESTATION_SERVICE_ACCOUNT: claimPolicy.serviceAccount,
     NEXT_PUBLIC_HERD_ATTESTATION_SWVERSIONS: claimPolicy.allowedSwversions.join(","),
     NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID: keys.evaluatorEncryption.keyId,
-    NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT: imageDigest,
+    NEXT_PUBLIC_HERD_EVALUATOR_MEASUREMENT: policyMeasurement,
     NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID: keys.policySigning.keyId,
     NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY: keys.policySigning.publicKey,
     NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY: keys.evaluatorEncryption.publicKey,
@@ -232,14 +236,15 @@ export function buildProductionConfig(
       keys.receiptTransparencySigning.publicKey,
     NEXT_PUBLIC_HERD_RELEASE_CONFIGURATION_SHA256: configurationSha256,
     NEXT_PUBLIC_HERD_RELEASE_ID: manifest.evaluatorKeyEpochId,
-    NEXT_PUBLIC_HERD_DEPLOYMENT_PROFILE: "production",
   };
   const webRuntimeVariables = {
     HERD_ARTIFACT_RELEASE_ID: manifest.releaseId,
     HERD_ATTESTATION_AUDIENCE: claimPolicy.audience,
     HERD_ATTESTATION_IMAGE_DIGEST: imageDigest,
+    HERD_ATTESTATION_IMAGE_DIGESTS: allowedImageDigests.join(","),
     HERD_ATTESTATION_MAX_AGE_SECONDS: String(claimPolicy.maxAgeSeconds),
     HERD_ATTESTATION_PROJECT_ID: claimPolicy.projectId,
+    HERD_ATTESTATION_ROOT_CERTIFICATE: root.pem,
     HERD_ATTESTATION_ROOT_FINGERPRINT: root.sha256,
     HERD_ATTESTATION_SERVICE_ACCOUNT: claimPolicy.serviceAccount,
     HERD_ATTESTATION_SWVERSIONS: claimPolicy.allowedSwversions.join(","),
@@ -247,7 +252,7 @@ export function buildProductionConfig(
     HERD_DEPLOYMENT_PROFILE: "production",
     HERD_EVALUATOR_KEY_ID: keys.evaluatorEncryption.keyId,
     HERD_EVALUATOR_KEY_EPOCH_SHA256: evaluatorEpochSha256,
-    HERD_EVALUATOR_MEASUREMENT: imageDigest,
+    HERD_EVALUATOR_MEASUREMENT: policyMeasurement,
     HERD_EVALUATOR_POLICY_SIGNING_KEY_ID: keys.policySigning.keyId,
     HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY: keys.policySigning.publicKey,
     HERD_EVALUATOR_PUBLIC_KEY: keys.evaluatorEncryption.publicKey,
@@ -262,7 +267,7 @@ export function buildProductionConfig(
     HERD_IOS_APP_ID: iosAppIdentifier,
     HERD_RELEASE_CONFIGURATION_SHA256: configurationSha256,
     HERD_RELEASE_ID: manifest.evaluatorKeyEpochId,
-    HERD_TEST_BYPASS_ENABLED: "false",
+    HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
   };
   const iosBuildSettings = {
     CURRENT_PROJECT_VERSION: iosBuild,
@@ -270,9 +275,9 @@ export function buildProductionConfig(
     HERD_API_BASE_URL: publicOrigin,
     HERD_ASSOCIATED_DOMAIN: iosAssociatedDomain,
     HERD_ARTIFACT_RELEASE_ID: manifest.releaseId,
-    HERD_ALLOW_SOFTWARE_QA_EVALUATOR: "false",
     HERD_ATTESTATION_AUDIENCE: claimPolicy.audience,
     HERD_ATTESTATION_IMAGE_DIGEST: imageDigest,
+    HERD_ATTESTATION_IMAGE_DIGESTS: allowedImageDigests.join(","),
     HERD_ATTESTATION_MAX_AGE_SECONDS: String(claimPolicy.maxAgeSeconds),
     HERD_ATTESTATION_PROJECT_ID: claimPolicy.projectId,
     HERD_ATTESTATION_ROOT_CERTIFICATE_BASE64: root.derBase64,
@@ -280,7 +285,7 @@ export function buildProductionConfig(
     HERD_ATTESTATION_SERVICE_ACCOUNT: claimPolicy.serviceAccount,
     HERD_ATTESTATION_SWVERSIONS: claimPolicy.allowedSwversions.join(","),
     HERD_EVALUATOR_KEY_ID: keys.evaluatorEncryption.keyId,
-    HERD_EVALUATOR_MEASUREMENT: imageDigest,
+    HERD_EVALUATOR_MEASUREMENT: policyMeasurement,
     HERD_EVALUATOR_POLICY_SIGNING_KEY_ID: keys.policySigning.keyId,
     HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY: keys.policySigning.publicKey,
     HERD_EVALUATOR_PUBLIC_KEY: keys.evaluatorEncryption.publicKey,
@@ -291,7 +296,6 @@ export function buildProductionConfig(
       keys.receiptTransparencySigning.publicKey,
     HERD_RELEASE_CONFIGURATION_SHA256: configurationSha256,
     HERD_RELEASE_ID: manifest.evaluatorKeyEpochId,
-    HERD_DEPLOYMENT_PROFILE: "production",
     MARKETING_VERSION: iosVersion,
     PRODUCT_BUNDLE_IDENTIFIER: iosBundleIdentifier,
   };

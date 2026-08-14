@@ -30,6 +30,7 @@ function oidcToken({
   omitEmptyOverrides = false,
   memoryMonitoring = false,
   hwmodel = "GCP_INTEL_TDX",
+  hostname = "herd-evaluator-tdx-ab12",
 } = {}) {
   const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString(
     "base64url",
@@ -49,7 +50,7 @@ function oidcToken({
           args: ["docker-entrypoint.sh", "node", "src/server.mjs"],
           env: {
             HERD_DEPLOYMENT_CONFIG_FILE: "/app/config/deployment.json",
-            HOSTNAME: "herd-evaluator-tdx-ab12",
+            HOSTNAME: hostname,
             NODE_ENV: "production",
             NODE_VERSION: "22.13.0",
             PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -114,9 +115,29 @@ test("rejects reuse of one private key for two domains", async () => {
         Buffer.from(JSON.stringify(transparencyBundle), "utf8"),
       ),
       config,
-      config.evaluatorMeasurement,
+      config.attestedImageDigest,
     ),
     ConfigurationError,
+  );
+});
+
+test("separates stable policy identity from exact artifact attestation", async () => {
+  const attestedImageDigest = `sha256:${"2".repeat(64)}`;
+  const config = testConfig();
+  const keyStore = await parseKeyBundles(
+    Uint8Array.from(Buffer.from(JSON.stringify(await makeBundle()))),
+    Uint8Array.from(
+      Buffer.from(JSON.stringify(await makeTransparencyBundle())),
+    ),
+    config,
+    attestedImageDigest,
+  );
+
+  assert.equal(keyStore.evaluatorConfig.measurement, config.policyMeasurement);
+  assert.equal(keyStore.attestedImageDigest, attestedImageDigest);
+  assert.notEqual(
+    keyStore.evaluatorConfig.measurement,
+    keyStore.attestedImageDigest,
   );
 });
 
@@ -131,13 +152,13 @@ test("evaluator epochs reuse one separately parsed global transparency identity"
     Uint8Array.from(Buffer.from(JSON.stringify(firstBundle))),
     Uint8Array.from(Buffer.from(encodedTransparency)),
     firstConfig,
-    firstConfig.evaluatorMeasurement,
+    firstConfig.attestedImageDigest,
   );
   const second = await parseKeyBundles(
     Uint8Array.from(Buffer.from(JSON.stringify(secondBundle))),
     Uint8Array.from(Buffer.from(encodedTransparency)),
     secondConfig,
-    secondConfig.evaluatorMeasurement,
+    secondConfig.attestedImageDigest,
   );
 
   assert.equal(
@@ -165,7 +186,7 @@ test("epoch bundles cannot smuggle a replacement transparency key", async () => 
       Uint8Array.from(Buffer.from(JSON.stringify(epochBundle))),
       Uint8Array.from(Buffer.from(JSON.stringify(transparencyBundle))),
       config,
-      config.evaluatorMeasurement,
+      config.attestedImageDigest,
     ),
     ConfigurationError,
   );
@@ -297,6 +318,12 @@ test("extracts only a canonical sha256 image digest from the STS subject token",
     ),
     TEST_IMAGE_DIGEST,
   );
+  assert.equal(
+    attestedImageDigestFromOidcToken(
+      oidcToken({ hostname: "herd-evaluator-tdx-green-ab12" }),
+    ),
+    TEST_IMAGE_DIGEST,
+  );
   assert.throws(
     () =>
       attestedImageDigestFromOidcToken(
@@ -317,6 +344,8 @@ test("rejects unsafe attested launcher settings including non-Always restart", (
     oidcToken({ envOverride: { NODE_OPTIONS: "--inspect" } }),
     oidcToken({ memoryMonitoring: true }),
     oidcToken({ hwmodel: "GCP_AMD_SEV" }),
+    oidcToken({ hostname: "herd-evaluator-green-ab12" }),
+    oidcToken({ hostname: "herd-evaluator-tdx-green-abcdef" }),
   ]) {
     assert.throws(
       () => attestedImageDigestFromOidcToken(token),

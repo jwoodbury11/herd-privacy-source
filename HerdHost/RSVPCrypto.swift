@@ -366,7 +366,6 @@ struct EventResolutionVerifier: Hashable, Sendable {
             resolution.retrying == nil,
             let resolvedAt = resolution.resolvedAt,
             let deadline = event.rsvpDeadline,
-            resolvedAt >= deadline,
             let policy = event.privateResponsePolicy,
             policy.protocolVersion == PrivateResponseProtocol.version,
             Self.canonicalBase64URL(policy.policyHash, bytes: 32) != nil,
@@ -380,9 +379,19 @@ struct EventResolutionVerifier: Hashable, Sendable {
             let signature = Self.canonicalBase64URL(attestation.signature, bytes: 64)
         else { throw EventResolutionVerificationError.invalidProof }
 
+        let revealAttendance = resolution.status == .confirmed
+            ? (resolution.attendanceRevealed ?? (resolvedAt >= deadline))
+            : resolvedAt >= deadline
         let attendingMemberIDs: [String]
         switch resolution.status {
         case .confirmed:
+            if !revealAttendance {
+                guard resolution.attendingMemberIds == nil else {
+                    throw EventResolutionVerificationError.invalidProof
+                }
+                attendingMemberIDs = []
+                break
+            }
             guard
                 let members = resolution.attendingMemberIds,
                 !members.isEmpty,
@@ -435,8 +444,8 @@ struct EventResolutionVerifier: Hashable, Sendable {
                         "batchHash",
                         "evaluatorKeyId",
                         "status",
-                        "attendingMemberIds",
-                    ]
+                    ] + (result["revealAttendance"] == nil ? [] : ["revealAttendance"])
+                      + (revealAttendance ? ["attendingMemberIds"] : [])
                     : [
                         "protocolVersion",
                         "eventId",
@@ -444,11 +453,18 @@ struct EventResolutionVerifier: Hashable, Sendable {
                         "batchHash",
                         "evaluatorKeyId",
                         "status",
-                    ]
+                    ] + (result["revealAttendance"] == nil ? [] : ["revealAttendance"])
             ),
             let batchHash = result["batchHash"] as? String,
             Self.canonicalBase64URL(batchHash, bytes: 32) != nil
         else { throw EventResolutionVerificationError.invalidProof }
+        if let signedRevealAttendance = result["revealAttendance"] as? Bool {
+            guard signedRevealAttendance == revealAttendance else {
+                throw EventResolutionVerificationError.invalidProof
+            }
+        } else if !revealAttendance {
+            throw EventResolutionVerificationError.invalidProof
+        }
 
         let status = resolution.status == .confirmed ? "confirmed" : "not_confirmed"
         let attendingJSON = attendingMemberIDs.map(Self.quoted).joined(separator: ",")
@@ -459,7 +475,10 @@ struct EventResolutionVerifier: Hashable, Sendable {
             "\"batchHash\":\(Self.quoted(batchHash))," +
             "\"evaluatorKeyId\":\(Self.quoted(policy.evaluatorKeyId))," +
             "\"status\":\(Self.quoted(status))" +
-            (resolution.status == .confirmed
+            (result["revealAttendance"] == nil
+                ? ""
+                : ",\"revealAttendance\":\(revealAttendance ? "true" : "false")") +
+            (resolution.status == .confirmed && revealAttendance
                 ? ",\"attendingMemberIds\":[\(attendingJSON)]}"
                 : "}")
         let expectedDocument = "{" +

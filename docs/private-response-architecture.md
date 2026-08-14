@@ -67,7 +67,8 @@ The normative byte-level contract is
    wrap or creating the device-held response authorization.
 5. In one D1 transaction the API appends the response and the next log
    commitment. The confidential authority verifies the Ed25519 signature,
-   pins the member's first accepted response-signing key, atomically advances
+   pins the response-signing key within each account epoch, permits only paired
+   epoch/key rotation for a verified device switch, atomically advances
    the member's exact latest revision and global log, then signs the receipt and
    head. The client verifies both and fetches the matching hash-only public
    entry before showing success.
@@ -161,9 +162,10 @@ without invalidating the response authorization and transparency signatures.
 The attested signer CAS-commits each immutable entry, tail transition, policy
 response sequence, and latest member commitment to the key-custodian Firestore
 authority before returning a signature. First revisions must be exactly 1;
-later revisions must be exactly previous + 1 and use the pinned Ed25519 key.
-They must also retain the enrolled account-key epoch; a valid signature under
-the same key cannot relabel a response into another epoch.
+later revisions must be exactly previous + 1. Within an account-key epoch they
+use the pinned Ed25519 key. A verified device switch must rotate the account-key
+epoch and Ed25519 response key together; changing either identity alone is
+rejected.
 Before accepting that later revision, and again before evaluation, the
 authority verifies that every field in the latest-member index matches its
 referenced immutable receipt and verifies that receipt and its log head under
@@ -201,22 +203,22 @@ independence comes from who deploys and controls it.
 
 Phone verification authenticates the account but is not an encryption key. The
 Account Root Secret is random and device-held. A different device cannot
-silently replace an initialized epoch. A freshly phone-verified user may
-explicitly start over: Herd creates a new epoch and revokes other sessions, but
-cannot recover the old criteria. A new Account Root Secret derives a different
-per-event response-signing key. Therefore an active invitation that already
-has a certified response is locked against new revisions after reset; its exact
-old envelope may still be retried. A never-answered invitation or a new event
-may enroll its first response-signing key.
+silently replace an initialized epoch. A freshly phone-verified user may switch
+private replies to the current device: Herd creates a new epoch and revokes
+other sessions, but cannot recover the old criteria. A new Account Root Secret
+derives a different per-event response-signing key. The next revision may
+replace an active invitation’s previous reply only when the account epoch and
+response key rotate together.
 
 The first response is the enrollment because the current SMS/account trust
 path has no independently authenticated client-to-authority identity channel.
 A compromised ordinary backend can front-run a never-enrolled slot with its own
-valid key and response. A later genuine attempt sees a key conflict rather than
-silently replacing the attacker's entry, but a person who never responds has no
-client-side observation. Fully preventing first-enrollment forgery requires a
-new direct identity enrollment channel outside the ordinary backend and is not
-claimed by this release.
+valid key and response. A later genuine attempt must explicitly complete phone
+verification and a device switch before replacing that entry, but a person who
+never responds has no client-side observation. Fully preventing first-enrollment
+forgery or backend-authorized replacement requires a new direct identity
+enrollment channel outside the ordinary backend and is not claimed by this
+release.
 
 Herd still observes phone/profile, event and guest membership, response slot,
 timing, IP/user agent, fixed message size, delivery status, ciphertext hashes,
@@ -229,22 +231,21 @@ events, sybil guests, the final attendance set, or real-world behavior.
 | --- | --- | --- |
 | Host or another guest | No API projection of an individual response/conditions; only final permitted result | Can infer from context or manipulate whom they invite |
 | Database/backup reader | Fixed-size AEAD ciphertext and unusable wraps | Sees account/event linkage, hashes, revision and timing; old backups retain sealed bytes temporarily |
-| Ordinary app administrator | No evaluator private key; client verifies policy, Ed25519-bound receipt, public entry, hardware attestation, and the exact signed final-result proof; committed keys/revisions and canonical batches are authority-enforced | Can deny service, target metadata, ship a malicious future web client unless witnessed, or front-run a never-enrolled response slot |
+| Ordinary app administrator | No evaluator private key; client verifies policy, Ed25519-bound receipt, public entry, hardware attestation, and the exact signed final-result proof; revisions and canonical batches are authority-enforced | Controls the current SMS/session switch path and can authorize a paired epoch/key rollover that replaces a response; can also deny service, target metadata, or ship a malicious future web client unless witnessed |
 | CDN/network observer | Payload is encrypted and fixed-size | Sees IP, account flow timing, origin, user agent and traffic pattern |
-| SMS takeover | Cannot decrypt an old response or create a later revision under its pinned response-signing key | Can take over/reset the account, lose access to answered active invitations, and enroll unanswered/new invitations |
+| SMS takeover | Cannot decrypt an old response | Can switch the account epoch, replace an active reply with a new revision, enroll new replies, and revoke other sessions |
 | Compromised device/browser | Platform key protection and lock-on-background reduce exposure | Malware/extensions can see what the user sees before encryption |
 | Cloud host | TDX isolation, remote attestation, WIP/KMS claim policy | Trust remains in Google/Intel roots and implementation; side-channel/platform failures remain possible |
-| Malicious backend/signing operator | Purpose-specific exact-schema signatures, response-key pinning, canonical-batch consumption, and public entry verification | Can front-run a never-enrolled slot or deny/suppress service; log/release equivocation requires independent persistent witnesses to detect |
+| Malicious backend/signing operator | Purpose-specific exact-schema signatures, paired epoch/key transitions, canonical-batch consumption, and public entry verification | Can invoke the phone/session-authorized device-switch path to replace a reply or deny/suppress service; log/release equivocation requires independent persistent witnesses to detect |
 | Malicious evaluator update | Clients pin signed release/image/keys and fresh hardware claims | Compromised release-signing governance can approve a bad release |
 
-## Production separation and operations
+## Production operations
 
-Production and QA require different origins, Sites/cloud projects, D1
-databases, Twilio credentials, auth peppers, evaluator/KMS keys, release IDs,
-attestation image/project/account pins, transparency logs, monitor state, and
-iOS bundle/release configuration. Production refuses to operate with the QA
-bypass or direct evaluator transport. A preview/software evaluator is a test
-resource and can never satisfy production attestation.
+Herd has one production origin, database, evaluator trust contract, transparency
+log, and iOS release configuration. Single-digit test access changes only the
+SMS-verification step; it does not select alternate storage, keys, evaluation,
+delivery, or product behavior. Direct evaluator transport and software trust
+signers cannot satisfy production attestation.
 
 The exact data inventory, retention schedule, privacy drill, restore procedure,
 and incident triggers are in

@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` RENAME COLUMN "qa_bypass_generation" TO "test_access_generation";

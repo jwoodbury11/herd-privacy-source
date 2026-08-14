@@ -19,6 +19,7 @@ import {
   normalizeStoredPrivateResponseEnvelope,
   privateResponseAad,
   privateResponseAuthorizationBytes,
+  publicRuntimeValue,
   uuidToBytes,
   type PrivateResponseDraftV1,
   type PrivateResponseEnvelopeV1,
@@ -45,23 +46,16 @@ const ED25519_PKCS8_SEED_PREFIX = Uint8Array.from([
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
-// These public values are the release trust pins, not secrets. Sites runtime
-// bindings are unavailable while the browser bundle is compiled, so keep a
-// source-controlled production fallback and allow explicit build overrides for
-// isolated tests or a future evaluator-key rotation.
-const bakedEvaluatorKeyId =
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_KEY_ID || "herd-evaluator-live-v1";
-const bakedEvaluatorPublicKey =
-  process.env.NEXT_PUBLIC_HERD_EVALUATOR_PUBLIC_KEY ||
-  "BHNbrGR_UH7htxqVZ71tGrzQYgqatUv7u7FceBCMMHO1nkvd9ccl3tenBrODAyZKBB3MozygfRap8T43B0NFHcY";
+const bakedEvaluatorKeyId = publicRuntimeValue("HERD_EVALUATOR_KEY_ID");
+const bakedEvaluatorPublicKey = publicRuntimeValue("HERD_EVALUATOR_PUBLIC_KEY");
 
 export class PrivateResponseCryptoError extends Error {
-  readonly canStartOver: boolean;
+  readonly canSwitchDevice: boolean;
 
-  constructor(message: string, options: { canStartOver?: boolean } = {}) {
+  constructor(message: string, options: { canSwitchDevice?: boolean } = {}) {
     super(message);
     this.name = "PrivateResponseCryptoError";
-    this.canStartOver = options.canStartOver ?? false;
+    this.canSwitchDevice = options.canSwitchDevice ?? false;
   }
 }
 
@@ -723,7 +717,7 @@ async function verifyResponseAuthorization(
   if (!sameBytes(publicKey, derived.publicKey)) {
     throw new PrivateResponseCryptoError(
       "The saved private response was not authorized by this device’s account key.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   }
   let verified = false;
@@ -753,7 +747,7 @@ async function verifyResponseAuthorization(
   if (!verified) {
     throw new PrivateResponseCryptoError(
       "The saved private response has an invalid device authorization.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   }
 }
@@ -805,7 +799,7 @@ async function aesGcmOpen(
   } catch {
     throw new PrivateResponseCryptoError(
       "This device could not authenticate the saved private response.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   }
 }
@@ -1030,7 +1024,7 @@ export async function openPrivateResponse(
 ): Promise<PrivateResponseDraftV1> {
   if (input.accountRootSecret.length !== RESPONSE_KEY_BYTES) {
     throw new PrivateResponseCryptoError("The account root secret has the wrong size.", {
-      canStartOver: true,
+      canSwitchDevice: true,
     });
   }
   const trustedEvaluator = await assertTrustedPolicy(input.policy);
@@ -1056,7 +1050,7 @@ export async function openPrivateResponse(
     ) {
       throw new PrivateResponseCryptoError(
         "The saved private response does not match its stored ciphertext hash.",
-        { canStartOver: true },
+        { canSwitchDevice: true },
       );
     }
     await verifyResponseAuthorization(
@@ -1102,14 +1096,14 @@ export async function openPrivateResponse(
     assertDraftMatchesEnvelope(draft, envelope);
     return draft;
   } catch (error) {
-    if (error instanceof PrivateResponseCryptoError && error.canStartOver) {
+    if (error instanceof PrivateResponseCryptoError && error.canSwitchDevice) {
       throw error;
     }
     throw new PrivateResponseCryptoError(
       error instanceof Error
         ? error.message
         : "This device could not open the saved private response.",
-      { canStartOver: true },
+      { canSwitchDevice: true },
     );
   } finally {
     responseKeyBytes?.fill(0);

@@ -12,17 +12,30 @@ import {
   testDeploymentConfig,
 } from "./helpers.mjs";
 
+const REBUILT_IMAGE_DIGEST = `sha256:${"1".repeat(64)}`;
+
 test("normalizes the exact production deployment config", () => {
   const deploymentConfig = testDeploymentConfig();
   assert.equal("evaluatorMeasurement" in deploymentConfig, false);
+  assert.equal("attestedImageDigest" in deploymentConfig, false);
   const config = bindAttestedImageDigest(deploymentConfig, TEST_IMAGE_DIGEST);
   assert.equal(config.releaseId, "herd-confidential-test-v1");
   assert.equal(config.evaluatorMeasurement, TEST_IMAGE_DIGEST);
+  assert.equal(config.attestedImageDigest, TEST_IMAGE_DIGEST);
   assert.equal(config.transparencyStateProjectId, "herd-key-test");
   assert.equal(config.transparencyStateDatabaseId, "herd-transparency");
   assert.equal(config.transparencyStateCollection, "herd_response_log_v1");
   assert.equal(config.port, 8080);
   assert.ok(Object.isFrozen(config));
+});
+
+test("keeps policy identity stable while binding the exact attested image", () => {
+  const config = bindAttestedImageDigest(
+    testDeploymentConfig(),
+    REBUILT_IMAGE_DIGEST,
+  );
+  assert.equal(config.evaluatorMeasurement, TEST_IMAGE_DIGEST);
+  assert.equal(config.attestedImageDigest, REBUILT_IMAGE_DIGEST);
 });
 
 test("fails closed on unknown config fields and mutable resource references", () => {
@@ -81,6 +94,14 @@ test("fails closed on unknown config fields and mutable resource references", ()
   );
   assert.throws(
     () => bindAttestedImageDigest(testDeploymentConfig(), "source-sha256:abc"),
+    ConfigurationError,
+  );
+  assert.throws(
+    () =>
+      normalizeDeploymentConfig({
+        ...base,
+        policyMeasurement: "source-sha256:abc",
+      }),
     ConfigurationError,
   );
   assert.throws(

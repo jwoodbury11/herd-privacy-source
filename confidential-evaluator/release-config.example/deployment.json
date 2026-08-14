@@ -1,6 +1,7 @@
 {
   "protocolVersion": 1,
   "releaseId": "herd-evaluator-2026-08-01",
+  "policyMeasurement": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "keyBundleCiphertextFile": "/app/config/key-bundle.ciphertext",
   "kmsKeyResource": "projects/replace-key-project/locations/us-central1/keyRings/herd-evaluator/cryptoKeys/key-bundle",
   "transparencyKeyCiphertextFile": "/app/config/transparency-key.ciphertext",

@@ -489,6 +489,7 @@
 		};
 		A00000000000000000000018 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000100 /* HerdRelease.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -499,20 +500,6 @@
 				DEVELOPMENT_TEAM = R4UPN8ZDV8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				HERD_API_BASE_URL = "https://herd-invitee-preview.jimmy4.chatgpt.site";
-				HERD_ALLOW_SOFTWARE_QA_EVALUATOR = true;
-				HERD_ASSOCIATED_DOMAIN = herd-invitee-preview.jimmy4.chatgpt.site;
-				HERD_DEPLOYMENT_PROFILE = test;
-				HERD_EVALUATOR_KEY_ID = "herd-evaluator-live-v1";
-				HERD_EVALUATOR_MEASUREMENT = "software-reference-sha384:d32be5e3cd9d7a083780352143b7776f0cf66a474debbfeacdf0e50bc26ff186be6e2d752f517555a404f3b9ef26fddc";
-				HERD_EVALUATOR_POLICY_SIGNING_KEY_ID = "herd-qa-policy-2026-08-03-v1";
-				HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY = "BCdbWaurTElXpyvLbBsB-qWlbPuA-H57d4OyJxQHzvW1P_K_X3CwdzkvDd3xzp54fuC6sMX3hkaBQX1Yxk9VtA4";
-				HERD_EVALUATOR_PUBLIC_KEY = "BHNbrGR_UH7htxqVZ71tGrzQYgqatUv7u7FceBCMMHO1nkvd9ccl3tenBrODAyZKBB3MozygfRap8T43B0NFHcY";
-				HERD_EVALUATOR_RESULT_SIGNING_KEY_ID = "herd-evaluator-result-live-v1";
-				HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY = "BJEAjUMUEUQ6S5gh1Z4Ts7rbJcEUd94qn6DURp2KqPh3c0vU9srh14glLe0n29SaClEFOFptiJ1zXJ8Npb34gW0";
-				HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID = "herd-qa-transparency-2026-08-03-v1";
-				HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY = "BHmy2IZtBATBkXd-NjN_CnKYTy5rGgGfwcby1dMbpk5IjFjIWb0YijCdyv7F3jQ-b_dvRmENe__fPB-zOow5L50";
-				HERD_RELEASE_ID = "herd-live-2026-07-30-v1";
 				INFOPLIST_FILE = HerdHost/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Herd;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;

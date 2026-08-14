@@ -235,38 +235,6 @@ runtime variables before deployment:
 - `HERD_EVALUATOR_RESULT_SIGNING_PRIVATE_KEY_JWK` — a distinct secret P-256
   ECDSA private JWK used only to sign relayed results.
 
-### Isolated software-QA trust signer
-
-The reference Worker also contains test-only `POST /api/v1/sign/policy` and
-`POST /api/v1/sign/transparency` routes so an isolated QA deployment can
-exercise the exact signed-policy, receipt, and log-head verification paths.
-They return `404` unless `HERD_DEPLOYMENT_PROFILE=test` and
-`HERD_SOFTWARE_QA_TRUST_SIGNER_ENABLED=true`, require the normal evaluator
-bearer token, reject every request carrying a browser `Origin`, and load private
-signing keys only after authorization. The response-decryption, evaluation
-result, policy, and transparency purposes must all have different identifiers
-and public points. The signer requires two additional P-256 keys:
-
-- `HERD_EVALUATOR_POLICY_SIGNING_KEY_ID` and
-  `HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK`; and
-- `HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID` and
-  `HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK`.
-
-The policy route accepts only the production frozen-policy schema and requires
-its release ID, response-decryption key ID/public point, and evaluator
-measurement to match this evaluator. The transparency route enforces the
-production field order, bounds, genesis rule, entry hash, and device-derived
-Ed25519 response authorization before signing a receipt and derived head.
-
-This signer is deliberately stateless. It does not prove durable log
-continuity, register policy membership, enforce deadlines or per-member
-revision ordering, serialize concurrent appends, or provide production retry
-and reconciliation semantics. It proves that every client and backend
-cryptographic check is wired correctly, but it is not the independent,
-stateful, hardware-attested transparency authority required by the production
-threat model. Never enable it in the confidential production evaluator, and
-never reuse its keys or database in production.
-
 Never put the private JWK in the Herd web app, a `NEXT_PUBLIC_*` value, source
 control, fixtures, logs, or deployment archives. Convert/import the production
 private key only at the secret-management boundary.
@@ -282,8 +250,7 @@ npm test
 
 The test suite builds the deployable Worker and exercises the real HTTP routes
 with valid encrypted envelopes, deadline and commitment checks, strict result
-projection, authentication, QA trust signatures, malformed/tampered inputs,
-and misconfiguration.
+projection, authentication, malformed/tampered inputs, and misconfiguration.
 
 The service vendors a deployment-self-contained copy of the dependency-free
 `privacy-evaluator` core. `npm run check:vendor` enforces byte parity when the

@@ -28,6 +28,10 @@ const evaluatorPublicKey = Buffer.from(
   }${"4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"}`,
   "hex",
 ).toString("base64url");
+const twilioApiKeySid = `SK${"7".repeat(32)}`;
+const twilioVerifyServiceSid = `VA${"8".repeat(32)}`;
+const twilioAccountSid = `AC${"6".repeat(32)}`;
+const twilioMessagingServiceSid = `MG${"5".repeat(32)}`;
 
 let harnessNumber = 0;
 
@@ -135,6 +139,23 @@ async function createHarness(options = {}) {
         HERD_EVALUATOR_TOKEN: evaluatorToken,
         HERD_EVALUATOR_SITES_BYPASS_TOKEN: evaluatorSitesBypassToken,
       };
+  const fetchMock = options.fetchMock ?? createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://verify.twilio.com")
+    .intercept({ method: "POST", path: `/v2/Services/${twilioVerifyServiceSid}/Verifications` })
+    .reply(201, { sid: `VE${"9".repeat(32)}`, status: "pending" })
+    .persist();
+  fetchMock
+    .get("https://verify.twilio.com")
+    .intercept({ method: "POST", path: `/v2/Services/${twilioVerifyServiceSid}/VerificationCheck` })
+    .reply(200, { sid: `VE${"9".repeat(32)}`, status: "approved", valid: true })
+    .persist();
+  fetchMock
+    .get("https://api.twilio.com")
+    .intercept({ method: "POST", path: `/2010-04-01/Accounts/${twilioAccountSid}/Messages.json` })
+    .reply(201, { sid: `SM${"4".repeat(32)}`, status: "accepted" })
+    .persist();
   const trustSigningBindings = options.fetchMock
     ? {
         HERD_EVALUATOR_POLICY_SIGNING_KEY_ID: policySigning.keyId,
@@ -154,18 +175,24 @@ async function createHarness(options = {}) {
     d1Databases: {
       DB: `herd-resolution-${process.pid}-${Date.now()}-${harnessNumber}`,
     },
-    ...(options.fetchMock ? { fetchMock: options.fetchMock } : {}),
+    fetchMock,
     bindings: {
+      HERD_DEPLOYMENT_PROFILE: "test",
       HERD_AUTH_PEPPER: testPepper,
-      HERD_TEST_BYPASS_ENABLED: "true",
-      HERD_ALLOW_INSECURE_QA_BYPASS: "true",
-      HERD_QA_BYPASS_GENERATION: "herd-test-generation-v1",
-      HERD_TEST_PHONE_E164: testPhone,
+      HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
+      HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-test-generation-v1",
       HERD_TEST_HOST_PHONE_E164: "+14155550111",
       HERD_EVALUATOR_KEY_ID: evaluatorKeyId,
       HERD_EVALUATOR_PUBLIC_KEY: evaluatorPublicKey,
       HERD_EVALUATOR_MEASUREMENT: "test-software-evaluator-sha384",
       HERD_RELEASE_ID: "herd-test-release-v1",
+      HERD_ARTIFACT_RELEASE_ID: "2026.08.12.resolution-test",
+      HERD_PUBLIC_APP_URL: "https://app.herdprivacy.com",
+      TWILIO_API_KEY_SID: twilioApiKeySid,
+      TWILIO_API_KEY_SECRET: "resolution-twilio-secret",
+      TWILIO_VERIFY_SERVICE_SID: twilioVerifyServiceSid,
+      TWILIO_ACCOUNT_SID: twilioAccountSid,
+      TWILIO_MESSAGING_SERVICE_SID: twilioMessagingServiceSid,
       ...evaluatorBindings,
       ...trustSigningBindings,
       ...options.bindings,
@@ -406,7 +433,13 @@ function queueEvaluatorResult(fetchMock, result, requestLog = [], options = {}) 
   if (options.delayMilliseconds) scope.delay(options.delayMilliseconds);
 }
 
-async function expectedBatch(database, eventId, policyHash, inviteeIds) {
+async function expectedBatch(
+  database,
+  eventId,
+  policyHash,
+  inviteeIds,
+  revealAttendance = true,
+) {
   const rows = await database
     .prepare(
       `SELECT invitees.id,
@@ -433,19 +466,32 @@ async function expectedBatch(database, eventId, policyHash, inviteeIds) {
   return {
     slots,
     batchHash: sha256Base64Url(
-      JSON.stringify({ protocolVersion: 1, eventId, policyHash, slots }),
+      JSON.stringify({ protocolVersion: 1, eventId, policyHash, revealAttendance, slots }),
     ),
   };
 }
 
 async function authenticate(miniflare, phoneNumber) {
+  const fixedAccount = /^\+1415555010([1-9])$/u.exec(phoneNumber);
+  const alias = /^[1-9]$/u.test(phoneNumber) ? phoneNumber : fixedAccount?.[1];
   const response = await api(
     miniflare,
     "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber }),
+    jsonRequest("POST", { phoneNumber: alias ?? phoneNumber }),
   );
-  assert.equal(response.status, 200);
-  return response.json();
+  if (alias) {
+    assert.equal(response.status, 200);
+    return response.json();
+  }
+  assert.equal(response.status, 201);
+  const challenge = await response.json();
+  const verified = await api(
+    miniflare,
+    "/api/auth/verify-code",
+    jsonRequest("POST", { challengeId: challenge.challengeId, code: "1234" }),
+  );
+  assert.equal(verified.status, 200);
+  return verified.json();
 }
 
 function eventPayload({ id, invitees, deadline, title = "Resolution lifecycle", ...overrides }) {
@@ -456,7 +502,7 @@ function eventPayload({ id, invitees, deadline, title = "Resolution lifecycle", 
     eventDate,
     endDate: new Date(Date.parse(eventDate) + 3_600_000).toISOString(),
     hostName: "Test host",
-    locationName: "Herd QA",
+    locationName: "Herd test",
     locationAddress: "San Francisco, CA",
     invitees,
     minimumParticipants: 2,
@@ -530,7 +576,10 @@ function exactEvaluatorResult(request, status, attendingMemberIds) {
     batchHash: request.batchHash,
     evaluatorKeyId,
     status,
-    ...(status === "confirmed" ? { attendingMemberIds } : {}),
+    revealAttendance: request.revealAttendance ?? true,
+    ...(status === "confirmed" && (request.revealAttendance ?? true)
+      ? { attendingMemberIds }
+      : {}),
   };
 }
 
@@ -631,13 +680,14 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     jsonRequest("PUT", { envelope: firstEnvelope }, inviteeSessions[0].accessToken),
   );
   assert.equal(firstResponse.status, 200);
+  const firstResponseBody = await firstResponse.json();
   const exactRetry = await api(
     miniflare,
     `/api/invites/${inviteViews[0].inviteToken}/rsvp`,
     jsonRequest("PUT", { envelope: firstEnvelope }, inviteeSessions[0].accessToken),
   );
   assert.equal(exactRetry.status, 200);
-  assert.deepEqual(await exactRetry.json(), await firstResponse.clone().json());
+  assert.deepEqual(await exactRetry.json(), firstResponseBody);
 
   const skippedRevision = encryptedEnvelope({
     event: inviteViews[0],
@@ -768,6 +818,38 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     .bind(lostSignedAt.logIndex)
     .run();
 
+  for (const index of [0, 1]) {
+    const pendingRead = await api(
+      miniflare,
+      `/api/invites/${inviteViews[index].inviteToken}`,
+      authorizedRequest(inviteeSessions[index].accessToken),
+    );
+    assert.equal(pendingRead.status, 200);
+    const pendingBody = await pendingRead.json();
+    assert.equal(pendingBody.event.responseCertificationStatus, "pending");
+    assert.equal(pendingBody.inviteMetadata.responseCertificationStatus, "pending");
+    assert.equal(
+      pendingBody.inviteMetadata.responseEnvelope.envelopeId,
+      index === 0
+        ? (await database
+            .prepare(
+              `SELECT envelope_id AS envelopeId
+               FROM response_transparency_entries
+               WHERE log_index = ?`,
+            )
+            .bind(lostCertification.logIndex)
+            .first()).envelopeId
+        : (await database
+            .prepare(
+              `SELECT envelope_id AS envelopeId
+               FROM response_transparency_entries
+               WHERE log_index = ?`,
+            )
+            .bind(lostSignedAt.logIndex)
+            .first()).envelopeId,
+    );
+  }
+
   const confirmedBatch = await expectedBatch(
     database,
     eventId,
@@ -796,13 +878,45 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     JSON.stringify({ body: await hostRead.clone().json(), evaluatorRequests: requests.length }),
   );
   const resolved = (await hostRead.json()).events.find((event) => event.id === eventId);
-  assert.deepEqual(resolved.resolution, {
-    status: "confirmed",
-    attendingMemberIds: attendance,
-    resolvedAt: resolved.resolution.resolvedAt,
-  });
+  assert.equal(resolved.resolution.status, "confirmed");
+  assert.equal(resolved.resolution.attendanceRevealed, true);
+  assert.deepEqual(resolved.resolution.attendingMemberIds, attendance);
+  assert.ok(resolved.invitees.every(({ responseHistory }) =>
+    responseHistory?.missedConfirmedEvents === 0
+      && responseHistory?.totalConfirmedEvents === 1
+  ));
+  assert.deepEqual(
+    resolved.resolution.guestStates.map(({ memberId, status, missedDeadline }) => ({
+      memberId,
+      status,
+      missedDeadline,
+    })),
+    invitees.map(({ id }, index) => ({
+      memberId: id,
+      status: index < 5 ? "going" : "cant_commit",
+      missedDeadline: false,
+    })),
+  );
   assert.match(resolved.resolution.resolvedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(requests.length, 1);
+  assert.deepEqual(
+    await database
+      .prepare(
+        `SELECT COUNT(*) AS count, COUNT(DISTINCT phone_number) AS recipients,
+                MIN(delivery_status) AS minimumStatus,
+                MAX(delivery_status) AS maximumStatus
+         FROM resolution_notifications
+         WHERE event_id = ? AND status = 'confirmed'`,
+      )
+      .bind(eventId)
+      .first(),
+    {
+      count: 10,
+      recipients: 10,
+      minimumStatus: "sent",
+      maximumStatus: "sent",
+    },
+  );
   assert.equal(confirmedBatch.slots.length, 9);
   assert.ok(confirmedBatch.slots.every(({ envelopeHash }) => envelopeHash));
   assert.equal(confirmedBatch.batchHash.length, 43);
@@ -843,7 +957,10 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     authorizedRequest(inviteeSessions[0].accessToken),
   );
   assert.equal(tokenRead.status, 200);
-  assert.deepEqual((await tokenRead.json()).event.resolution, resolved.resolution);
+  const tokenBody = await tokenRead.json();
+  assert.deepEqual(tokenBody.event.resolution, resolved.resolution);
+  assert.equal(tokenBody.event.responseCertificationStatus, "certified");
+  assert.equal(tokenBody.inviteMetadata.responseCertificationStatus, "certified");
   assert.equal(requests.length, 1);
 
   const failureEventId = "82000000-0000-4000-8000-000000000002";
@@ -902,6 +1019,13 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     assert.deepEqual(event.resolution, failed.resolution);
   }
   assert.equal(requests.length, 2);
+  assert.equal(
+    await database
+      .prepare("SELECT COUNT(*) AS count FROM resolution_notifications WHERE event_id = ?")
+      .bind(failureEventId)
+      .first("count"),
+    0,
+  );
 });
 
 test("a signed late-missing proof abandons only an uncertified suffix and unwedges the global log", async (t) => {
@@ -978,6 +1102,7 @@ test("a signed late-missing proof abandons only an uncertified suffix and unwedg
       protocolVersion: 1,
       eventId,
       policyHash: created.event.privateResponsePolicy.policyHash,
+      revealAttendance: true,
       slots,
     }),
   );
@@ -1395,7 +1520,7 @@ test("a late stale evaluator cannot overwrite the replacement lease result", asy
   });
 });
 
-test("response cutoff is fail-closed and policy freeze races cannot mutate the winner", async (t) => {
+test("late replies remain editable and policy freeze races cannot mutate the winner", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
   const host = await authenticate(miniflare, testPhone);
@@ -1424,13 +1549,13 @@ test("response cutoff is fail-closed and policy freeze races cannot mutate the w
     `/api/invites/${cutoff.invited.inviteToken}/rsvp`,
     jsonRequest("PUT", { envelope: lateEnvelope }, invitee.accessToken),
   );
-  assert.equal(late.status, 409);
-  assert.equal((await late.json()).error.code, "rsvp_closed");
+  assert.equal(late.status, 200);
+  assert.equal((await late.json()).responseEnvelope.envelopeId, lateEnvelope.envelopeId);
   const lateRows = await database
     .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE event_id = ?")
     .bind(cutoffId)
     .first();
-  assert.equal(lateRows.count, 0);
+  assert.equal(lateRows.count, 1);
 
   const raceId = "82000000-0000-4000-8000-000000000021";
   const raceInviteeId = "83000000-0000-4000-8000-000000000021";

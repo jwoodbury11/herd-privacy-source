@@ -17,7 +17,6 @@ import {
 } from "@/lib/privacy/protocol";
 
 import { getEvaluatorTrustSigningConfig } from "./config";
-import { getDeploymentProfile } from "./config";
 import {
   TransparencyLateMissingEntryError,
   appendTransparencyEntry,
@@ -307,10 +306,6 @@ async function certifyStoredEntry(
   bindings: HerdBindings,
   entry: TransparencyEntryRow,
 ): Promise<{ receiptSignature: string; head: TransparencyHeadRow }> {
-  const localQaSigner =
-    getDeploymentProfile(bindings) === "test" &&
-    bindings.HERD_SOFTWARE_QA_LOCAL_TRUST_SIGNER_ENABLED?.trim().toLowerCase() ===
-      "true";
   let head = await db
     .prepare(`${HEAD_SELECT} WHERE log_index = ?`)
     .bind(entry.logIndex)
@@ -323,10 +318,9 @@ async function certifyStoredEntry(
   if (certification && certification.signingKeyId !== entry.signingKeyId) {
     corruptLog();
   }
-  let receiptSignature = entry.receiptSignature ?? certification!.receipt.signature;
+  const receiptSignature = entry.receiptSignature ?? certification!.receipt.signature;
   if (
     certification &&
-    !localQaSigner &&
     entry.receiptSignature &&
     entry.receiptSignature !== certification.receipt.signature
   ) {
@@ -399,22 +393,10 @@ async function certifyStoredEntry(
       .bind(receiptSignature, new Date().toISOString(), entry.logIndex)
       .run();
   }
-  if (localQaSigner) {
-    const stored = await db
-      .prepare(
-        `SELECT receipt_signature AS receiptSignature
-         FROM response_transparency_entries WHERE log_index = ?`,
-      )
-      .bind(entry.logIndex)
-      .first<{ receiptSignature: string | null }>();
-    if (!stored?.receiptSignature) corruptLog();
-    receiptSignature = stored.receiptSignature;
-  }
   if (!head) corruptLog();
 
   if (
     certification &&
-    !localQaSigner &&
     (head.canonicalPayload !== certification.logHead.canonicalPayload ||
       head.signature !== certification.logHead.signature)
   ) {

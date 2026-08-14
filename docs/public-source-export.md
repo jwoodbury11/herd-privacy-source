@@ -15,7 +15,7 @@ privacy libraries and tests; complete build input closure for the exported
 application surfaces; and the release/export/monitor toolchains.
 It also includes the machine-readable data inventory, retention/privacy
 operations contract, data-contract verifier, sensitive-artifact scanner and its
-tests, and the browser QA harness needed by the exported browser acceptance
+tests, and the browser acceptance harness needed by the exported browser acceptance
 tests. Account deletion is represented end to end: ordinary-API implementation,
 web and native tests/UI, Keychain erasure coverage, public retention contract,
 and the matching privacy-policy disclosure. The confidential evaluator export

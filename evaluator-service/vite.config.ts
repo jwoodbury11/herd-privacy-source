@@ -5,7 +5,7 @@ import { sites } from "./build/sites-vite-plugin.ts";
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
-// This software evaluator is a buildable reference/QA surface. Compilation
+// This software evaluator is a buildable reference surface. Compilation
 // must not depend on Sites' ignored deployment metadata.
 const d1 = null;
 const r2 = null;

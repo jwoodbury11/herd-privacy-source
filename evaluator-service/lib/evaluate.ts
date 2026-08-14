@@ -65,11 +65,6 @@ export type EvaluatorBindings = {
   HERD_EVALUATOR_RESULT_SIGNING_KEY_ID?: string;
   HERD_EVALUATOR_RESULT_SIGNING_PRIVATE_KEY_JWK?: string;
   HERD_EVALUATOR_RELAY_ALLOWED_ORIGIN?: string;
-  HERD_SOFTWARE_QA_TRUST_SIGNER_ENABLED?: string;
-  HERD_EVALUATOR_POLICY_SIGNING_KEY_ID?: string;
-  HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK?: string;
-  HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID?: string;
-  HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK?: string;
 };
 
 export type EvaluatorConfig = {
@@ -167,6 +162,7 @@ export type EvaluationAuthorityClaim = {
   rsvpDeadline: string;
   memberIds: string[];
   batchHash: string;
+  revealAttendance: boolean;
   slots: Array<{
     inviteeId: string;
     envelopeHash: string | null;
@@ -182,6 +178,7 @@ export type EvaluationResult = {
   batchHash: string;
   evaluatorKeyId: string;
   status: "not_confirmed" | "confirmed";
+  revealAttendance: boolean;
   attendingMemberIds?: string[];
 };
 
@@ -709,39 +706,6 @@ function normalizeCanonicalDocument(value: unknown): CanonicalPolicyDocument {
   };
 }
 
-/**
- * Validates the exact policy descriptor accepted by the evaluator without
- * applying evaluation-time deadline checks. Trust-signing endpoints use this
- * before certifying a frozen policy so the software QA signer and the
- * production evaluator accept the same canonical schema and release pins.
- */
-export function validateCanonicalPolicyDocumentForSigning(
-  value: unknown,
-  config: Pick<
-    EvaluatorConfig,
-    "keyId" | "publicKey" | "measurement" | "releaseId"
-  >,
-): string {
-  const canonicalDocument = boundedString(value, 2, 64 * 1024);
-  let parsedDocument: unknown;
-  try {
-    parsedDocument = JSON.parse(canonicalDocument);
-  } catch {
-    invalidRequest();
-  }
-  const document = normalizeCanonicalDocument(parsedDocument);
-  if (
-    JSON.stringify(document) !== canonicalDocument ||
-    document.evaluator.keyId !== config.keyId ||
-    document.evaluator.publicKey !== config.publicKey ||
-    document.evaluator.measurement !== config.measurement ||
-    document.releaseId !== config.releaseId
-  ) {
-    invalidRequest();
-  }
-  return canonicalDocument;
-}
-
 async function normalizePolicy(
   value: unknown,
   config: EvaluatorConfig,
@@ -790,9 +754,6 @@ async function normalizePolicy(
   const frozenAt = canonicalIsoTimestamp(input.frozenAt);
   const nowIso = now.toISOString();
   if (frozenAt > document.rsvpDeadline || frozenAt > nowIso) invalidRequest();
-  if (nowIso < document.rsvpDeadline) {
-    throw new EvaluatorHttpError(409, "deadline_not_reached");
-  }
   return {
     policy: {
       protocolVersion: PROTOCOL_VERSION,
@@ -972,27 +933,41 @@ async function normalizeEvaluationRequest(
   policy: FrozenPolicy;
   document: CanonicalPolicyDocument;
   batchHash: string;
+  revealAttendance: boolean;
   slots: EvaluationSlot[];
 }> {
   if (!Number.isFinite(now.getTime())) serviceUnavailable();
   const input = record(value);
-  exactKeys(input, ["protocolVersion", "eventId", "policy", "batchHash", "slots"]);
+  exactKeys(input, [
+    "protocolVersion",
+    "eventId",
+    "policy",
+    "batchHash",
+    "revealAttendance",
+    "slots",
+  ]);
   if (input.protocolVersion !== PROTOCOL_VERSION) invalidRequest();
   const eventId = uuid(input.eventId);
   const { policy, document } = await normalizePolicy(input.policy, config, now);
   if (document.event.id !== eventId) invalidRequest();
+  if (typeof input.revealAttendance !== "boolean") invalidRequest();
+  const revealAttendance = input.revealAttendance;
+  if (revealAttendance !== (now.toISOString() >= document.rsvpDeadline)) {
+    invalidRequest();
+  }
   const batchHash = encodeBase64Url(decodeBase64Url(input.batchHash, 32));
   const slots = await normalizeSlots(input.slots, eventId, policy, document);
   const batchCommitment = JSON.stringify({
     protocolVersion: PROTOCOL_VERSION,
     eventId,
     policyHash: policy.policyHash,
+    revealAttendance,
     slots: slots.map(({ inviteeId, envelopeHash }) => ({ inviteeId, envelopeHash })),
   });
   if (!constantTimeEqual(await sha256Base64Url(batchCommitment), batchHash)) {
     invalidRequest();
   }
-  return { eventId, policy, document, batchHash, slots };
+  return { eventId, policy, document, batchHash, revealAttendance, slots };
 }
 
 /**
@@ -1005,7 +980,7 @@ export async function evaluationAuthorityClaim(
   config: EvaluatorConfig,
   now: Date,
 ): Promise<EvaluationAuthorityClaim> {
-  const { eventId, policy, document, batchHash, slots } =
+  const { eventId, policy, document, batchHash, revealAttendance, slots } =
     await normalizeEvaluationRequest(value, config, now);
   return {
     protocolVersion: PROTOCOL_VERSION,
@@ -1016,6 +991,7 @@ export async function evaluationAuthorityClaim(
     rsvpDeadline: document.rsvpDeadline,
     memberIds: document.members.map(({ id }) => id),
     batchHash,
+    revealAttendance,
     slots: slots.map(({ inviteeId, envelopeHash, envelope }) => ({
       inviteeId,
       envelopeHash,
@@ -1030,7 +1006,7 @@ export async function evaluate(
   config: EvaluatorConfig,
   now: Date,
 ): Promise<EvaluationResult> {
-  const { eventId, policy, document, batchHash, slots } =
+  const { eventId, policy, document, batchHash, revealAttendance, slots } =
     await normalizeEvaluationRequest(value, config, now);
 
   const inviteeIds = document.members.map(({ id }) => id);
@@ -1073,7 +1049,7 @@ export async function evaluate(
     evaluatorKeyId: config.keyId,
   };
   if (resolution!.status === "not_confirmed") {
-    return { ...base, status: "not_confirmed" };
+    return { ...base, status: "not_confirmed", revealAttendance };
   }
   const attendingMemberIds = resolution!.attendingMemberIds;
   if (
@@ -1089,11 +1065,9 @@ export async function evaluate(
   ) {
     serviceUnavailable();
   }
-  return {
-    ...base,
-    status: "confirmed",
-    attendingMemberIds,
-  };
+  return revealAttendance
+    ? { ...base, status: "confirmed", revealAttendance, attendingMemberIds }
+    : { ...base, status: "confirmed", revealAttendance };
 }
 
 export function jsonResponse(body: unknown, status: number): Response {

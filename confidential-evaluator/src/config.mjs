@@ -21,6 +21,7 @@ import { ConfigurationError } from "./errors.mjs";
 const CONFIG_KEYS = Object.freeze([
   "protocolVersion",
   "releaseId",
+  "policyMeasurement",
   "keyBundleCiphertextFile",
   "kmsKeyResource",
   "transparencyKeyCiphertextFile",
@@ -107,6 +108,7 @@ export function normalizeDeploymentConfig(value) {
   if (input.protocolVersion !== PROTOCOL_VERSION) configurationError();
   const releaseId = boundedText(input.releaseId, 1, 200);
   if (!IDENTIFIER_PATTERN.test(releaseId)) configurationError();
+  const policyMeasurement = normalizeImageDigest(input.policyMeasurement);
   const keyBundleCiphertextFile = absoluteFile(input.keyBundleCiphertextFile);
   const kmsKeyResource = boundedText(input.kmsKeyResource, 1, 512);
   if (!KMS_KEY_RESOURCE_PATTERN.test(kmsKeyResource)) configurationError();
@@ -169,6 +171,7 @@ export function normalizeDeploymentConfig(value) {
   return Object.freeze({
     protocolVersion: PROTOCOL_VERSION,
     releaseId,
+    policyMeasurement,
     keyBundleCiphertextFile,
     kmsKeyResource,
     transparencyKeyCiphertextFile,
@@ -195,7 +198,8 @@ export function bindAttestedImageDigest(config, value) {
   exactKeys(config, CONFIG_KEYS, configurationError);
   return Object.freeze({
     ...config,
-    evaluatorMeasurement: normalizeImageDigest(value),
+    evaluatorMeasurement: config.policyMeasurement,
+    attestedImageDigest: normalizeImageDigest(value),
   });
 }
 

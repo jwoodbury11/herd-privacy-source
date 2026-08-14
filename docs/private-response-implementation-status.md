@@ -1,6 +1,6 @@
 # Private-response implementation status
 
-Last reviewed: 2026-08-03
+Last reviewed: 2026-08-07
 Scope: repository state, not a claim about an unverified external deployment
 
 ## Technical completion
@@ -15,8 +15,9 @@ trust decision before production validation begins.
   no readable replacement fields.
 - Each response key is wrapped independently to the device-held account epoch
   and the release-pinned evaluator. Account-key commitments prevent silent key
-  substitution; an explicit freshly authenticated reset starts a new epoch
-  without pretending to recover old criteria.
+  substitution. An explicit, freshly authenticated device switch starts a new
+  epoch and replaces the active reply without pretending to recover old
+  criteria.
 - Sending invitations freezes an exact canonical policy. A purpose-specific
   confidential-evaluator key signs it, and both clients recompute the hash,
   verify the signature, and enforce the pinned release/evaluator identity.
@@ -48,8 +49,8 @@ trust decision before production validation begins.
   boot, debug-off Intel TDX, approved Confidential Space OS version, empty
   command/environment overrides, `restart_policy == Always`, and memory
   monitoring off.
-- Production configuration fails closed: the production profile forbids QA
-  authentication and direct evaluation, requires the client relay, four
+- Production configuration fails closed: the production profile permits only
+  the explicit SMS-only test aliases and forbids direct evaluation, requires the client relay, four
   distinct key pairs, signed policies, signed/public receipts, exact HTTPS
   destinations, and manifest-derived trust pins.
 - The response store contains only ciphertext, wraps, commitments, and
@@ -78,7 +79,7 @@ The complete gate covers:
   hash-chain, fork, rewind, gap,
   key-change, redirect, oversized-response, and extra-field adversarial cases;
 - valid and mutated web/iOS attestation certificate/JWT claims;
-- isolated QA software-evaluator operation with exact signed release/key/
+- disposable local acceptance operation with exact signed release/key/
   measurement pins, plus production-profile and Release-build rejection;
 - a built-Worker/D1 nine-account acceptance matrix with anonymous invite opens,
   correct and wrong accounts, both reply values, revisions, idempotent retries,
@@ -125,10 +126,8 @@ These are deployment/evidence actions, not missing product algorithms:
 3. Publish the sanitized licensed source export and record its public commit and
    release tag. Never publish the private repository history containing
    third-party reference material or local operational artifacts.
-4. Provision physically/logically separate production and QA origins,
-   databases, auth roots, evaluator keys, release keys, and monitoring state.
-   Existing preview/software-evaluator resources are test resources and must
-   not be described or promoted as confidential production.
+4. Maintain one production origin and system of record. Keep disposable local
+   acceptance resources out of deployed configuration and production data.
 5. Run the live sentinel, database/log, restore, evaluator restart, rollback,
    and key-destruction exercises. Delete any legacy plaintext prototype data
    from live storage and let provider backup-retention windows expire.

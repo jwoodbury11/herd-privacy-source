@@ -39,8 +39,13 @@ output "workload_service_account" {
 }
 
 output "container_image_reference" {
-  description = "Exact workload image reference asserted by Confidential Space. Null during the foundation phase."
-  value       = var.runtime_enabled ? local.image_reference : null
+  description = "Exact blue-slot workload image reference asserted by Confidential Space. Null when absent."
+  value       = var.runtime_enabled ? try(local.image_references.blue, null) : null
+}
+
+output "container_image_references" {
+  description = "Exact workload image reference for every independently managed evaluator slot."
+  value       = var.runtime_enabled ? local.image_references : {}
 }
 
 output "load_balancer_ip" {

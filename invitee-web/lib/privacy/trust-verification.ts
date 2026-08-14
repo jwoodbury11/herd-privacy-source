@@ -15,6 +15,7 @@ import {
   canonicalPrivateResponseReceiptPayload,
   domainSeparatedUtf8,
   normalizeEvaluatorPublicKey,
+  publicRuntimeValue,
   type PrivateResponsePolicyV1,
   type PrivateResponseReceiptV1,
 } from "./protocol";
@@ -115,15 +116,14 @@ async function verifyP256(
 }
 
 export function configuredPolicySigningPin(): P256TrustPin | null {
-  const keyId = process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_KEY_ID;
-  const publicKey = process.env.NEXT_PUBLIC_HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY;
+  const keyId = publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_KEY_ID");
+  const publicKey = publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY");
   return keyId && publicKey ? { keyId, publicKey } : null;
 }
 
 export function configuredTransparencySigningPin(): P256TrustPin | null {
-  const keyId = process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID;
-  const publicKey =
-    process.env.NEXT_PUBLIC_HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY;
+  const keyId = publicRuntimeValue("HERD_EVALUATOR_TRANSPARENCY_SIGNING_KEY_ID");
+  const publicKey = publicRuntimeValue("HERD_EVALUATOR_TRANSPARENCY_SIGNING_PUBLIC_KEY");
   return keyId && publicKey ? { keyId, publicKey } : null;
 }
 

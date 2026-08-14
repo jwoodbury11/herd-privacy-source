@@ -49,7 +49,7 @@ export const sessions = sqliteTable(
     authMode: text("auth_mode", { enum: ["twilio", "test"] })
       .notNull()
       .default("twilio"),
-    qaBypassGeneration: text("qa_bypass_generation"),
+    testAccessGeneration: text("test_access_generation"),
     createdAt: text("created_at").notNull(),
     expiresAt: text("expires_at").notNull(),
     lastSeenAt: text("last_seen_at").notNull(),
@@ -119,6 +119,9 @@ export const events = sqliteTable(
     locationName: text("location_name").notNull().default(""),
     locationAddress: text("location_address").notNull().default(""),
     minimumParticipants: integer("minimum_participants").notNull(),
+    allowsAttendeesToAddGuests: integer("allows_attendees_to_add_guests", {
+      mode: "boolean",
+    }).notNull().default(true),
     rsvpDeadline: text("rsvp_deadline"),
     eventDescription: text("event_description").notNull().default(""),
     invitationsSent: integer("invitations_sent", { mode: "boolean" }).notNull().default(false),
@@ -392,6 +395,37 @@ export const eventResolutions = sqliteTable(
     uniqueIndex("event_resolutions_batch_hash_unique").on(table.batchHash),
     index("event_resolutions_status_idx").on(table.status),
     index("event_resolutions_policy_hash_idx").on(table.policyHash),
+  ],
+);
+
+export const resolutionNotifications = sqliteTable(
+  "resolution_notifications",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    batchHash: text("batch_hash").notNull(),
+    status: text("status", { enum: ["confirmed", "not_confirmed"] }).notNull(),
+    phoneNumber: text("phone_number").notNull(),
+    deliveryStatus: text("delivery_status", {
+      enum: ["dispatching", "sent", "failed", "unknown", "suppressed"],
+    }).notNull(),
+    providerMessageSid: text("provider_message_sid"),
+    errorCode: text("error_code"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("resolution_notifications_event_batch_phone_unique").on(
+      table.eventId,
+      table.batchHash,
+      table.phoneNumber,
+    ),
+    index("resolution_notifications_event_created_idx").on(
+      table.eventId,
+      table.createdAt,
+    ),
   ],
 );
 

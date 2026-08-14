@@ -15,7 +15,6 @@ import {
 } from "@/lib/privacy/protocol";
 
 import {
-  getDeploymentProfile,
   getEvaluatorTrustSigningConfig,
   type EvaluatorTrustSigningConfig,
 } from "./config";
@@ -69,17 +68,6 @@ export class TransparencyLateMissingEntryError extends ApiError {
 
 const MAXIMUM_SIGNER_RESPONSE_BYTES = 16 * 1024;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]{1,120}$/u;
-
-type LocalQaSigningKey = {
-  keyId: string;
-  publicKey: string;
-  privateKey: CryptoKey;
-};
-
-type LocalQaTrustSigner = {
-  policy: LocalQaSigningKey;
-  transparency: LocalQaSigningKey;
-};
 
 function ownedArrayBuffer(value: Uint8Array): ArrayBuffer {
   return Uint8Array.from(value).buffer;
@@ -207,164 +195,6 @@ async function lateMissingEntryProof(
 async function sha256Base64Url(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return bytesToBase64Url(new Uint8Array(digest));
-}
-
-async function importLocalQaSigningKey(
-  keyId: string,
-  publicKey: string,
-  privateJwk: string | undefined,
-): Promise<LocalQaSigningKey> {
-  let parsed: JsonWebKey;
-  try {
-    parsed = JSON.parse(privateJwk ?? "") as JsonWebKey;
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-  if (
-    parsed.kty !== "EC" ||
-    parsed.crv !== "P-256" ||
-    typeof parsed.x !== "string" ||
-    typeof parsed.y !== "string" ||
-    typeof parsed.d !== "string"
-  ) {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-  const derivedPublicKey = bytesToBase64Url(
-    Uint8Array.from([
-      0x04,
-      ...base64UrlToBytes(parsed.x),
-      ...base64UrlToBytes(parsed.y),
-    ]),
-  );
-  if (derivedPublicKey !== publicKey) {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key does not match its release pin.");
-  }
-  try {
-    const privateKey = await crypto.subtle.importKey(
-      "jwk",
-      { ...parsed, ext: false, key_ops: ["sign"] },
-      { name: "ECDSA", namedCurve: "P-256" },
-      false,
-      ["sign"],
-    );
-    return { keyId, publicKey, privateKey };
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer key is invalid.");
-  }
-}
-
-async function localQaTrustSigner(
-  bindings: HerdBindings,
-): Promise<LocalQaTrustSigner | null> {
-  const enabled =
-    bindings.HERD_SOFTWARE_QA_LOCAL_TRUST_SIGNER_ENABLED?.trim().toLowerCase() ===
-    "true";
-  if (!enabled) return null;
-  if (getDeploymentProfile(bindings) !== "test") {
-    throw new ApiError(500, "server_misconfigured", "The local QA trust signer is forbidden in production.");
-  }
-  const config = getEvaluatorTrustSigningConfig(bindings);
-  if (!config) {
-    throw new ApiError(500, "server_misconfigured", "The local QA trust signer pins are missing.");
-  }
-  const [policy, transparency] = await Promise.all([
-    importLocalQaSigningKey(
-      config.policySigningKeyId,
-      config.policySigningPublicKey,
-      bindings.HERD_EVALUATOR_POLICY_SIGNING_PRIVATE_KEY_JWK,
-    ),
-    importLocalQaSigningKey(
-      config.transparencySigningKeyId,
-      config.transparencySigningPublicKey,
-      bindings.HERD_EVALUATOR_TRANSPARENCY_SIGNING_PRIVATE_KEY_JWK,
-    ),
-  ]);
-  return { policy, transparency };
-}
-
-async function localSignature(
-  key: LocalQaSigningKey,
-  domain: string,
-  canonicalPayload: string,
-): Promise<string> {
-  const signature = new Uint8Array(
-    await crypto.subtle.sign(
-      { name: "ECDSA", hash: "SHA-256" },
-      key.privateKey,
-      ownedArrayBuffer(domainSeparatedUtf8(domain, canonicalPayload)),
-    ),
-  );
-  if (signature.length !== PRIVATE_RESPONSE_SIGNATURE_BYTES) {
-    throw new ApiError(500, "server_misconfigured", "The QA trust signer returned an invalid signature.");
-  }
-  return bytesToBase64Url(signature);
-}
-
-async function locallySignPolicy(
-  signer: LocalQaTrustSigner,
-  canonicalDocument: string,
-): Promise<EvaluatorSignature> {
-  return {
-    signingKeyId: signer.policy.keyId,
-    payloadHash: await sha256Base64Url(canonicalDocument),
-    signature: await localSignature(
-      signer.policy,
-      PRIVATE_RESPONSE_POLICY_SIGNATURE_DOMAIN,
-      canonicalDocument,
-    ),
-  };
-}
-
-async function locallyAppendTransparency(
-  signer: LocalQaTrustSigner,
-  canonicalReceiptPayload: string,
-): Promise<EvaluatorTransparencyAppendCertification> {
-  let receipt: Record<string, unknown>;
-  try {
-    receipt = JSON.parse(canonicalReceiptPayload) as Record<string, unknown>;
-  } catch {
-    throw new ApiError(500, "server_misconfigured", "The QA transparency receipt is invalid.");
-  }
-  if (
-    !receipt ||
-    typeof receipt !== "object" ||
-    Array.isArray(receipt) ||
-    JSON.stringify(receipt) !== canonicalReceiptPayload ||
-    !Number.isSafeInteger(receipt.logIndex) ||
-    (receipt.logIndex as number) < 1 ||
-    typeof receipt.entryHash !== "string"
-  ) {
-    throw new ApiError(500, "server_misconfigured", "The QA transparency receipt is invalid.");
-  }
-  const generatedAt = new Date().toISOString();
-  const canonicalHead = JSON.stringify({
-    protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
-    logId: PRIVATE_RESPONSE_LOG_ID,
-    treeSize: receipt.logIndex,
-    headEntryHash: canonicalHash(receipt.entryHash),
-    generatedAt,
-    signingKeyId: signer.transparency.keyId,
-  });
-  return {
-    signingKeyId: signer.transparency.keyId,
-    receipt: {
-      payloadHash: await sha256Base64Url(canonicalReceiptPayload),
-      signature: await localSignature(
-        signer.transparency,
-        PRIVATE_RESPONSE_RECEIPT_SIGNATURE_DOMAIN,
-        canonicalReceiptPayload,
-      ),
-    },
-    logHead: {
-      canonicalPayload: canonicalHead,
-      payloadHash: await sha256Base64Url(canonicalHead),
-      signature: await localSignature(
-        signer.transparency,
-        PRIVATE_RESPONSE_LOG_HEAD_SIGNATURE_DOMAIN,
-        canonicalHead,
-      ),
-    },
-  };
 }
 
 async function verifyP256Signature(
@@ -510,7 +340,10 @@ async function callTransparencyAuthority(
       }),
       redirect: "manual",
     });
-  } catch {
+  } catch (error) {
+    console.error("evaluator_transparency_request_failed", {
+      reason: error instanceof Error ? error.name : "unknown",
+    });
     throw new ApiError(
       503,
       "evaluator_trust_unavailable",
@@ -518,6 +351,9 @@ async function callTransparencyAuthority(
     );
   }
   if (!response.ok) {
+    console.error("evaluator_transparency_certification_rejected", {
+      status: response.status,
+    });
     if (response.status === 409) {
       let value: unknown;
       try {
@@ -641,8 +477,6 @@ export async function signEventPolicy(
   bindings: HerdBindings,
   canonicalDocument: string,
 ): Promise<EvaluatorSignature | null> {
-  const localSigner = await localQaTrustSigner(bindings);
-  if (localSigner) return locallySignPolicy(localSigner, canonicalDocument);
   const config = getEvaluatorTrustSigningConfig(bindings);
   return config ? callPolicySigner(config, canonicalDocument) : null;
 }
@@ -651,10 +485,6 @@ export async function appendTransparencyEntry(
   bindings: HerdBindings,
   canonicalReceiptPayload: string,
 ): Promise<EvaluatorTransparencyAppendCertification | null> {
-  const localSigner = await localQaTrustSigner(bindings);
-  if (localSigner) {
-    return locallyAppendTransparency(localSigner, canonicalReceiptPayload);
-  }
   const config = getEvaluatorTrustSigningConfig(bindings);
   return config
     ? callTransparencyAuthority(config, canonicalReceiptPayload)

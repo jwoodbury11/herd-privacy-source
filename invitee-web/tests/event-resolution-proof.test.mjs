@@ -111,7 +111,9 @@ async function signedResolution(status = "confirmed") {
   );
   return {
     status,
-    ...(status === "confirmed" ? { attendingMemberIds: ["host", inviteeId] } : {}),
+    ...(status === "confirmed"
+      ? { attendingMemberIds: ["host", inviteeId], attendanceRevealed: true }
+      : {}),
     resolvedAt: evaluatedAt,
     attestation: {
       protocolVersion: 1,
