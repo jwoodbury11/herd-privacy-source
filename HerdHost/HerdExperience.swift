@@ -74,10 +74,10 @@ struct HerdExperience: Decodable {
             let topPadding: Double
             let bottomPadding: Double
             let verticalGap: Double
-            let headerToFirstCardGap: Double
+            let sectionGap: Double
             let cardCornerRadius: Double
             let cardPadding: Double
-            let createCardMinimumHeight: Double
+            let cardMinimumHeight: Double
             let profileAvatarDiameter: Double
         }
 
@@ -100,8 +100,6 @@ struct HerdExperience: Decodable {
         let unconfirmedSectionNote: String
         let pastSectionTitle: String
         let emptyInvitesMessage: String
-        let hostStatus: String
-        let inviteeStatus: String
         let dateNotSet: String
         let untitledEvent: String
         let profile: Profile
@@ -136,6 +134,7 @@ struct HerdExperience: Decodable {
         let nameLabel: String
         let namePlaceholder: String
         let phoneLabel: String
+        let phoneImmutableMessage: String
         let addressLabel: String
         let addressPlaceholder: String
         let syncNote: String
@@ -149,13 +148,23 @@ struct HerdExperience: Decodable {
 
     struct Invitation: Decodable {
         struct Status: Decodable {
-            let hosting: String
-            let responded: String
-            let replyNeeded: String
+            let draft: String
             let unconfirmed: String
-            let finalizing: String
             let confirmed: String
             let notConfirmed: String
+        }
+
+        struct Notice: Decodable {
+            let title: String
+            let body: String
+        }
+
+        struct Notices: Decodable {
+            let sending: Notice
+            let deliveryIssue: Notice
+            let takingLonger: Notice
+            let resultUnavailable: Notice
+            let legacyResultUnavailable: Notice
         }
 
         struct Metrics: Decodable {
@@ -209,6 +218,7 @@ struct HerdExperience: Decodable {
         let remainingSuffix: String
         let responsesClosed: String
         let status: Status
+        let notices: Notices
         let metrics: Metrics
         let attendeeEntry: AttendeeEntry
         let privacyCallout: PrivacyCallout
@@ -241,6 +251,7 @@ struct HerdExperience: Decodable {
         let title: String
         let statusDisclosure: String
         let hostLabel: String
+        let hostingLabel: String
         let invitedSuffix: String
         let currentUserLabel: String
         let emptyMessage: String

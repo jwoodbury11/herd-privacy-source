@@ -1178,17 +1178,17 @@ export async function addEventAttendees(
   if (!stored.rsvpDeadline || stored.rsvpDeadline <= nowIso) {
     throw new ApiError(409, "rsvp_closed", "Attendees can’t be added after replies close.");
   }
-  const response = await db
-    .prepare("SELECT 1 AS found FROM response_envelopes WHERE event_id = ? LIMIT 1")
+  const priorResponses = await db
+    .prepare(
+      `SELECT DISTINCT invitee_id AS inviteeId
+       FROM response_envelopes
+       WHERE event_id = ?`,
+    )
     .bind(eventId)
-    .first<{ found: number }>();
-  if (response) {
-    throw new ApiError(
-      409,
-      "event_policy_in_use",
-      "Attendees can’t be added after private replies have started.",
-    );
-  }
+    .all<{ inviteeId: string }>();
+  const replyResetInviteeIds = new Set(
+    priorResponses.results.map(({ inviteeId }) => inviteeId),
+  );
   assertInvitationDeliveryReady(bindings, { invitees: newInvitees });
 
   if (newInvitees.length > 0) {
@@ -1249,25 +1249,34 @@ export async function addEventAttendees(
     );
   }
   statements.push(
-    db.prepare(
-      `DELETE FROM event_resolutions
-       WHERE event_id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM response_envelopes WHERE response_envelopes.event_id = ?
-         )`,
-    ).bind(eventId, eventId),
-    db.prepare(
-      `DELETE FROM event_policies
-       WHERE event_id = ?
-         AND NOT EXISTS (
-           SELECT 1 FROM response_envelopes WHERE response_envelopes.event_id = ?
-         )`,
-    ).bind(eventId, eventId),
+    // A response is cryptographically bound to the exact frozen roster. When
+    // that roster expands, remove the stale ciphertext before replacing the
+    // policy. Public transparency commitments intentionally remain append-only.
+    db.prepare("DELETE FROM response_envelopes WHERE event_id = ?").bind(eventId),
+    db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(eventId),
+    db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(eventId),
     db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(nowIso, eventId),
+    ...(replyResetInviteeIds.size > 0
+      ? [db.prepare(
+          `UPDATE invitation_deliveries
+           SET status = 'pending',
+               provider_message_sid = NULL,
+               provider_status = NULL,
+               dispatch_started_at = NULL,
+               sent_at = NULL,
+               failed_at = NULL,
+               last_error_code = NULL,
+               last_error_message = NULL,
+               suppressed_reason = NULL,
+               updated_at = ?
+           WHERE event_id = ?
+             AND invitee_id IN (${[...replyResetInviteeIds].map(() => "?").join(", ")})`,
+        ).bind(nowIso, eventId, ...replyResetInviteeIds)]
+      : []),
     ...prepareInvitationDeliveryStatements(db, bindings, nextEvent, nowIso),
     prepareInsertPrivateResponsePolicy(db, eventId, nextPolicy, epochFence),
     prepareInsertPendingEventResolution(db, eventId, nextPolicy.policyHash, nowIso),
   );
   await db.batch(statements);
-  await dispatchEventInvitations(db, bindings, eventId);
+  await dispatchEventInvitations(db, bindings, eventId, { replyResetInviteeIds });
 }

@@ -9,7 +9,7 @@
     },
     "welcome": {
       "title": "Make plans happen.",
-      "body": "Unlock more fun events with completely confidential replies.",
+      "body": "Unlock more fun events with completely confidential conditional replies.",
       "phoneLabel": "Sign in with phone number",
       "phonePlaceholder": "+1 (555) 555-5555",
       "requestCodeButton": "Text me a code",
@@ -53,11 +53,9 @@
     "invitesSectionTitle": "Your invites",
     "hostedSectionTitle": "Your hosted events",
     "unconfirmedSectionTitle": "Events never confirmed",
-    "unconfirmedSectionNote": "Auto-deletes 5 days after invite deadline",
+    "unconfirmedSectionNote": "Auto-deletes 5 days after reply deadline",
     "pastSectionTitle": "Past events",
     "emptyInvitesMessage": "No invites yet.",
-    "hostStatus": "Hosting",
-    "inviteeStatus": "Invited",
     "dateNotSet": "Date not set",
     "untitledEvent": "Untitled event",
     "profile": {
@@ -76,10 +74,11 @@
       "topPadding": 10,
       "bottomPadding": 32,
       "verticalGap": 18,
-      "headerToFirstCardGap": 88,
+      "sectionGap": 36,
       "cardCornerRadius": 18,
       "cardPadding": 16,
-      "createCardMinimumHeight": 160,
+      "cardMinimumHeight": 140,
+      "webCardMinimumHeight": 180,
       "profileAvatarDiameter": 44
     },
     "webCreateEventHandoff": {
@@ -94,6 +93,7 @@
     "nameLabel": "Name",
     "namePlaceholder": "Your name",
     "phoneLabel": "Phone number",
+    "phoneImmutableMessage": "Your account phone number cannot be changed.",
     "addressLabel": "Address",
     "addressPlaceholder": "Street, city, state",
     "syncNote": "Your phone number and address are never shown to other guests.",
@@ -131,13 +131,32 @@
     "remainingSuffix": "remaining",
     "responsesClosed": "Deadline passed — replies remain editable",
     "status": {
-      "hosting": "Hosting",
-      "responded": "Responded",
-      "replyNeeded": "Reply needed",
-      "unconfirmed": "Unconfirmed",
-      "finalizing": "Finalizing",
+      "draft": "Draft",
+      "unconfirmed": "Not yet confirmed",
       "confirmed": "Confirmed",
       "notConfirmed": "Not confirmed"
+    },
+    "notices": {
+      "sending": {
+        "title": "Sending invitations",
+        "body": "Herd is still sending one or more invitations."
+      },
+      "deliveryIssue": {
+        "title": "Invitation delivery issue",
+        "body": "One or more invitations could not be confirmed as delivered. Review the guest list for details."
+      },
+      "takingLonger": {
+        "title": "Result taking longer",
+        "body": "Herd is retrying the event result. Herd will only show the event as confirmed after producing a verified confirmation."
+      },
+      "resultUnavailable": {
+        "title": "Result unavailable",
+        "body": "Herd could not safely verify this event’s result and will not show it as confirmed."
+      },
+      "legacyResultUnavailable": {
+        "title": "Result unavailable",
+        "body": "This older event was sent before private response evaluation was enabled, so Herd cannot safely verify its result. Create a new event to use private evaluation."
+      }
     },
     "metrics": {
       "invited": "people",
@@ -183,6 +202,7 @@
     "title": "Attendees",
     "statusDisclosure": "Attendance status appears only after the event is confirmed. Guests must send an encrypted reply before their status can be shown.",
     "hostLabel": "Host",
+    "hostingLabel": "Hosting",
     "invitedSuffix": "people",
     "currentUserLabel": "You",
     "emptyMessage": "The host hasn’t shared the guest list.",
@@ -190,7 +210,7 @@
       "button": "Add attendees",
       "navigationTitle": "Add attendees",
       "title": "Add guests",
-      "body": "Enter each guest’s name and phone number. New guests will receive an invitation.",
+      "body": "Enter each guest’s name and phone number. New guests will receive an invitation. If replies have started, the private guest list will reset and everyone who replied will be asked to reply again.",
       "nameLabel": "Name",
       "namePlaceholder": "Guest name",
       "phoneLabel": "Phone number",
@@ -231,7 +251,7 @@
     "sentButton": "Reply sent",
     "updateButton": "Update my encrypted reply",
     "submittingButton": "Encrypting & saving…",
-    "previewButton": "Preview How Others Will See It",
+    "previewButton": "Preview how others will see it",
     "previewTitle": "See how your reply will show up to others",
     "confirmedPreviewLabel": "If the event is confirmed:",
     "confirmedPreviewBody": "Your attendance conditions are never shown to anyone.",
@@ -342,7 +362,7 @@
       {
         "title": "What can Herd still learn?",
         "paragraphs": [
-          "Your submission is account-linked, not anonymous to Herd. Herd can access your phone and profile, event and guest membership, account and invitation IDs, the response slot, frozen policy, ciphertext hash and revision, plus IP, device, timing, delivery, and security metadata.",
+          "Your submission is account-linked, not anonymous to Herd. Herd can access your phone and profile, event and guest membership, account and invitation IDs, the response slot, frozen policy, ciphertext hash and revision, plus IP, device, timing, delivery, and security metadata. Herd cannot read your encrypted conditional replies.",
           "The SMS provider receives the destination phone number, verification message, and delivery metadata. Encryption protects reply contents; it does not hide account or network metadata."
         ],
         "showsPolicyIdentifiers": false,
@@ -353,7 +373,7 @@
         "paragraphs": [
           "Herd publishes its privacy-critical source under the Apache 2.0 license. A deterministic source archive, signed release manifest, software inventory, assembly provenance, deployment statement, and public release pointer bind reviewable source and exact release artifacts into one evidence chain.",
           "The clients verify signed policies, receipts, log entries, evaluator identity, and final results. A monitor can compare served web assets, verify hashes and signatures, and challenge the live evaluator’s hardware attestation.",
-          "This makes changes detectable, but it is not the same as an independent audit or a mathematical proof that every delivered client came from the published source. At launch, James administers the cloud projects and monitor; that is disclosed self-custody, not independent governance."
+          "This makes changes detectable, but it is not the same as an independent audit or a mathematical proof that every delivered client came from the published source. At launch, the cloud infrastructure and monitoring are managed internally rather than by an independent third party."
         ],
         "showsPolicyIdentifiers": true,
         "showsVerificationLinks": true
@@ -390,7 +410,7 @@
   "success": {
     "title": "Thanks for responding",
     "body": "Your latest reply is saved.",
-    "replyPreviewTitle": "This is how your reply will show up to others",
+    "replyPreviewTitle": "This is how your saved reply will show up to others:",
     "changeWithDeadlinePrefix": "The accountability deadline is",
     "changeWithoutDeadline": "You can change your reply at any time.",
     "viewInvitationButton": "View invitation",

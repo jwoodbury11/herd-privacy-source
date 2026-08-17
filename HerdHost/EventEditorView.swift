@@ -837,6 +837,7 @@ private struct GroupDivider: View {
 private struct GroupedRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .contentShape(.rect)
             .background(configuration.isPressed ? HerdTheme.raisedSurface.opacity(0.65) : .clear)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
@@ -885,7 +886,7 @@ private struct RequiredRuleRow: View {
                     Button {
                         onAddAlternative()
                     } label: {
-                        Label("OR", systemImage: "plus")
+                        Label("or", systemImage: "plus")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 11)

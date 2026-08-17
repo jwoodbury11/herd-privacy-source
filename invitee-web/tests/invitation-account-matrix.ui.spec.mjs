@@ -152,7 +152,7 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
 
     if (index === 0) {
       await test.step("the reply preview dismisses from the visible edge of OK", async () => {
-        await page.getByRole("button", { name: "Preview How Others Will See It" }).click();
+        await page.getByRole("button", { name: "Preview how others will see it" }).click();
         const dialog = page.getByRole("dialog", {
           name: "See how your reply will show up to others",
         });
@@ -206,7 +206,7 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
       { exact: true },
     )).toBeVisible();
     await expect(page.getByRole("heading", {
-      name: "This is how your reply will show up to others",
+      name: "This is how your saved reply will show up to others:",
     })).toBeVisible();
     await expect(page.getByText("If the event is confirmed:", { exact: true })).toBeVisible();
     await expect(page.getByText("This event was not confirmed", { exact: true })).toBeVisible();

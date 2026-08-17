@@ -354,6 +354,7 @@ private struct LocationResultRow: View {
 private struct LocationRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .contentShape(.rect)
             .background(configuration.isPressed ? HerdTheme.raisedSurface.opacity(0.65) : .clear)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }

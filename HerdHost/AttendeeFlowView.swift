@@ -76,8 +76,8 @@ struct AttendeeFlowView: View {
             isSearchFocused = true
         }
         .alert(clearSelectionTitle, isPresented: $showsCancelConfirmation) {
-            Button("Keep Selecting", role: .cancel) {}
-            Button("Clear Selections", role: .destructive) {
+            Button("Keep selecting", role: .cancel) {}
+            Button("Clear selections", role: .destructive) {
                 selectedIDs.removeAll()
                 dismiss()
             }
@@ -397,7 +397,7 @@ struct AttendeeFlowView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button("Open Settings") {
+            Button("Open settings") {
                 guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                 UIApplication.shared.open(url)
             }
