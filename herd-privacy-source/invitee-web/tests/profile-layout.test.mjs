@@ -15,6 +15,10 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
     experience.profile.syncNote,
     "Your phone number and address are never shown to other guests.",
   );
+  assert.equal(
+    experience.profile.phoneImmutableMessage,
+    "Your account phone number cannot be changed.",
+  );
   assert.match(page, /className="screen-page-heading"[\s\S]*PROFILE_EXPERIENCE\.syncNote/u);
   assert.match(page, /className="profile-account-actions"/u);
   assert.match(page, /persistentAction[\s\S]*className="profile-overflow"/u);
@@ -25,6 +29,11 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(page, /disabled=\{!profileHasChanges \|\| profilePending\}/u);
   assert.match(css, /\.profile-inline-action \{[^}]*min-height: 44px/u);
   assert.match(css, /\.profile-save-action \.primary-button:disabled/u);
+  assert.match(page, /className="profile-field-clear"[\s\S]*Clear \$\{PROFILE_EXPERIENCE\.nameLabel\}/u);
+  assert.match(page, /className="profile-field-clear"[\s\S]*Clear \$\{PROFILE_EXPERIENCE\.addressLabel\}/u);
+  assert.match(page, /className="profile-field profile-field-readonly"[\s\S]*profile-phone-info/u);
+  assert.match(page, /role="tooltip"[\s\S]*PROFILE_EXPERIENCE\.phoneImmutableMessage/u);
+  assert.match(css, /\.profile-field:focus-within \.profile-field-clear \{[^}]*opacity: 1/u);
 
   assert.match(swiftHome, /Text\(experience\.syncNote\)[\s\S]*ProfileField/u);
   assert.match(swiftHome, /\.safeAreaInset\(edge: \.bottom[\s\S]*saveFooter/u);
@@ -33,4 +42,6 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(swiftHome, /\.navigationTitle\(""\)/u);
   assert.match(swiftHome, /profile-more-actions/u);
   assert.match(swiftHome, /rectangle\.portrait\.and\.arrow\.right/u);
+  assert.match(swiftHome, /if isFocused && !text\.isEmpty[\s\S]*xmark\.circle\.fill/u);
+  assert.match(swiftHome, /info\.circle[\s\S]*popover\(isPresented: \$showsExplanation/u);
 });

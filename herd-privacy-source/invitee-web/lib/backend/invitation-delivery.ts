@@ -47,6 +47,10 @@ type DeliveryDispatchRow = {
   rsvpDeadline: string | null;
 };
 
+type InvitationDispatchOptions = {
+  replyResetInviteeIds?: ReadonlySet<string>;
+};
+
 type DeliveryProjectionRow = {
   eventId: string;
   inviteeId: string;
@@ -210,7 +214,11 @@ function invitationDate(value: string | null): string {
 export function invitationMessageBody(
   event: Pick<CanonicalEvent, "hostName" | "title" | "eventDate">,
   invitationUrl: string,
+  options: { replyReset?: boolean } = {},
 ): string {
+  if (options.replyReset) {
+    return `Herd: ${event.hostName} added guests to ${event.title}. The private guest list changed, so please send your reply again: ${invitationUrl}. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
+  }
   return `Herd: ${event.hostName} invited you to ${event.title} — ${invitationDate(event.eventDate)}. View details and respond privately: ${invitationUrl}. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
 }
 
@@ -276,6 +284,7 @@ async function dispatchOne(
   db: D1Database,
   bindings: HerdBindings,
   row: DeliveryDispatchRow,
+  options: { replyReset?: boolean } = {},
 ): Promise<void> {
   const nowIso = new Date().toISOString();
   if (!row.rsvpDeadline || row.rsvpDeadline <= nowIso) {
@@ -324,7 +333,7 @@ async function dispatchOne(
   }
 
   const invitationUrl = `${config.publicAppUrl}/invite/${encodeURIComponent(token)}`;
-  const body = invitationMessageBody(row, invitationUrl);
+  const body = invitationMessageBody(row, invitationUrl, options);
   if (body.length > 1_600) {
     await updateDispatchResult(db, row.id, "failed", {
       errorCode: "message_too_long",
@@ -402,6 +411,7 @@ export async function dispatchEventInvitations(
   db: D1Database,
   bindings: HerdBindings,
   eventId: string,
+  options: InvitationDispatchOptions = {},
 ): Promise<InvitationDeliverySummary | null> {
   const result = await db
     .prepare(
@@ -425,6 +435,8 @@ export async function dispatchEventInvitations(
     )
     .bind(eventId)
     .all<DeliveryDispatchRow>();
-  await Promise.all(result.results.map((row) => dispatchOne(db, bindings, row)));
+  await Promise.all(result.results.map((row) => dispatchOne(db, bindings, row, {
+    replyReset: options.replyResetInviteeIds?.has(row.inviteeId),
+  })));
   return getInvitationDeliverySummary(db, eventId);
 }

@@ -36,6 +36,7 @@ extension View {
 struct PlainPressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .contentShape(.rect)
             .opacity(configuration.isPressed ? 0.65 : 1)
             .scaleEffect(configuration.isPressed ? 0.99 : 1)
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, Construction, ContactRound, Crown, EyeOff, HardDrive, Hourglass, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, Construction, ContactRound, Crown, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { herdExperience } from "@/lib/experience";
 import { relayHostEventEvaluation } from "@/lib/client/evaluation-relay";
@@ -69,10 +69,10 @@ const homeLayoutStyle = {
   "--home-top-padding": `${HOME_EXPERIENCE.layout.topPadding}px`,
   "--home-bottom-padding": `${HOME_EXPERIENCE.layout.bottomPadding}px`,
   "--home-vertical-gap": `${HOME_EXPERIENCE.layout.verticalGap}px`,
-  "--home-header-to-first-card-gap": `${HOME_EXPERIENCE.layout.headerToFirstCardGap}px`,
+  "--home-section-gap": `${HOME_EXPERIENCE.layout.sectionGap}px`,
   "--home-card-corner-radius": `${HOME_EXPERIENCE.layout.cardCornerRadius}px`,
   "--home-card-padding": `${HOME_EXPERIENCE.layout.cardPadding}px`,
-  "--home-create-card-min-height": `${HOME_EXPERIENCE.layout.createCardMinimumHeight}px`,
+  "--home-card-min-height": `${HOME_EXPERIENCE.layout.webCardMinimumHeight}px`,
   "--home-profile-avatar-diameter": `${HOME_EXPERIENCE.layout.profileAvatarDiameter}px`,
 } as CSSProperties;
 
@@ -484,10 +484,17 @@ function formatEventDate(value: string | null, includeWeekday = true) {
 
 function formatCardDate(value: string | null) {
   if (!value) return HOME_EXPERIENCE.dateNotSet;
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  const date = new Date(value);
+  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date);
+  const numericDate = new Intl.DateTimeFormat("en-US", {
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
+  const time = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    hour12: true,
+  }).format(date).replace(/\s/gu, "").toLowerCase();
+  return `${weekday} ${numericDate} at ${time}`;
 }
 
 function formatReplyDeadline(value: string) {
@@ -565,37 +572,48 @@ function lastUpdatedLabel(lastUpdatedAt: number | null, now: number) {
 }
 
 function eventStatusLabel(event: ApiEvent) {
-  if (event.role === "host" && event.invitationDelivery?.status === "attention_needed") {
-    return "Delivery issue";
-  }
-  if (event.role === "host" && event.invitationDelivery?.status === "in_progress") {
-    return "Sending";
-  }
+  if (event.role === "host" && !event.invitationsSent) return INVITATION_EXPERIENCE.status.draft;
   if (event.resolution?.status === "confirmed") return INVITATION_EXPERIENCE.status.confirmed;
-  if (event.resolution?.status === "not_confirmed") {
-    return event.rsvpDeadline && Date.parse(event.rsvpDeadline) <= Date.now()
-      ? INVITATION_EXPERIENCE.status.notConfirmed
-      : "Not yet confirmed";
+  return event.rsvpDeadline && Date.parse(event.rsvpDeadline) <= Date.now()
+    ? INVITATION_EXPERIENCE.status.notConfirmed
+    : INVITATION_EXPERIENCE.status.unconfirmed;
+}
+
+function EventInfoNotices({ event }: { event: ApiEvent }) {
+  const notices: Array<{ title: string; body: string }> = [];
+
+  if (event.role === "host" && event.invitationDelivery?.status === "attention_needed") {
+    notices.push(INVITATION_EXPERIENCE.notices.deliveryIssue);
+  } else if (event.role === "host" && event.invitationDelivery?.status === "in_progress") {
+    notices.push(INVITATION_EXPERIENCE.notices.sending);
   }
-  if (event.resolution?.status === "verification_unavailable") return "Result unavailable";
-  if (event.resolution?.status === "pending") {
-    if (event.resolution.retrying) return "Retrying result";
-    return event.rsvpDeadline && Date.parse(event.rsvpDeadline) <= Date.now()
-      ? INVITATION_EXPERIENCE.status.finalizing
-      : INVITATION_EXPERIENCE.status.unconfirmed;
-  }
+
   if (
     event.invitationsSent &&
-    event.rsvpDeadline &&
-    Date.parse(event.rsvpDeadline) <= Date.now() &&
-    !event.privateResponsePolicy
+    !event.privateResponsePolicy &&
+    (!event.resolution || event.resolution.status === "pending")
   ) {
-    return "Result unavailable";
+    notices.push(INVITATION_EXPERIENCE.notices.legacyResultUnavailable);
+  } else if (event.resolution?.status === "verification_unavailable") {
+    notices.push(INVITATION_EXPERIENCE.notices.resultUnavailable);
+  } else if (event.resolution?.status === "pending" && event.resolution.retrying) {
+    notices.push(INVITATION_EXPERIENCE.notices.takingLonger);
   }
-  if (event.role === "host") return INVITATION_EXPERIENCE.status.hosting;
-  return event.hasResponse
-    ? INVITATION_EXPERIENCE.status.responded
-    : INVITATION_EXPERIENCE.status.replyNeeded;
+
+  if (notices.length === 0) return null;
+  return (
+    <div className="event-info-notices" aria-label="Event information">
+      {notices.map((notice) => (
+        <div className="event-info-notice" key={notice.title}>
+          <Info size={17} strokeWidth={1.8} aria-hidden="true" />
+          <span>
+            <strong>{notice.title}</strong>
+            <small>{notice.body}</small>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function deliveryExplanation(status: InvitationDeliveryStatus) {
@@ -873,12 +891,12 @@ function EventCard({
         aria-label={`Open ${event.title || "event"}`}
       ></button>
       <div className="card-topline">
-        <span>{formatCardDate(event.eventDate)}</span>
+        <h2>{event.title || HOME_EXPERIENCE.untitledEvent}</h2>
         <span className="status-pill">
           {eventStatusLabel(event)}
         </span>
       </div>
-      <h2>{event.title || HOME_EXPERIENCE.untitledEvent}</h2>
+      <p className="card-date">{formatCardDate(event.eventDate)}</p>
       {event.locationName ? (
         <p className="location-line">
           <MapPin className="location-icon" size={16} strokeWidth={1.8} aria-hidden="true" />
@@ -955,7 +973,12 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [sheetDragY, setSheetDragY] = useState(0);
   const [replyPreviewOpen, setReplyPreviewOpen] = useState(false);
   const [replyPreviewDragY, setReplyPreviewDragY] = useState(0);
+  const [expandedPrivacySection, setExpandedPrivacySection] = useState<string | null>(
+    PRIVACY_EXPERIENCE.sections[0]?.title ?? null,
+  );
   const otpInputRef = useRef<HTMLInputElement | null>(null);
+  const profileNameInputRef = useRef<HTMLInputElement | null>(null);
+  const profileAddressInputRef = useRef<HTMLInputElement | null>(null);
   const verificationInFlightRef = useRef(false);
   const replySubmissionInFlightRef = useRef(false);
   const pendingReplySubmissionRef = useRef<PendingReplySubmission | null>(null);
@@ -3027,9 +3050,11 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
             />
             <div className="screen-scroll account-status-content">
               <div className={`account-status-summary account-status-${accountStatusNeedsAttention ? "attention" : "healthy"}`}>
-                {accountStatusNeedsAttention
-                  ? <CircleAlert aria-hidden="true" />
-                  : <CheckCircle2 aria-hidden="true" />}
+                <span className="account-status-summary-icon" aria-hidden="true">
+                  {accountStatusNeedsAttention
+                    ? <CircleAlert />
+                    : <CheckCircle2 />}
+                </span>
                 <div>
                   <h2 id="account-status-heading">
                     {accountStatusNeedsAttention ? "Some checks need attention" : "Everything looks good"}
@@ -3193,40 +3218,85 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 </div>
               </div>
               <div className="profile-fields-card">
-                <label className="profile-field">
-                  <span>{PROFILE_EXPERIENCE.nameLabel}</span>
-                  <input
-                    value={profileName}
-                    onChange={(event) => {
-                      setProfileName(event.target.value);
-                      setProfileNotice("");
-                    }}
-                    placeholder={PROFILE_EXPERIENCE.namePlaceholder}
-                    autoComplete="name"
-                  />
-                </label>
+                <div className="profile-field">
+                  <label htmlFor="profile-name">{PROFILE_EXPERIENCE.nameLabel}</label>
+                  <div className="profile-field-control">
+                    <input
+                      ref={profileNameInputRef}
+                      id="profile-name"
+                      value={profileName}
+                      onChange={(event) => {
+                        setProfileName(event.target.value);
+                        setProfileNotice("");
+                      }}
+                      placeholder={PROFILE_EXPERIENCE.namePlaceholder}
+                      autoComplete="name"
+                    />
+                    {profileName ? (
+                      <button
+                        type="button"
+                        className="profile-field-clear"
+                        aria-label={`Clear ${PROFILE_EXPERIENCE.nameLabel}`}
+                        onClick={() => {
+                          setProfileName("");
+                          setProfileNotice("");
+                          profileNameInputRef.current?.focus();
+                        }}
+                      >
+                        <X size={17} strokeWidth={2.2} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
                 <div className="profile-divider" />
-                <label className="profile-field">
+                <div className="profile-field profile-field-readonly">
                   <span>{PROFILE_EXPERIENCE.phoneLabel}</span>
-                  <input
-                    value={formatPhoneNumber(phoneNumber)}
-                    readOnly
-                    aria-readonly="true"
-                  />
-                </label>
+                  <div className="profile-field-control">
+                    <input
+                      value={formatPhoneNumber(phoneNumber)}
+                      readOnly
+                      aria-readonly="true"
+                      aria-label={PROFILE_EXPERIENCE.phoneLabel}
+                    />
+                    <details className="profile-phone-info">
+                      <summary aria-label={PROFILE_EXPERIENCE.phoneImmutableMessage}>
+                        <Info size={17} strokeWidth={2} aria-hidden="true" />
+                      </summary>
+                      <span role="tooltip">{PROFILE_EXPERIENCE.phoneImmutableMessage}</span>
+                    </details>
+                  </div>
+                </div>
                 <div className="profile-divider" />
-                <label className="profile-field">
-                  <span>{PROFILE_EXPERIENCE.addressLabel}</span>
-                  <input
-                    value={address}
-                    onChange={(event) => {
-                      setAddress(event.target.value);
-                      setProfileNotice("");
-                    }}
-                    placeholder={PROFILE_EXPERIENCE.addressPlaceholder}
-                    autoComplete="street-address"
-                  />
-                </label>
+                <div className="profile-field">
+                  <label htmlFor="profile-address">{PROFILE_EXPERIENCE.addressLabel}</label>
+                  <div className="profile-field-control">
+                    <input
+                      ref={profileAddressInputRef}
+                      id="profile-address"
+                      value={address}
+                      onChange={(event) => {
+                        setAddress(event.target.value);
+                        setProfileNotice("");
+                      }}
+                      placeholder={PROFILE_EXPERIENCE.addressPlaceholder}
+                      autoComplete="street-address"
+                    />
+                    {address ? (
+                      <button
+                        type="button"
+                        className="profile-field-clear"
+                        aria-label={`Clear ${PROFILE_EXPERIENCE.addressLabel}`}
+                        onClick={() => {
+                          setAddress("");
+                          setProfileNotice("");
+                          profileAddressInputRef.current?.focus();
+                        }}
+                      >
+                        <X size={17} strokeWidth={2.2} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <div className="profile-account-actions" aria-label="Account actions">
                 <button type="button" className="profile-inline-action" onClick={() => setLogoutConfirmationOpen(true)}>
@@ -3281,12 +3351,13 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
             <div className="screen-scroll event-detail-scroll">
               <section className="event-hero">
                 <div className="event-hero-heading">
-                  <span className={`status-pill ${activeEvent.hasResponse ? "status-responded" : ""}`}>
+                  <span className="status-pill">
                     {eventStatusLabel(activeEvent)}
                   </span>
                   <h2 id="event-heading">{activeEvent.title || INVITATION_EXPERIENCE.untitledEvent}</h2>
                   {activeEvent.eventDescription ? <p className="event-description">{activeEvent.eventDescription}</p> : null}
                 </div>
+                <EventInfoNotices event={activeEvent} />
                 <div className="event-meta-list">
                   <div><span aria-hidden="true"><Clock size={17} strokeWidth={1.8} /></span><p><strong>{activeEvent.eventDate ? formatEventDate(activeEvent.eventDate) : INVITATION_EXPERIENCE.dateNotSet}</strong></p></div>
                   <div><span aria-hidden="true"><MapPin size={16} strokeWidth={1.8} /></span><p><strong>{activeEvent.locationName || INVITATION_EXPERIENCE.locationNotSet}</strong><small>{activeEvent.locationAddress}</small></p></div>
@@ -3405,58 +3476,66 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                       <span>{REPLY_EXPERIENCE.goingCollapsedBody}</span>
                     </span>}
 
-                  {reply === "yes" ? <div className={`condition-builder ${conditionGroups.length ? "" : "condition-builder-empty"}`}>
-                    {conditionGroups.map((group, groupIndex) => (
-                      <div className="condition-row" key={groupIndex}>
-                        <span className="condition-prefix">AND</span>
-                        {group.map((personID, personIndex) => {
-                          const displayName = invitedPeople.find((person) => person.id === personID)?.displayName || "Guest";
-                          return (
-                            <Fragment key={personID}>
-                              {personIndex > 0 ? <span className="condition-operator">OR</span> : null}
-                              <button
-                                type="button"
-                                className="condition-name-pill"
-                                aria-label={`Remove ${displayName} from this condition`}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  removeConditionPerson(groupIndex, personID);
-                                }}
-                              >
-                                <span>{displayName}</span>
-                                <span aria-hidden="true">×</span>
-                              </button>
-                            </Fragment>
-                          );
-                        })}
+                  <div
+                    className="condition-builder-shell"
+                    aria-hidden={reply !== "yes"}
+                  >
+                    <div className="condition-builder">
+                      {conditionGroups.map((group, groupIndex) => (
+                        <div className="condition-row" key={groupIndex}>
+                          <span className="condition-prefix">AND</span>
+                          {group.map((personID, personIndex) => {
+                            const displayName = invitedPeople.find((person) => person.id === personID)?.displayName || "Guest";
+                            return (
+                              <Fragment key={personID}>
+                                {personIndex > 0 ? <span className="condition-operator">OR</span> : null}
+                                <button
+                                  type="button"
+                                  className="condition-name-pill"
+                                  tabIndex={reply === "yes" ? undefined : -1}
+                                  aria-label={`Remove ${displayName} from this condition`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    removeConditionPerson(groupIndex, personID);
+                                  }}
+                                >
+                                  <span>{displayName}</span>
+                                  <span aria-hidden="true">×</span>
+                                </button>
+                              </Fragment>
+                            );
+                          })}
+                          <button
+                            type="button"
+                            className="condition-or-button"
+                            tabIndex={reply === "yes" ? undefined : -1}
+                            aria-label="Add an OR alternative"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setReply("yes");
+                              openConditionSheet(event.currentTarget, groupIndex);
+                            }}
+                          ><span aria-hidden="true">+</span> or</button>
+                          <span className="condition-goes">goes</span>
+                        </div>
+                      ))}
+                      <div className="condition-add-row">
                         <button
                           type="button"
-                          className="condition-or-button"
-                          aria-label="Add an OR alternative"
+                          className="dotted-condition"
+                          tabIndex={reply === "yes" ? undefined : -1}
+                          aria-label={conditionGroups.length ? "Add another required person condition" : "Add a required person condition"}
                           onClick={(event) => {
                             event.stopPropagation();
                             setReply("yes");
-                            openConditionSheet(event.currentTarget, groupIndex);
+                            openConditionSheet(event.currentTarget);
                           }}
-                        ><span aria-hidden="true">+</span> OR</button>
-                        <span className="condition-goes">goes</span>
+                        >
+                          <span>+</span> {REPLY_EXPERIENCE.addCondition}
+                        </button>
                       </div>
-                    ))}
-                    <div className="condition-add-row">
-                      <button
-                        type="button"
-                        className="dotted-condition"
-                        aria-label={conditionGroups.length ? "Add another required person condition" : "Add a required person condition"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setReply("yes");
-                          openConditionSheet(event.currentTarget);
-                        }}
-                      >
-                        <span>+</span> {REPLY_EXPERIENCE.addCondition}
-                      </button>
                     </div>
-                  </div> : null}
+                  </div>
                   </div>
 
                 <button
@@ -3534,7 +3613,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                     <span className="host-crown" aria-hidden="true"><Crown size={10} /></span>
                   </span>
                   <strong className="person-name">{activeEvent?.hostName || ATTENDEES_EXPERIENCE.hostLabel}</strong>
-                  <span className="person-status">Going</span>
+                  <span className="person-status">{ATTENDEES_EXPERIENCE.hostingLabel}</span>
                 </div>
                 {invitedPeople.map((person, index) => {
                   const attendanceStatus = attendeeStatusLabel(activeEvent, person);
@@ -3692,8 +3771,21 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <p className="eyebrow">{PRIVACY_EXPERIENCE.answersEyebrow}</p>
                 <h3>{PRIVACY_EXPERIENCE.answersTitle}</h3>
                 <div className="accordion-stack">
-                  {PRIVACY_EXPERIENCE.sections.map((section, sectionIndex) => (
-                    <details open={sectionIndex === 0} key={section.title}>
+                  {PRIVACY_EXPERIENCE.sections.map((section) => (
+                    <details
+                      open={expandedPrivacySection === section.title}
+                      key={section.title}
+                      onToggle={(event) => {
+                        const isOpen = event.currentTarget.open;
+                        setExpandedPrivacySection((currentSection) => (
+                          isOpen
+                            ? section.title
+                            : currentSection === section.title
+                              ? null
+                              : currentSection
+                        ));
+                      }}
+                    >
                       <summary>{section.title} <span className="accordion-icon" aria-hidden="true">+</span></summary>
                       <div className="accordion-copy">
                         {section.paragraphs.map((paragraph, paragraphIndex) => (

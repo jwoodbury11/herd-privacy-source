@@ -173,7 +173,7 @@ test("root is the normal Herd phone sign-in", async () => {
   const html = await response.text();
   assert.match(html, /<title>Herd — private event replies<\/title>/i);
   assert.match(html, /Make plans happen\./);
-  assert.match(html, /Unlock more fun events with completely confidential replies\./);
+  assert.match(html, /Unlock more fun events with completely confidential conditional replies\./);
   assert.doesNotMatch(html, /to see the same Herd events on web and iPhone/i);
   assert.match(html, /aria-label="Sign in with phone number"/);
   assert.match(html, /<span class="phone-entry-label">Sign in with phone number<\/span>/);
@@ -253,7 +253,11 @@ test("attendees use one collapsing title and one unified, private-status list", 
   assert.match(page, /className="people-list"[\s\S]*person-row person-row-host[\s\S]*host-crown/u);
   assert.doesNotMatch(page, /<section className="host-card">/u);
   assert.doesNotMatch(page, /Hidden until the deadline/u);
-  assert.match(page, /<span className="person-status">Going<\/span>/u);
+  assert.equal(experience.attendees.hostingLabel, "Hosting");
+  assert.match(
+    page,
+    /<span className="person-status">\{ATTENDEES_EXPERIENCE\.hostingLabel\}<\/span>/u,
+  );
   assert.match(page, /event\.role === "host" \|\| event\.hasResponse/u);
   assert.doesNotMatch(page, /<DeliveryCallout delivery=/u);
   assert.match(page, /activeEvent\?\.role === "host"[\s\S]*DeliveryStatusButton guest=/u);
@@ -297,14 +301,51 @@ test("reply countdown remains visible until the deadline and uses compact time p
   assert.match(page, /eventThirdMetric\(activeEvent,[\s\S]*, now\)/u);
   assert.match(
     swiftHome,
-    /case \.notConfirmed:[\s\S]*event\.rsvpDeadline\.map \{ \$0 <= \.now \}[\s\S]*"Not yet confirmed"/u,
+    /func userFacingStatusLabel[\s\S]*rsvpDeadline\.map \{ \$0 <= now \}[\s\S]*status\.unconfirmed/u,
   );
   assert.match(swiftHome, /if minutes > 0 \{ return \("\\\(minutes\)m \\\(seconds % 60\)s"/u);
   assert.match(swiftHome, /return \("\\\(seconds\)s", "left to respond"\)/u);
 });
 
+test("event status pills only describe lifecycle while exceptions use detail notices", async () => {
+  const [experienceSource, page, css, swiftHome] = await Promise.all([
+    readFile(new URL("../shared/HerdExperience.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
+  ]);
+  const experience = JSON.parse(experienceSource);
+
+  assert.equal(experience.home.unconfirmedSectionNote, "Auto-deletes 5 days after reply deadline");
+  assert.deepEqual(experience.invitation.status, {
+    draft: "Draft",
+    unconfirmed: "Not yet confirmed",
+    confirmed: "Confirmed",
+    notConfirmed: "Not confirmed",
+  });
+  assert.match(page, /event\.role === "host" && !event\.invitationsSent\) return INVITATION_EXPERIENCE\.status\.draft/u);
+  assert.match(page, /Date\.parse\(event\.rsvpDeadline\) <= Date\.now\(\)[\s\S]*INVITATION_EXPERIENCE\.status\.notConfirmed/u);
+  const webStatusResolver = page.match(/function eventStatusLabel[\s\S]*?\n\}/u)?.[0] ?? "";
+  assert.doesNotMatch(webStatusResolver, /hasResponse|invitationDelivery|retrying|verification_unavailable|privateResponsePolicy/u);
+  assert.match(page, /function EventInfoNotices/u);
+  assert.match(page, /INVITATION_EXPERIENCE\.notices\.(deliveryIssue|sending|takingLonger|resultUnavailable)/u);
+  assert.match(page, /<EventInfoNotices event=\{activeEvent\} \/>/u);
+  assert.match(css, /\.event-info-notice/u);
+  assert.doesNotMatch(page, /status-responded/u);
+
+  assert.match(swiftHome, /if isHosted && !invitationsSent \{[\s\S]*return status\.draft/u);
+  assert.match(swiftHome, /func userFacingStatusLabel\(at now: Date = \.now\)/u);
+  const swiftStatusResolver = swiftHome.match(/func userFacingStatusLabel[\s\S]*?\n    \}/u)?.[0] ?? "";
+  assert.doesNotMatch(swiftStatusResolver, /hasResponse|invitationDelivery|retrying|verificationUnavailable|hasUnavailableLegacyResult/u);
+  assert.equal((swiftHome.match(/event\.userFacingStatusLabel\(\)/gu) ?? []).length, 2);
+  assert.match(swiftHome, /rsvpDeadline\.map \{ \$0 <= now \} == true[\s\S]*status\.notConfirmed/u);
+  assert.match(swiftHome, /private func eventNotices\(_ event: HerdEvent\)/u);
+  assert.match(swiftHome, /EventInfoNotice\(notice: notices\.(deliveryIssue|sending|takingLonger|resultUnavailable)/u);
+  assert.doesNotMatch(swiftHome, /status\.hosting|status\.responded|status\.replyNeeded|status\.finalizing|"Finalizing"/u);
+});
+
 test("the web and iPhone shared screens consume one experience contract", async () => {
-  const [experienceSource, page, css, privateResponseCrypto, swiftHome, swiftAuth, swiftAuthStore, project] = await Promise.all([
+  const [experienceSource, page, css, privateResponseCrypto, swiftHome, swiftAuth, swiftAuthStore, swiftTheme, swiftEditor, swiftLocation, project] = await Promise.all([
     readFile(new URL("../shared/HerdExperience.json", import.meta.url), "utf8"),
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -312,12 +353,15 @@ test("the web and iPhone shared screens consume one experience contract", async 
     readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
     readFile(new URL("../../HerdHost/AuthenticationView.swift", import.meta.url), "utf8"),
     readFile(new URL("../../HerdHost/AuthStore.swift", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/Theme.swift", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/EventEditorView.swift", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/LocationSearchView.swift", import.meta.url), "utf8"),
     readFile(new URL("../../HerdHost.xcodeproj/project.pbxproj", import.meta.url), "utf8"),
   ]);
   const experience = JSON.parse(experienceSource);
 
   assert.equal(experience.authentication.welcome.title, "Make plans happen.");
-  assert.equal(experience.authentication.welcome.body, "Unlock more fun events with completely confidential replies.");
+  assert.equal(experience.authentication.welcome.body, "Unlock more fun events with completely confidential conditional replies.");
   assert.equal(experience.authentication.welcome.phoneLabel, "Sign in with phone number");
   assert.equal(experience.authentication.welcome.requestCodeButton, "Text me a code");
   assert.equal(experience.authentication.releaseStatus.label, "Pre-release alpha");
@@ -355,6 +399,9 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftHome, /VStack\(spacing: 0\) \{[\s\S]*\.wireframeCard\(padding: 0\)/u);
   assert.match(swiftHome, /Text\(experience\.flowPrivacyLabel\)[\s\S]*\.wireframeCard\(padding: 14\)/u);
   assert.match(swiftHome, /Text\(section\.title\)[\s\S]*\.multilineTextAlignment\(\.leading\)/u);
+  assert.match(swiftHome, /@State private var expandedSectionID: String\?/u);
+  assert.match(swiftHome, /get: \{ expandedSectionID == section\.id \}/u);
+  assert.match(swiftHome, /expandedSectionID = isExpanded \? section\.id : nil/u);
 
   assert.equal(experience.home.title, "Herd events");
   assert.equal(experience.home.createEventTitle, "Host an event");
@@ -363,11 +410,11 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.home.unconfirmedSectionTitle, "Events never confirmed");
   assert.equal(
     experience.home.unconfirmedSectionNote,
-    "Auto-deletes 5 days after invite deadline",
+    "Auto-deletes 5 days after reply deadline",
   );
   assert.equal(experience.home.pastSectionTitle, "Past events");
   assert.equal(experience.home.profile.useGenericIconWithoutName, true);
-  assert.equal(experience.home.layout.headerToFirstCardGap, 88);
+  assert.equal(experience.home.layout.sectionGap, 36);
   assert.doesNotMatch(page, /Welcome back/i);
   assert.match(page, /HOME_EXPERIENCE\.title/);
   assert.match(page, /function homeEventSection/);
@@ -382,6 +429,9 @@ test("the web and iPhone shared screens consume one experience contract", async 
     page.indexOf("export function HerdApp"),
   );
   assert.doesNotMatch(webEventCard, /chevron|ChevronRight/u);
+  assert.ok(webEventCard.indexOf("<h2>") < webEventCard.indexOf("formatCardDate(event.eventDate)"));
+  assert.match(webEventCard, /className="card-date"/u);
+  assert.match(page, /return `\$\{weekday\} \$\{numericDate\} at \$\{time\}`/u);
   assert.equal(
     page.match(/<details className="home-event-disclosure">/gu)?.length,
     2,
@@ -430,6 +480,10 @@ test("the web and iPhone shared screens consume one experience contract", async 
     swiftHome.indexOf("private struct InvitationTitleBottomPreferenceKey"),
   );
   assert.doesNotMatch(swiftEventCard, /Image\(systemName: "chevron\.right"\)/u);
+  assert.ok(swiftEventCard.indexOf("event.title.isEmpty") < swiftEventCard.indexOf("Text(formattedCardDate)"));
+  assert.match(swiftEventCard, /dateFormat = "EEE M\/d"/u);
+  assert.match(swiftEventCard, /dateFormat = "ha"/u);
+  assert.match(swiftEventCard, /return "\\\(weekdayAndDate\) at \\\(time\)"/u);
   assert.match(swiftHome, /@State private var pastEventsExpanded = false/u);
   assert.match(swiftHome, /@State private var unconfirmedEventsExpanded = false/u);
   assert.match(
@@ -444,9 +498,17 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftHome, /scenePhase == \.active/);
   assert.match(project, /HerdExperience\.json in Resources/);
   assert.match(css, /--home-horizontal-padding/);
-  assert.match(css, /--home-header-to-first-card-gap/);
-  assert.match(css, /--home-create-card-min-height/);
-  assert.match(swiftHome, /headerToFirstCardGap - experience\.layout\.verticalGap/);
+  assert.match(css, /--home-section-gap/);
+  assert.match(css, /\.home-content \{[\s\S]*gap: var\(--home-section-gap\)/u);
+  assert.doesNotMatch(css, /home-header-to-first-card-gap/);
+  assert.match(css, /--home-card-min-height/);
+  assert.equal(experience.home.layout.cardMinimumHeight, 140);
+  assert.equal(experience.home.layout.webCardMinimumHeight, 180);
+  assert.match(css, /\.event-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
+  assert.match(css, /\.host-event-create-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
+  assert.match(swiftHome, /cardMinimumHeight - \(cardPadding \* 2\)/u);
+  assert.match(swiftEventCard, /cardMinimumHeight - \(cardPadding \* 2\)/u);
+  assert.match(swiftHome, /spacing: CGFloat\(experience\.layout\.sectionGap\)/);
   assert.match(swiftHome, /font\(\.system\(size: 39, weight: \.bold\)\)/);
   assert.match(swiftHome, /background\(HerdTheme\.surface, in: \.rect\(cornerRadius: 9\)\)/);
   assert.match(swiftHome, /private struct InvitationMetric[\s\S]*VStack\(alignment: \.leading/u);
@@ -454,7 +516,8 @@ test("the web and iPhone shared screens consume one experience contract", async 
     swiftHome,
     /goingResponseOption[\s\S]*?Grid\(alignment: \.leading,[\s\S]*?GridRow\(alignment: \.top\)[\s\S]*?privateCriteriaEditor\(event\)/u,
   );
-  assert.match(page, /\{reply === "yes" \? <div className=\{`condition-builder/u);
+  assert.match(page, /className="condition-builder-shell"[\s\S]*?aria-hidden=\{reply !== "yes"\}/u);
+  assert.match(page, /tabIndex=\{reply === "yes" \? undefined : -1\}/u);
   assert.doesNotMatch(page, /reply-option-header/u);
   assert.match(
     css,
@@ -464,7 +527,19 @@ test("the web and iPhone shared screens consume one experience contract", async 
     css,
     /\.reply-option-no \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: 22px minmax\(0, 1fr\);[\s\S]*?column-gap: 12px;/u,
   );
-  assert.match(css, /\.condition-builder \{[\s\S]*?grid-column: 2;/u);
+  assert.match(
+    css,
+    /\.condition-builder-shell \{[\s\S]*?grid-column: 2;[\s\S]*?grid-template-rows: 0fr;[\s\S]*?overflow: hidden;/u,
+  );
+  assert.match(
+    css,
+    /\.reply-option-yes\.selected \.condition-builder-shell \{[\s\S]*?grid-template-rows: 1fr;/u,
+  );
+  assert.match(css, /\.reply-option \{[\s\S]*?overflow: hidden;/u);
+  assert.match(swiftHome, /private func selectionRadio\(isSelected: Bool\)/u);
+  assert.doesNotMatch(swiftHome, /isSelected \? "largecircle\.fill\.circle" : "circle"/u);
+  assert.equal((swiftHome.match(/\.padding\(\.vertical, 12\)/gu) ?? []).length >= 2, true);
+  assert.equal((swiftHome.match(/\.clipShape\(\.rect\(cornerRadius: 14\)\)/gu) ?? []).length >= 2, true);
   assert.equal(experience.reply.goingCollapsedTitle, "I’m down if…");
   assert.equal(experience.reply.goingCollapsedBody, "Set your encrypted conditions");
 
@@ -523,12 +598,24 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /confirmation: "DELETE"/);
   assert.match(page, /forgetAllAccountRootSecrets\(deletedUserId\)/);
   assert.match(experience.profile.accountDeletion.body, /permanently deletes your profile, hosted events, sessions, account keys, and encrypted replies/i);
-  assert.equal(experience.success.replyPreviewTitle, "This is how your reply will show up to others");
+  assert.equal(experience.success.replyPreviewTitle, "This is how your saved reply will show up to others:");
   assert.match(page, /SUCCESS_EXPERIENCE\.replyPreviewTitle[\s\S]*<ReplyVisibilityPreview/u);
   assert.doesNotMatch(page, /SUCCESS_EXPERIENCE\.(?:savedReply|visibility|goingPrivacy|cantCommitPrivacy)/u);
   assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*ReplyVisibilityPreview/u);
-  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*Divider\(\)[\s\S]*padding\(\.top, 28\)/u);
-  assert.match(css, /\.success-reply-preview > h2 \{[^}]*border-bottom: 1px solid var\(--border\)[^}]*\}/u);
+  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*padding\(\.top, 56\)/u);
+  assert.doesNotMatch(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*Divider\(\)[\s\S]*ReplyVisibilityPreview/u);
+  assert.match(css, /\.success-reply-preview > h2 \{[^}]*margin: 0 0 56px[^}]*\}/u);
+  assert.doesNotMatch(css, /\.success-reply-preview > h2 \{[^}]*(?:border-bottom|padding-bottom)[^}]*\}/u);
+  assert.match(swiftTheme, /struct PlainPressButtonStyle[\s\S]*configuration\.label[\s\S]*\.contentShape\(\.rect\)/u);
+  assert.match(swiftEditor, /struct GroupedRowButtonStyle[\s\S]*configuration\.label[\s\S]*\.contentShape\(\.rect\)/u);
+  assert.match(swiftLocation, /struct LocationRowButtonStyle[\s\S]*configuration\.label[\s\S]*\.contentShape\(\.rect\)/u);
+  assert.match(swiftHome, /Button\(action: onViewInvitation\) \{[\s\S]*?\.frame\(maxWidth: \.infinity\)[\s\S]*?\.contentShape\(\.rect\(cornerRadius: 14\)\)[\s\S]*?\.background\(\.white/u);
+  assert.match(swiftHome, /accessibilityIdentifier\("success-view-invitation"\)/u);
+  assert.match(swiftHome, /accessibilityIdentifier\("success-back-to-events"\)/u);
+  assert.match(css, /button \{[^}]*touch-action: manipulation[^}]*\}/u);
+  assert.match(css, /\.primary-button,[\s\S]*?\.secondary-button \{[^}]*width: 100%[^}]*\}/u);
+  assert.match(page, /<button className="primary-button" onClick=\{\(\) => setScreen\("event"\)\}>/u);
+  assert.match(page, /<button className="secondary-button" onClick=\{\(\) => setScreen\("home"\)\}>/u);
   assert.doesNotMatch(page, /activeEvent\.hasResponse \|\| reply/);
   assert.match(swiftHome, /HerdExperience\.shared\.profile/);
   assert.match(swiftHome, /HerdExperience\.shared\.reply/);
@@ -590,6 +677,8 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(page, /className="privacy-flow-connector"/);
   assert.doesNotMatch(page, /privacy-flow-index/);
   assert.match(page, /PRIVACY_EXPERIENCE\.sections\.map/);
+  assert.match(page, /expandedPrivacySection === section\.title/);
+  assert.match(page, /setExpandedPrivacySection\(\(currentSection\)/);
   assert.match(page, /section\.showsVerificationLinks/);
   assert.match(page, /section\.showsPolicyIdentifiers/);
   assert.match(experience.privacy.navigationTitle, /Prove it to me/);
@@ -605,10 +694,13 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(conditionSection.paragraphs[1], /phone number .* not the decryption key/i);
   assert.match(visibleSection.paragraphs[0], /attending members/i);
   assert.match(metadataSection.paragraphs[0], /account-linked, not anonymous to Herd/i);
+  assert.match(metadataSection.paragraphs[0], /Herd cannot read your encrypted conditional replies\./i);
   assert.equal(verificationSection.showsVerificationLinks, true);
   assert.equal(verificationSection.showsPolicyIdentifiers, true);
   assert.match(verificationSection.paragraphs[0], /Apache 2\.0/i);
   assert.match(verificationSection.paragraphs[2], /not the same as an independent audit/i);
+  assert.match(verificationSection.paragraphs[2], /managed internally rather than by an independent third party/i);
+  assert.doesNotMatch(verificationSection.paragraphs[2], /James/i);
   assert.match(experience.privacy.sourceURL, /github\.com\/jwoodbury11\/herd-privacy-source/);
   assert.match(experience.privacy.releaseEvidenceURL, /\.well-known\/herd-release\.json/);
   assert.doesNotMatch(JSON.stringify(experience.privacy), /evaluator .* not deployed yet/i);

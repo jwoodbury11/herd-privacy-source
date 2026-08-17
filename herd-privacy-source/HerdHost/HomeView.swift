@@ -42,7 +42,7 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(
                     alignment: .leading,
-                    spacing: CGFloat(experience.layout.verticalGap)
+                    spacing: CGFloat(experience.layout.sectionGap)
                 ) {
                     pendingInvitationCard
                     homeHeader
@@ -493,10 +493,6 @@ struct HomeView: View {
             .buttonStyle(PlainPressButtonStyle())
             .accessibilityLabel(experience.profile.accessibilityLabel)
         }
-        .padding(
-            .bottom,
-            max(0, experience.layout.headerToFirstCardGap - experience.layout.verticalGap)
-        )
     }
 
     private func lastUpdatedText(at now: Date) -> String {
@@ -576,6 +572,9 @@ private struct CreateEventCard: View {
     let action: () -> Void
 
     var body: some View {
+        let cardPadding = CGFloat(experience.layout.cardPadding)
+        let cardMinimumHeight = CGFloat(experience.layout.cardMinimumHeight)
+
         Button(action: action) {
             VStack(spacing: 12) {
                 Image(systemName: "plus")
@@ -585,9 +584,9 @@ private struct CreateEventCard: View {
             }
             .frame(
                 maxWidth: .infinity,
-                minHeight: CGFloat(experience.layout.createCardMinimumHeight)
+                minHeight: max(0, cardMinimumHeight - (cardPadding * 2))
             )
-            .padding()
+            .padding(cardPadding)
             .overlay {
                 RoundedRectangle(cornerRadius: CGFloat(experience.layout.cardCornerRadius))
                     .strokeBorder(
@@ -677,16 +676,16 @@ private struct AccountStatusView: View {
     }
 
     private var statusSummary: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: overallState.symbol)
-                .font(.system(size: 24, weight: .semibold))
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(overallState.color)
-                .frame(width: 48, height: 48)
-                .background(overallState.color.opacity(0.13), in: .circle)
+                .frame(width: 34, height: 34)
+                .background(overallState.color.opacity(0.12), in: .circle)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(overallState == .healthy ? "Everything looks good" : "Some checks need attention")
-                    .font(.title3.weight(.bold))
+                    .font(.subheadline.weight(.semibold))
                 Text(summaryDetail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -913,7 +912,7 @@ private struct StatusRow: View {
     var value: String? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(state.color)
@@ -921,14 +920,8 @@ private struct StatusRow: View {
                 .background(state.color.opacity(0.12), in: .circle)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                    Spacer(minLength: 8)
-                    Image(systemName: state.symbol)
-                        .font(.caption)
-                        .foregroundStyle(state.color)
-                }
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
                 Text(detail)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -942,6 +935,13 @@ private struct StatusRow: View {
                         .padding(.top, 2)
                 }
             }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: state.symbol)
+                .font(.caption)
+                .foregroundStyle(state.color)
+                .frame(width: 18, height: 34)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -988,7 +988,8 @@ private struct ProfileView: View {
 
                     ProfileValue(
                         label: experience.phoneLabel,
-                        value: authStore.user?.phoneNumber ?? "Unavailable"
+                        value: authStore.user?.phoneNumber ?? "Unavailable",
+                        explanation: experience.phoneImmutableMessage
                     )
 
                     Divider()
@@ -1291,18 +1292,44 @@ private struct ProfileView: View {
 private struct ProfileValue: View {
     let label: String
     let value: String
+    let explanation: String
+    @State private var showsExplanation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
+                .foregroundStyle(.tertiary)
+
+            HStack(spacing: 12) {
+                Text(value)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    showsExplanation.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(explanation)
+                .popover(isPresented: $showsExplanation, arrowEdge: .top) {
+                    Text(explanation)
+                        .font(.footnote)
+                        .padding(14)
+                        .frame(maxWidth: 240)
+                        .presentationCompactAdaptation(.popover)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+        .background(HerdTheme.raisedSurface.opacity(0.32))
     }
 }
 
@@ -1313,6 +1340,7 @@ private struct ProfileField: View {
     var accessibilityIdentifier: String
     var keyboardType: UIKeyboardType = .default
     var axis: Axis = .horizontal
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1320,11 +1348,27 @@ private struct ProfileField: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            TextField(placeholder, text: $text, axis: axis)
-                .keyboardType(keyboardType)
-                .textContentType(textContentType)
-                .lineLimit(axis == .vertical ? 2...4 : 1...1)
-                .accessibilityIdentifier(accessibilityIdentifier)
+            HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
+                TextField(placeholder, text: $text, axis: axis)
+                    .keyboardType(keyboardType)
+                    .textContentType(textContentType)
+                    .lineLimit(axis == .vertical ? 2...4 : 1...1)
+                    .focused($isFocused)
+                    .accessibilityIdentifier(accessibilityIdentifier)
+
+                if isFocused && !text.isEmpty {
+                    Button {
+                        text = ""
+                        isFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear \(label)")
+                }
+            }
         }
         .padding(16)
     }
@@ -1342,20 +1386,18 @@ private struct ProfileField: View {
 private struct EventCard: View {
     let event: HerdEvent
     let experience: HerdExperience.Home
-    private let invitationExperience = HerdExperience.shared.invitation
 
     var body: some View {
+        let cardPadding = CGFloat(experience.layout.cardPadding)
+        let cardMinimumHeight = CGFloat(experience.layout.cardMinimumHeight)
+
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Text(
-                        event.eventDate?.formatted(date: .abbreviated, time: .shortened)
-                            ?? experience.dateNotSet
-                    )
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                HStack(alignment: .top, spacing: 10) {
+                    Text(event.title.isEmpty ? experience.untitledEvent : event.title)
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.leading)
+                        .layoutPriority(1)
 
                     Spacer(minLength: 4)
 
@@ -1370,9 +1412,11 @@ private struct EventCard: View {
                         }
                 }
 
-                Text(event.title.isEmpty ? experience.untitledEvent : event.title)
-                    .font(.title2.weight(.bold))
-                    .multilineTextAlignment(.leading)
+                Text(formattedCardDate)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
 
             if !event.locationName.isEmpty {
@@ -1403,46 +1447,43 @@ private struct EventCard: View {
                 }
             }
         }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: max(0, cardMinimumHeight - (cardPadding * 2)),
+            alignment: .leading
+        )
         .foregroundStyle(.primary)
         .wireframeCard(
-            padding: CGFloat(experience.layout.cardPadding),
+            padding: cardPadding,
             cornerRadius: CGFloat(experience.layout.cardCornerRadius)
         )
     }
 
+    private var formattedCardDate: String {
+        guard let eventDate = event.eventDate else { return experience.dateNotSet }
+        let weekdayAndDate = Self.cardWeekdayAndDateFormatter.string(from: eventDate)
+        let time = Self.cardTimeFormatter.string(from: eventDate)
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+        return "\(weekdayAndDate) at \(time)"
+    }
+
+    private static let cardWeekdayAndDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE M/d"
+        return formatter
+    }()
+
+    private static let cardTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "ha"
+        return formatter
+    }()
+
     private var statusLabel: String {
-        if event.isHosted && !event.invitationsSent {
-            return "Draft"
-        }
-        if event.hasUnavailableLegacyResult {
-            return "Result unavailable"
-        }
-        if event.isHosted && event.invitationDelivery?.status == .attentionNeeded {
-            return "Delivery issue"
-        }
-        if event.isHosted && event.invitationDelivery?.status == .inProgress {
-            return "Sending"
-        }
-        switch event.resolution?.status {
-        case .confirmed:
-            return "Confirmed"
-        case .notConfirmed:
-            return event.rsvpDeadline.map { $0 <= .now } == true
-                ? invitationExperience.status.notConfirmed
-                : "Not yet confirmed"
-        case .verificationUnavailable:
-            return "Result unavailable"
-        case .pending:
-            if event.resolution?.retrying == true {
-                return "Taking longer"
-            } else if let deadline = event.rsvpDeadline, deadline <= .now {
-                return invitationExperience.status.finalizing
-            } else {
-                return invitationExperience.status.unconfirmed
-            }
-        case nil:
-            return event.isHosted ? experience.hostStatus : experience.inviteeStatus
-        }
+        event.userFacingStatusLabel()
     }
 
     private func metric(value: String, label: String) -> some View {
@@ -1499,6 +1540,22 @@ private extension HerdEvent {
         invitationsSent
             && privateResponsePolicy == nil
             && (resolution == nil || resolution?.status == .pending)
+    }
+
+    func userFacingStatusLabel(at now: Date = .now) -> String {
+        let status = HerdExperience.shared.invitation.status
+
+        if isHosted && !invitationsSent {
+            return status.draft
+        }
+
+        if resolution?.status == .confirmed {
+            return status.confirmed
+        }
+
+        return rsvpDeadline.map { $0 <= now } == true
+            ? status.notConfirmed
+            : status.unconfirmed
     }
 }
 
@@ -1570,11 +1627,8 @@ private struct InvitationDetailView: View {
                             }
 
                             invitationHeader(event)
+                            eventNotices(event)
                             eventDetails(event)
-
-                            if event.hasUnavailableLegacyResult {
-                                unavailableLegacyResultCard
-                            }
 
                             VStack(alignment: .leading, spacing: 16) {
                                 if !(event.resolution?.status == .notConfirmed &&
@@ -2068,6 +2122,27 @@ private struct InvitationDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
+    private func eventNotices(_ event: HerdEvent) -> some View {
+        let notices = invitationExperience.notices
+
+        VStack(alignment: .leading, spacing: 10) {
+            if event.isHosted && event.invitationDelivery?.status == .attentionNeeded {
+                EventInfoNotice(notice: notices.deliveryIssue, icon: "exclamationmark.triangle")
+            } else if event.isHosted && event.invitationDelivery?.status == .inProgress {
+                EventInfoNotice(notice: notices.sending, icon: "paperplane")
+            }
+
+            if event.hasUnavailableLegacyResult {
+                EventInfoNotice(notice: notices.legacyResultUnavailable, icon: "exclamationmark.lock")
+            } else if event.resolution?.status == .verificationUnavailable {
+                EventInfoNotice(notice: notices.resultUnavailable, icon: "exclamationmark.lock")
+            } else if event.resolution?.status == .pending && event.resolution?.retrying == true {
+                EventInfoNotice(notice: notices.takingLonger, icon: "clock.arrow.circlepath")
+            }
+        }
+    }
+
     private func eventDetails(_ event: HerdEvent) -> some View {
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -2180,20 +2255,6 @@ private struct InvitationDetailView: View {
         if event.locationName.isEmpty { return event.locationAddress }
         if event.locationAddress.isEmpty { return event.locationName }
         return "\(event.locationName)\n\(event.locationAddress)"
-    }
-
-    private var unavailableLegacyResultCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Result unavailable", systemImage: "exclamationmark.lock.fill")
-                .font(.headline)
-            Text(
-                "This older event was sent before private response evaluation was enabled, so Herd cannot safely finalize its result. Create a new event to use private finalization."
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .wireframeCard()
     }
 
     private func attendeeDetails(_ event: HerdEvent) -> some View {
@@ -2433,7 +2494,6 @@ private struct InvitationDetailView: View {
             .accessibilityIdentifier("reply-preview-trigger")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(.snappy, value: selectedResponse)
     }
 
     private func replyVisibilityPreview(_ event: HerdEvent) -> some View {
@@ -2519,10 +2579,7 @@ private struct InvitationDetailView: View {
                 Button {
                     selectedResponse = isSelected ? nil : response
                 } label: {
-                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
+                    selectionRadio(isSelected: isSelected)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)
@@ -2540,9 +2597,11 @@ private struct InvitationDetailView: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
-        .frame(minHeight: 62)
+        .padding(.vertical, 12)
+        .frame(minHeight: 68)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
+        .clipShape(.rect(cornerRadius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(
@@ -2565,10 +2624,7 @@ private struct InvitationDetailView: View {
                 Button {
                     selectedResponse = isSelected ? nil : .going
                 } label: {
-                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                        .font(.title3)
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
+                    selectionRadio(isSelected: isSelected)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(
@@ -2593,6 +2649,7 @@ private struct InvitationDetailView: View {
                             .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(replyExperience.goingCollapsedTitle)
@@ -2602,6 +2659,7 @@ private struct InvitationDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
                 }
             }
 
@@ -2612,14 +2670,16 @@ private struct InvitationDetailView: View {
                         .accessibilityHidden(true)
 
                     privateCriteriaEditor(event)
+                        .transition(.opacity)
                 }
             }
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
+        .clipShape(.rect(cornerRadius: 14))
         .overlay {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(
@@ -2632,6 +2692,24 @@ private struct InvitationDetailView: View {
             guard !isSelected else { return }
             selectedResponse = .going
         }
+        .animation(.snappy, value: isSelected)
+    }
+
+    private func selectionRadio(isSelected: Bool) -> some View {
+        ZStack {
+            Circle()
+                .stroke(isSelected ? Color.primary : Color.secondary, lineWidth: 1.5)
+
+            Circle()
+                .fill(Color.primary)
+                .padding(5)
+                .scaleEffect(isSelected ? 1 : 0.6)
+                .opacity(isSelected ? 1 : 0)
+        }
+        .frame(width: 22, height: 22)
+        .frame(width: 44, height: 44)
+        .contentShape(.rect)
+        .animation(.easeInOut(duration: 0.14), value: isSelected)
     }
 
     private func compactMinimumStepper(_ event: HerdEvent) -> some View {
@@ -2733,7 +2811,7 @@ private struct InvitationDetailView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "plus")
-                            Text("OR")
+                            Text("or")
                         }
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 10)
@@ -2888,34 +2966,7 @@ private struct InvitationDetailView: View {
     }
 
     private func statusLabel(for event: HerdEvent) -> String {
-        if event.hasUnavailableLegacyResult {
-            return "Result unavailable"
-        }
-        if event.resolution?.status == .confirmed {
-            return invitationExperience.status.confirmed
-        }
-        if event.resolution?.status == .notConfirmed {
-            return event.rsvpDeadline.map { $0 <= .now } == true
-                ? invitationExperience.status.notConfirmed
-                : "Not yet confirmed"
-        }
-        if event.resolution?.status == .verificationUnavailable {
-            return "Result unavailable"
-        }
-        if event.resolution?.status == .pending {
-            if event.resolution?.retrying == true {
-                return "Taking longer"
-            }
-            return event.rsvpDeadline.map { $0 <= .now } == true
-                ? invitationExperience.status.finalizing
-                : invitationExperience.status.unconfirmed
-        }
-        if event.role == .host {
-            return invitationExperience.status.hosting
-        }
-        return event.hasResponse
-            ? invitationExperience.status.responded
-            : invitationExperience.status.replyNeeded
+        event.userFacingStatusLabel()
     }
 
     private func responseCountdown(
@@ -3003,6 +3054,39 @@ private struct InvitationMetaRow: View {
     }
 }
 
+private struct EventInfoNotice: View {
+    let notice: HerdExperience.Invitation.Notice
+    let icon: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(notice.title)
+                    .font(.subheadline.weight(.semibold))
+                Text(notice.body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HerdTheme.surface, in: .rect(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct InvitationMetric: View {
     let value: String
     let label: String
@@ -3074,7 +3158,7 @@ private struct InvitationAttendees: View {
                         attendeeRow(
                             name: event.hostName,
                             tone: 0,
-                            status: "Going",
+                            status: experience.hostingLabel,
                             isHost: true
                         )
 
@@ -3407,6 +3491,7 @@ private struct InvitationConditionPicker: View {
 private struct InvitationPrivacyProof: View {
     let event: HerdEvent
     private let experience = HerdExperience.shared.privacy
+    @State private var expandedSectionID: String? = HerdExperience.shared.privacy.sections.first?.id
 
     var body: some View {
         ScrollView {
@@ -3454,7 +3539,7 @@ private struct InvitationPrivacyProof: View {
                 VStack(alignment: .leading, spacing: 12) {
                     eyebrow(experience.answersEyebrow)
                     Text(experience.answersTitle).font(.title2.weight(.bold))
-                    ForEach(Array(experience.sections.enumerated()), id: \.element.id) { index, section in
+                    ForEach(experience.sections) { section in
                         PrivacyDisclosureSection(
                             section: section,
                             policy: section.showsPolicyIdentifiers
@@ -3462,7 +3547,14 @@ private struct InvitationPrivacyProof: View {
                                 : nil,
                             sourceURL: experience.sourceURL,
                             releaseEvidenceURL: experience.releaseEvidenceURL,
-                            initiallyExpanded: index == 0
+                            isExpanded: Binding(
+                                get: { expandedSectionID == section.id },
+                                set: { isExpanded in
+                                    withAnimation(.snappy) {
+                                        expandedSectionID = isExpanded ? section.id : nil
+                                    }
+                                }
+                            )
                         )
                     }
                 }
@@ -3553,21 +3645,7 @@ private struct PrivacyDisclosureSection: View {
     let policy: PrivateResponsePolicyV1?
     let sourceURL: String
     let releaseEvidenceURL: String
-    @State private var isExpanded: Bool
-
-    init(
-        section: HerdExperience.Privacy.Section,
-        policy: PrivateResponsePolicyV1?,
-        sourceURL: String,
-        releaseEvidenceURL: String,
-        initiallyExpanded: Bool
-    ) {
-        self.section = section
-        self.policy = policy
-        self.sourceURL = sourceURL
-        self.releaseEvidenceURL = releaseEvidenceURL
-        _isExpanded = State(initialValue: initiallyExpanded)
-    }
+    @Binding var isExpanded: Bool
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -3672,17 +3750,13 @@ private struct InvitationResponseSuccess: View {
                         Text(experience.replyPreviewTitle)
                             .font(.headline)
 
-                        Divider()
-                            .overlay(HerdTheme.subtleBorder)
-                            .padding(.top, 8)
-
                         ReplyVisibilityPreview(
                             displayName: displayName,
                             status: response == .going
                                 ? "Going"
                                 : HerdExperience.shared.reply.cantCommitTitle
                         )
-                        .padding(.top, 28)
+                        .padding(.top, 56)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -3690,25 +3764,33 @@ private struct InvitationResponseSuccess: View {
             }
 
             VStack(spacing: 12) {
-                Button(experience.viewInvitationButton, action: onViewInvitation)
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(.white, in: .rect(cornerRadius: 14))
-                    .buttonStyle(PlainPressButtonStyle())
+                Button(action: onViewInvitation) {
+                    Text(experience.viewInvitationButton)
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .contentShape(.rect(cornerRadius: 14))
+                        .background(.white, in: .rect(cornerRadius: 14))
+                }
+                .buttonStyle(PlainPressButtonStyle())
+                .accessibilityIdentifier("success-view-invitation")
 
-                Button(experience.homeButton, action: onHome)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                    }
-                    .buttonStyle(PlainPressButtonStyle())
+                Button(action: onHome) {
+                    Text(experience.homeButton)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .contentShape(.rect(cornerRadius: 14))
+                        .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(PlainPressButtonStyle())
+                .accessibilityIdentifier("success-back-to-events")
             }
             .padding(20)
             .background(HerdTheme.canvas)

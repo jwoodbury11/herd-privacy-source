@@ -58,8 +58,6 @@ type HomeExperience = {
   unconfirmedSectionNote: string;
   pastSectionTitle: string;
   emptyInvitesMessage: string;
-  hostStatus: string;
-  inviteeStatus: string;
   dateNotSet: string;
   untitledEvent: string;
   profile: {
@@ -78,10 +76,11 @@ type HomeExperience = {
     topPadding: number;
     bottomPadding: number;
     verticalGap: number;
-    headerToFirstCardGap: number;
+    sectionGap: number;
     cardCornerRadius: number;
     cardPadding: number;
-    createCardMinimumHeight: number;
+    cardMinimumHeight: number;
+    webCardMinimumHeight: number;
     profileAvatarDiameter: number;
   };
   webCreateEventHandoff: {
