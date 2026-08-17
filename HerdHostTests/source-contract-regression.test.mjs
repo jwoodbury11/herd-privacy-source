@@ -13,7 +13,7 @@ test("host drafts reopen in the editor and are labeled as drafts", async () => {
   );
   assert.match(
     home,
-    /if event\.isHosted && !event\.invitationsSent \{\s*return "Draft"/u,
+    /if isHosted && !invitationsSent \{\s*return status\.draft/u,
   );
 });
 
