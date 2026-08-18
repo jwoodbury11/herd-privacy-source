@@ -6,6 +6,7 @@ import {
 import {
   MAXIMUM_ATTESTATION_BYTES,
   MAXIMUM_CANONICAL_PAYLOAD_BYTES,
+  POLICY_DESCRIPTOR_CAPABILITY,
   PROTOCOL_VERSION,
 } from "./constants.mjs";
 import {
@@ -200,6 +201,7 @@ export function createEvaluatorApp({
           {
             status: "ok",
             protocolVersion: PROTOCOL_VERSION,
+            capabilities: [POLICY_DESCRIPTOR_CAPABILITY],
             keyBinding: keyStore.metadata,
             keyBindingHash: keyStore.keyBindingHash,
           },

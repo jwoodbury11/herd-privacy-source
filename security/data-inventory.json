@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "databaseSnapshot": "invitee-web/drizzle/meta/0016_snapshot.json",
-  "reviewedAt": "2026-08-12",
+  "databaseSnapshot": "invitee-web/drizzle/meta/0018_snapshot.json",
+  "reviewedAt": "2026-08-17",
   "externalStores": {
     "transparencyAuthorityFirestore": {
       "purpose": "Independently administered monotonic authority for immutable event-policy commitments, authenticated latest-response state, response-log append order, one-time canonical evaluation consumption, and byte-identical certifications across evaluator replicas and restarts.",
@@ -117,6 +117,22 @@
       "sensitivePlaintext": ["phone_number"],
       "sealed": ["token_ciphertext", "token_nonce"],
       "retention": "Event lifetime; removed when the host deletes the event. Invitee account deletion unlinks the account, invalidates the invitation token, and scrubs name, phone, phone hash, and sealed token while preserving an anonymous member placeholder required by frozen event rules."
+    },
+    "operational_alerts": {
+      "purpose": "Bounded service-level incident and recovery notifications from the independently controlled monitor, with no user, account, event, invitation, device, IP, URL, payload, or correlation identifier.",
+      "ordinaryMetadata": ["duration_ms", "failure_class", "id", "recorded_at", "recovered", "release_id", "target"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Automatically deleted after 30 days. The source monitor retains its independent last-good witness for the service lifetime."
+    },
+    "operational_metrics": {
+      "purpose": "Hourly aggregate reliability counters and bounded latency totals for troubleshooting service boundaries without reconstructing a person, account, event, invitation, reply, device, IP address, URL, request body, or correlation trail.",
+      "ordinaryMetadata": ["bucket_started_at", "component", "count", "error_code", "latency_bucket", "latency_max_ms", "latency_total_ms", "operation", "outcome", "release_id", "signal", "status_class", "updated_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Automatically deleted after 30 days. Only fixed low-cardinality dimensions and aggregate counts/latencies are stored; per-request correlation IDs remain solely in short-lived provider logs."
     },
     "resolution_notifications": {
       "purpose": "Durable delivery status and bounded provider diagnostics for final event-resolution notifications.",

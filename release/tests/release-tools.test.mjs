@@ -122,6 +122,19 @@ function evaluatorEpochStatus(
     observedAt: manifest.createdAt,
   };
 }
+
+test("evaluator epoch identity uses the stable policy measurement across image rollouts", () => {
+  const { manifest } = makeReleaseFixture();
+  const descriptor = evaluatorKeyEpochDescriptor(manifest);
+  assert.equal(
+    descriptor.workloadImageDigest,
+    `${manifest.trust.workload.policyMeasurement.algorithm}:${manifest.trust.workload.policyMeasurement.value}`,
+  );
+  assert.notEqual(
+    descriptor.workloadImageDigest,
+    `${manifest.trust.workload.imageDigest.algorithm}:${manifest.trust.workload.imageDigest.value}`,
+  );
+});
 const TEST_ROOT_CERTIFICATE = `-----BEGIN CERTIFICATE-----
 MIIBwDCCAWWgAwIBAgIUSNN9w5LfurZ0bwlrvV4ZGA9EyaIwCgYIKoZIzj0EAwIw
 NTEfMB0GA1UEAwwWSGVyZCBSZWxlYXNlIFRlc3QgUm9vdDESMBAGA1UECgwJSGVy

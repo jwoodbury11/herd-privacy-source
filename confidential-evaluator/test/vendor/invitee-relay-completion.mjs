@@ -1357,9 +1357,8 @@ function evaluationFailureCode(error) {
   }
   return "unexpected_evaluation_error";
 }
-function reportEvaluationFailure(eventId, error) {
+function reportEvaluationFailure(_eventId, error) {
   console.error("Herd event evaluation failed", {
-    eventId,
     code: evaluationFailureCode(error)
   });
 }

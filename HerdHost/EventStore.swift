@@ -779,6 +779,15 @@ final class EventStore {
         for event: HerdEvent,
         context operationContext: OperationContext
     ) async -> Bool {
+        let startedAt = Date()
+        func report(_ outcome: String, _ errorCode: String) async {
+            await apiClient.reportLocalClientTelemetry(
+                operation: "reply.saved.open",
+                outcome: outcome,
+                errorCode: errorCode,
+                durationMilliseconds: Int(Date().timeIntervalSince(startedAt) * 1_000)
+            )
+        }
         guard operationIsCurrent(operationContext) else { return false }
         let activeUserID = operationContext.userID
         guard
@@ -864,26 +873,61 @@ final class EventStore {
                 )
             }
             unavailablePrivateResponseEventID = nil
+            await report("success", "none")
             return true
         } catch APIError.unauthorized {
             guard operationIsCurrent(operationContext) else { return false }
+            await report("failure", "session_expired")
             handleUnauthorized()
             return false
         } catch is CancellationError {
+            await report("cancelled", "cancelled")
             return false
         } catch let error as AccountKeyStoreError {
             guard operationIsCurrent(operationContext) else { return false }
+            let telemetryCode: String
             switch error {
-            case .missingKey, .wrongEpoch, .decryptionFailed, .invalidRecord:
+            case .missingKey:
+                telemetryCode = "saved_reply_missing_key"
                 unavailablePrivateResponseEventID = event.id
-            case .devicePasscodeRequired, .keychain:
-                break
+                errorMessage = nil
+            case .wrongEpoch:
+                telemetryCode = "saved_reply_wrong_epoch"
+                unavailablePrivateResponseEventID = event.id
+                errorMessage = nil
+            case .decryptionFailed:
+                telemetryCode = "saved_reply_key_decryption_failed"
+                unavailablePrivateResponseEventID = event.id
+                errorMessage = nil
+            case .invalidRecord:
+                telemetryCode = "saved_reply_invalid_key_record"
+                unavailablePrivateResponseEventID = event.id
+                errorMessage = nil
+            case .devicePasscodeRequired:
+                telemetryCode = "device_passcode_required"
+                errorMessage = Self.message(for: error)
+            case .keychain:
+                telemetryCode = "keychain_unavailable"
+                errorMessage = Self.message(for: error)
             }
-            errorMessage = Self.message(for: error)
+            await report("failure", telemetryCode)
+            return false
+        } catch let error as PrivateResponseCryptoError {
+            guard operationIsCurrent(operationContext) else { return false }
+            let telemetryCode = Self.savedReplyReplacementErrorCode(for: error)
+                ?? Self.savedReplyBlockedErrorCode(for: error)
+            if Self.savedReplyReplacementErrorCode(for: error) != nil {
+                unavailablePrivateResponseEventID = event.id
+                errorMessage = nil
+            } else {
+                errorMessage = Self.message(for: error)
+            }
+            await report("failure", telemetryCode)
             return false
         } catch {
             guard operationIsCurrent(operationContext) else { return false }
             errorMessage = Self.message(for: error)
+            await report("failure", "saved_reply_open_failed")
             return false
         }
     }
@@ -1268,5 +1312,40 @@ final class EventStore {
             return description
         }
         return error.localizedDescription
+    }
+
+    static func savedReplyReplacementErrorCode(
+        for error: PrivateResponseCryptoError
+    ) -> String? {
+        switch error {
+        case .invalidEnvelope:
+            "saved_reply_invalid_envelope"
+        case .invalidDraft:
+            "saved_reply_invalid_draft"
+        case .decryptionFailed:
+            "saved_reply_decryption_failed"
+        case .invalidPolicy, .invalidReceipt, .untrustedEvaluator,
+             .payloadTooLarge, .randomGenerationFailed:
+            nil
+        }
+    }
+
+    static func savedReplyBlockedErrorCode(
+        for error: PrivateResponseCryptoError
+    ) -> String {
+        switch error {
+        case .invalidPolicy:
+            "saved_reply_invalid_policy"
+        case .invalidReceipt:
+            "saved_reply_invalid_receipt"
+        case .untrustedEvaluator:
+            "saved_reply_untrusted_evaluator"
+        case .payloadTooLarge:
+            "saved_reply_payload_too_large"
+        case .randomGenerationFailed:
+            "saved_reply_random_generation_failed"
+        case .invalidEnvelope, .invalidDraft, .decryptionFailed:
+            savedReplyReplacementErrorCode(for: error) ?? "saved_reply_open_failed"
+        }
     }
 }

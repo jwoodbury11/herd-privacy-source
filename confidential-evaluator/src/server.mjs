@@ -67,6 +67,20 @@ function writeResponse(nodeResponse, response) {
   );
 }
 
+function responseWithCorrelation(response, request) {
+  const supplied = String(request.headers["x-herd-request-id"] ?? "").toLowerCase();
+  const requestId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(supplied)
+    ? supplied
+    : crypto.randomUUID();
+  const headers = new Headers(response.headers);
+  headers.set("x-herd-request-id", requestId);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function start() {
   const deploymentConfig = await loadDeploymentConfig();
   startupStage = "key_access";
@@ -119,7 +133,10 @@ async function start() {
   });
   const server = http.createServer(async (request, response) => {
     try {
-      writeResponse(response, await app(await toFetchRequest(request)));
+      writeResponse(
+        response,
+        responseWithCorrelation(await app(await toFetchRequest(request)), request),
+      );
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 503;
       const code = error instanceof HttpError ? error.code : "service_unavailable";

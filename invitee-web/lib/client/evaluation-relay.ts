@@ -1,3 +1,5 @@
+import { trackedFetch } from "./telemetry";
+
 const MAIN_RESPONSE_LIMIT_BYTES = 600 * 1024;
 const EVALUATOR_RESPONSE_LIMIT_BYTES = 512 * 1024;
 const EVALUATOR_REQUEST_LIMIT_BYTES = 600 * 1024;
@@ -72,7 +74,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(input, { ...init, signal: controller.signal });
+    return await trackedFetch(input, { ...init, signal: controller.signal });
   } finally {
     window.clearTimeout(timeout);
   }

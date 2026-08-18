@@ -1324,7 +1324,7 @@ test("relay CORS preflight is exact and signing configuration fails closed", asy
     assert.equal(response.headers.get("access-control-allow-methods"), "POST");
     assert.equal(
       response.headers.get("access-control-allow-headers"),
-      "content-type, cache-control, pragma",
+      "content-type, cache-control, pragma, x-herd-client-platform, x-herd-request-id",
     );
   });
 
@@ -1339,7 +1339,7 @@ test("relay CORS preflight is exact and signing configuration fails closed", asy
         origin: RELAY_ORIGIN,
         "access-control-request-method": "POST",
         "access-control-request-headers":
-          "Pragma, Content-Type, Cache-Control",
+          "Pragma, Content-Type, Cache-Control, X-Herd-Client-Platform, X-Herd-Request-ID",
       },
     });
     assert.equal(response.status, 204);

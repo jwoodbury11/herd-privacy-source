@@ -135,7 +135,7 @@ test(
     t.after(() => harness.stop());
 
     assert.equal(harness.baseUrl.hostname, "127.0.0.1");
-    assert.equal(harness.migrationCount, 17);
+    assert.equal(harness.migrationCount, 19);
     assert.equal(harness.scenario.counts.testAccountCount, 9);
     assert.equal(harness.scenario.counts.inviteeCount, 8);
     assert.equal(harness.scenario.counts.sentCount, 8);

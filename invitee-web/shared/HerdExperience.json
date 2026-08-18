@@ -159,8 +159,8 @@
       }
     },
     "metrics": {
-      "invited": "people",
-      "minimum": "minimum",
+      "invited": "invited",
+      "minimum": "min attendees",
       "leftToRespond": "left to respond",
       "attending": "attending",
       "notConfirmed": "not confirmed"
@@ -262,8 +262,8 @@
     "notConfirmedPreviewTitle": "This event was not confirmed",
     "notConfirmedPreviewBody": "Zero information is shown to anybody.",
     "previewDismissButton": "OK",
-    "savedTitle": "Your private reply is saved",
-    "unlockButton": "Unlock my saved reply",
+    "savedTitle": "Your encrypted reply has been sent",
+    "unlockButton": "View my encrypted reply",
     "closedMessage": "The reply deadline has passed.",
     "missingLinkMessage": "This invitation doesn’t have an active reply link.",
     "deviceSwitch": {

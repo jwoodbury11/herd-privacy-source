@@ -326,7 +326,10 @@ struct AttendeeFlowView: View {
                 .focused($isSearchFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .submitLabel(.search)
+                .submitLabel(.done)
+                .onSubmit {
+                    isSearchFocused = false
+                }
         }
         .padding(.horizontal, 16)
         .frame(height: 50)

@@ -219,7 +219,8 @@ test("participant counts include the host across web and iPhone surfaces", async
   assert.match(page, /peopleCountLabel\(invitedPeople\.length \+ 1\)/u);
   assert.match(page, /AvatarStack hostName=\{activeEvent\.hostName\}/u);
   assert.equal(experience.home.metrics.invited, "people");
-  assert.equal(experience.invitation.metrics.invited, "people");
+  assert.equal(experience.invitation.metrics.invited, "invited");
+  assert.equal(experience.invitation.metrics.minimum, "min attendees");
   assert.equal(experience.invitation.attendeeEntry.peopleInvitedSuffix, "people invited");
   assert.equal(experience.attendees.invitedSuffix, "people");
 
@@ -542,6 +543,30 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal((swiftHome.match(/\.clipShape\(\.rect\(cornerRadius: 14\)\)/gu) ?? []).length >= 2, true);
   assert.equal(experience.reply.goingCollapsedTitle, "I’m down if…");
   assert.equal(experience.reply.goingCollapsedBody, "Set your encrypted conditions");
+  assert.equal(experience.reply.savedTitle, "Your encrypted reply has been sent");
+  assert.equal(experience.reply.unlockButton, "View my encrypted reply");
+  assert.match(
+    swiftHome,
+    /primaryReplyActionLabel\(\s*title: replyExperience\.unlockButton,\s*systemImage: "faceid"\s*\)/u,
+  );
+  assert.match(
+    swiftHome,
+    /private func primaryReplyActionLabel\([\s\S]*?\.font\(\.headline\)[\s\S]*?\.foregroundStyle\(\.black\)[\s\S]*?\.frame\(maxWidth: \.infinity\)[\s\S]*?\.padding\(\.vertical, 15\)[\s\S]*?\.background\(\.white, in: \.rect\(cornerRadius: 14\)\)/u,
+  );
+  assert.equal((swiftHome.match(/primaryReplyActionLabel\(/gu) ?? []).length, 4);
+  assert.match(
+    swiftHome,
+    /if replyIsUnavailable \{[\s\S]*?primaryReplyActionLabel\(title: replyExperience\.replaceButton\)[\s\S]*?accessibilityIdentifier\("reply-replace-unavailable"\)[\s\S]*?\} else \{[\s\S]*?systemImage: "faceid"[\s\S]*?accessibilityIdentifier\("reply-unlock"\)/u,
+  );
+  assert.match(
+    swiftEditor,
+    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.tint\(Color\(uiColor: \.systemGreen\)\)[\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
+  );
+  assert.match(
+    page,
+    /className="herd-switch"[\s\S]*?role="switch"[\s\S]*?aria-checked=\{activeEvent\.allowsAttendeesToAddGuests\}/u,
+  );
+  assert.match(css, /\.herd-switch\[aria-checked="true"\][\s\S]*?background: var\(--green-deep\)/u);
 
   for (const section of ["profile", "invitation", "attendees", "reply", "privacy", "success"]) {
     assert.ok(experience[section], `missing shared ${section} experience`);

@@ -43,7 +43,13 @@ struct EventEditorView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
+                // Keep the editor hierarchy eagerly materialized. On iOS 26,
+                // querying an off-screen control in a LazyVStack immediately
+                // after a scroll can wedge the accessibility snapshot and the
+                // app-idle handshake, even though the UI remains responsive.
+                // This form is intentionally small, so eager layout is cheap
+                // and keeps VoiceOver and XCUITest traversal deterministic.
+                VStack(alignment: .leading, spacing: 20) {
                     if draft.invitationsSent {
                         sentEventStatus
                     }
@@ -198,6 +204,7 @@ struct EventEditorView: View {
                                     Text("Allow attendees to add guests")
                                 }
                             }
+                            .tint(Color(uiColor: .systemGreen))
                             .padding(.horizontal, 16)
                             .frame(minHeight: 66)
                             .accessibilityIdentifier("event-allow-attendee-guests")

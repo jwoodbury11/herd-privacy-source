@@ -683,6 +683,8 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("ios", forHTTPHeaderField: "X-Herd-Client-Platform")
+        request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "X-Herd-Request-ID")
         if method != "GET" && method != "DELETE" {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
@@ -703,15 +705,55 @@ actor APIClient {
         do {
             return try HerdJSON.makeDecoder().decode(responseType, from: data)
         } catch {
+            reportClientTelemetry(
+                request: request,
+                signal: "client_decode",
+                outcome: "failure",
+                statusCode: 0,
+                errorCode: "invalid_response",
+                durationMilliseconds: 0
+            )
             throw APIError.invalidResponse
         }
     }
 
     private func performData(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await urlSession.data(for: request)
+        let startedAt = ContinuousClock.now
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await urlSession.data(for: request)
+        } catch {
+            reportClientTelemetry(
+                request: request,
+                signal: "client_api_request",
+                outcome: error is CancellationError ? "cancelled" : "failure",
+                statusCode: 0,
+                errorCode: error is CancellationError ? "cancelled" : "network_error",
+                durationMilliseconds: milliseconds(since: startedAt)
+            )
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
+            reportClientTelemetry(
+                request: request,
+                signal: "client_api_request",
+                outcome: "failure",
+                statusCode: 0,
+                errorCode: "invalid_response",
+                durationMilliseconds: milliseconds(since: startedAt)
+            )
             throw APIError.invalidResponse
         }
+        reportClientTelemetry(
+            request: request,
+            signal: "client_api_request",
+            outcome: (200..<300).contains(httpResponse.statusCode) ? "success" : "failure",
+            statusCode: httpResponse.statusCode,
+            errorCode: httpResponse.value(forHTTPHeaderField: "X-Herd-Error-Code") ?? "none",
+            durationMilliseconds: milliseconds(since: startedAt),
+            responseRequestID: httpResponse.value(forHTTPHeaderField: "X-Herd-Request-ID")
+        )
         guard (200..<300).contains(httpResponse.statusCode) else {
             if
                 httpResponse.statusCode == 401,
@@ -738,7 +780,22 @@ actor APIClient {
         using session: URLSession,
         limit: Int
     ) async throws -> (Data, HTTPURLResponse) {
-        let (bytes, response) = try await session.bytes(for: request)
+        let startedAt = ContinuousClock.now
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch {
+            reportClientTelemetry(
+                request: request,
+                signal: "client_api_request",
+                outcome: error is CancellationError ? "cancelled" : "failure",
+                statusCode: 0,
+                errorCode: error is CancellationError ? "cancelled" : "network_error",
+                durationMilliseconds: milliseconds(since: startedAt)
+            )
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             bytes.task.cancel()
             throw APIError.invalidResponse
@@ -767,9 +824,127 @@ actor APIClient {
             }
         } catch {
             bytes.task.cancel()
+            reportClientTelemetry(
+                request: request,
+                signal: "client_api_request",
+                outcome: error is CancellationError ? "cancelled" : "failure",
+                statusCode: httpResponse.statusCode,
+                errorCode: error is CancellationError ? "cancelled" : "response_read_error",
+                durationMilliseconds: milliseconds(since: startedAt),
+                responseRequestID: httpResponse.value(forHTTPHeaderField: "X-Herd-Request-ID")
+            )
             throw error
         }
+        reportClientTelemetry(
+            request: request,
+            signal: "client_api_request",
+            outcome: (200..<300).contains(httpResponse.statusCode) ? "success" : "failure",
+            statusCode: httpResponse.statusCode,
+            errorCode: httpResponse.value(forHTTPHeaderField: "X-Herd-Error-Code") ?? "none",
+            durationMilliseconds: milliseconds(since: startedAt),
+            responseRequestID: httpResponse.value(forHTTPHeaderField: "X-Herd-Request-ID")
+        )
         return (data, httpResponse)
+    }
+
+    private func milliseconds(since instant: ContinuousClock.Instant) -> Int {
+        let duration = instant.duration(to: .now)
+        let components = duration.components
+        let milliseconds = components.seconds * 1_000 + components.attoseconds / 1_000_000_000_000_000
+        return max(0, min(120_000, Int(milliseconds)))
+    }
+
+    private func telemetryOperation(for request: URLRequest) -> String {
+        let method = (request.httpMethod ?? "GET").lowercased()
+        guard let path = request.url?.path else { return "unknown" }
+        let parts = path.split(separator: "/").map(String.init)
+        let normalized = parts.enumerated().map { index, part in
+            guard index > 0 else { return part }
+            let prior = parts[index - 1]
+            return prior == "events" ? "event" : prior == "invites" ? "invite" : part
+        }
+        .joined(separator: ".")
+        let route = normalized.hasPrefix("api.") ? String(normalized.dropFirst(4)) : normalized
+        let value = "\(method).\(route.replacingOccurrences(of: ":", with: ""))"
+        return String(value.prefix(80)).lowercased()
+    }
+
+    private func reportClientTelemetry(
+        request: URLRequest,
+        signal: String,
+        outcome: String,
+        statusCode: Int,
+        errorCode: String,
+        durationMilliseconds: Int,
+        responseRequestID: String? = nil
+    ) {
+        // Unit/UI tests inject non-production API origins. Never let best-effort
+        // diagnostics escape those isolated environments or add test latency.
+        guard baseURL.host == "app.herdprivacy.com" else { return }
+        guard var url = URL(string: "/api/telemetry", relativeTo: baseURL)?.absoluteURL else { return }
+        url = url.standardized
+        let requestID = responseRequestID ?? request.value(forHTTPHeaderField: "X-Herd-Request-ID") ?? UUID().uuidString.lowercased()
+        let body: [String: Any] = [
+            "schemaVersion": 1,
+            "platform": "ios",
+            "signal": signal,
+            "operation": telemetryOperation(for: request),
+            "outcome": outcome,
+            "statusCode": statusCode,
+            "errorCode": errorCode.lowercased().filter { $0.isLetter || $0.isNumber || "._:-".contains($0) }.prefix(80).description,
+            "durationMs": durationMilliseconds,
+            "correlationId": requestID.lowercased(),
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            var telemetryRequest = URLRequest(url: url)
+            telemetryRequest.httpMethod = "POST"
+            telemetryRequest.httpBody = payload
+            telemetryRequest.timeoutInterval = 3
+            telemetryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            telemetryRequest.setValue("ios", forHTTPHeaderField: "X-Herd-Client-Platform")
+            _ = try? await URLSession.shared.data(for: telemetryRequest)
+        }
+    }
+
+    func reportLocalClientTelemetry(
+        operation: String,
+        outcome: String,
+        errorCode: String,
+        durationMilliseconds: Int
+    ) {
+        // Local privacy operations have no HTTP request to correlate. Emit only
+        // a fresh run-scoped ID and fixed, low-cardinality outcome fields.
+        guard baseURL.host == "app.herdprivacy.com" else { return }
+        guard var url = URL(string: "/api/telemetry", relativeTo: baseURL)?.absoluteURL else { return }
+        url = url.standardized
+        let safeOperation = operation.lowercased().filter {
+            $0.isLetter || $0.isNumber || "._:-".contains($0)
+        }.prefix(80).description
+        let safeErrorCode = errorCode.lowercased().filter {
+            $0.isLetter || $0.isNumber || "._:-".contains($0)
+        }.prefix(80).description
+        let body: [String: Any] = [
+            "schemaVersion": 1,
+            "platform": "ios",
+            "signal": "client_decode",
+            "operation": safeOperation,
+            "outcome": outcome,
+            "statusCode": 0,
+            "errorCode": safeErrorCode,
+            "durationMs": max(0, min(120_000, durationMilliseconds)),
+            "correlationId": UUID().uuidString.lowercased(),
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return }
+        Task {
+            var telemetryRequest = URLRequest(url: url)
+            telemetryRequest.httpMethod = "POST"
+            telemetryRequest.httpBody = payload
+            telemetryRequest.timeoutInterval = 3
+            telemetryRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            telemetryRequest.setValue("ios", forHTTPHeaderField: "X-Herd-Client-Platform")
+            _ = try? await URLSession.shared.data(for: telemetryRequest)
+        }
     }
 
     private func requireSuccess(

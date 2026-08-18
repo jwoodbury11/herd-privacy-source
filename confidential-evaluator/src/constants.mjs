@@ -1,4 +1,6 @@
 export const PROTOCOL_VERSION = 1;
+export const POLICY_DESCRIPTOR_CAPABILITY =
+  "policy_descriptor_evaluator_measurement_v1";
 export const CIPHER_SUITE = "P256_HKDF_SHA256_AES256_GCM";
 export const DEFAULT_PORT = 8080;
 export const DEFAULT_CONFIG_FILE = "/app/config/deployment.json";

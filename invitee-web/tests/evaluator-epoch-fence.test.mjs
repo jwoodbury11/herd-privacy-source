@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { Miniflare, NoOpLog } from "miniflare";
+import { createFetchMock, Miniflare, NoOpLog } from "miniflare";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
@@ -97,7 +97,12 @@ async function javascriptModules(directory) {
   return files;
 }
 
-async function createHarness(bindings) {
+async function createHarness(
+  bindings,
+  {
+    capabilities = ["policy_descriptor_evaluator_measurement_v1"],
+  } = {},
+) {
   await access(path.join(serverRoot, "index.js"));
   const modulePaths = await javascriptModules(serverRoot);
   modulePaths.sort((left, right) => {
@@ -106,6 +111,19 @@ async function createHarness(bindings) {
     if (right === entry) return 1;
     return left.localeCompare(right);
   });
+  const fetchMock = createFetchMock();
+  fetchMock.disableNetConnect();
+  fetchMock
+    .get("https://evaluator.test")
+    .intercept({ method: "GET", path: "/readyz" })
+    .reply(200, {
+      status: "ok",
+      protocolVersion: 1,
+      capabilities,
+      keyBinding: {},
+      keyBindingHash: "test-key-binding-hash",
+    })
+    .persist();
   const options = {
     modules: modulePaths.map((modulePath) => ({ type: "ESModule", path: modulePath })),
     modulesRoot: serverRoot,
@@ -114,6 +132,7 @@ async function createHarness(bindings) {
     log: new NoOpLog(),
     d1Databases: { DB: `herd-evaluator-epoch-${process.pid}-${Date.now()}` },
     bindings,
+    fetchMock,
   };
   const miniflare = new Miniflare(options);
   let database = await miniflare.getD1Database("DB");
@@ -227,6 +246,24 @@ async function insertPolicy(database, {
     .run();
 }
 
+test("release readiness rejects an evaluator that lacks the deployed policy capability", async (t) => {
+  const signingPublicKey = await publicKey();
+  const bindings = await epochBindings({
+    epochId: "evaluator-key-epoch-incompatible",
+    measurement: `sha256:${"7".repeat(64)}`,
+    responseDecryption: { keyId: "response-decryption-incompatible", publicKey: await publicKey() },
+    evaluationResultSigning: { keyId: "result-signing-incompatible", publicKey: signingPublicKey },
+    policySigning: { keyId: "policy-signing-incompatible", publicKey: await publicKey() },
+    responseTransparency: { keyId: "transparency-signing-incompatible", publicKey: await publicKey() },
+  });
+  const harness = await createHarness(bindings, { capabilities: [] });
+  t.after(() => harness.miniflare.dispose());
+
+  const response = await dispatch(harness.miniflare, "/api/internal/release-readiness");
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error?.code, "evaluator_incompatible");
+});
+
 test("D1 enforces a single drained evaluator epoch and preserves transition evidence", async (t) => {
   const transparencyKey = {
     keyId: "global-response-transparency-v1",
@@ -280,6 +317,10 @@ test("D1 enforces a single drained evaluator epoch and preserves transition evid
   let readiness = await response.json();
   assert.equal(readiness.readyForPrivateEventCreation, true);
   assert.equal(readiness.runtimeMatchesState, true);
+  assert.equal(
+    readiness.evaluatorCompatibility.policyDescriptorCapability,
+    "policy_descriptor_evaluator_measurement_v1",
+  );
 
   const mismatchedDescriptorBindings = {
     ...oldBindings,

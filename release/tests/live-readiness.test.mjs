@@ -18,6 +18,10 @@ function sample(overrides = {}) {
     workloadImageDigest: digest,
     epochDescriptorSha256: descriptor,
     runtimeMatchesState: true,
+    evaluatorCompatibility: {
+      protocolVersion: 1,
+      policyDescriptorCapability: "policy_descriptor_evaluator_measurement_v1",
+    },
     state: { mode: "active", generation: 2 },
     ...overrides,
   };
@@ -28,12 +32,18 @@ test("live readiness requires the exact private-event creation fence", () => {
     artifactReleaseId: "2026.08.04.1",
     evaluatorKeyEpochId: "herd-evaluator-epoch-2026-08-04-v1",
     workloadImageDigest: digest,
+    evaluatorPolicyDescriptorCapability:
+      "policy_descriptor_evaluator_measurement_v1",
     epochDescriptorSha256: descriptor,
     stateGeneration: 2,
   });
   assert.throws(
     () => verifyLiveReadinessSample(sample({ runtimeMatchesState: false })),
     /does not match the active D1 epoch/u,
+  );
+  assert.throws(
+    () => verifyLiveReadinessSample(sample({ evaluatorCompatibility: undefined })),
+    /does not support the deployed policy descriptor format/u,
   );
   assert.throws(
     () => verifyLiveReadinessSample(sample({ readyForPrivateEventCreation: false })),
@@ -46,6 +56,8 @@ test("live readiness fails if deployment isolates disagree", () => {
     artifactReleaseId: "2026.08.04.1",
     evaluatorKeyEpochId: "herd-evaluator-epoch-2026-08-04-v1",
     workloadImageDigest: digest,
+    evaluatorPolicyDescriptorCapability:
+      "policy_descriptor_evaluator_measurement_v1",
     epochDescriptorSha256: descriptor,
     stateGeneration: 2,
   });

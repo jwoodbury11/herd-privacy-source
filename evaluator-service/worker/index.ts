@@ -45,7 +45,32 @@ const worker = {
       }, allowedWidths);
     }
 
-    return handler.fetch(request, env, ctx);
+    if (!url.pathname.startsWith("/api/")) return handler.fetch(request, env, ctx);
+    const supplied = request.headers.get("x-herd-request-id")?.toLowerCase();
+    const requestId = supplied && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(supplied)
+      ? supplied
+      : crypto.randomUUID();
+    const headers = new Headers(request.headers);
+    headers.set("x-herd-request-id", requestId);
+    const startedAt = Date.now();
+    const response = await handler.fetch(new Request(request, { headers }), env, ctx);
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set("x-herd-request-id", requestId);
+    console.info(JSON.stringify({
+      schemaVersion: 1,
+      kind: "herd.operational",
+      recordedAt: new Date().toISOString(),
+      component: "evaluator",
+      signal: "evaluator_request",
+      operation: `${request.method.toLowerCase()}.${url.pathname.replace(/^\/api\//u, "").replaceAll("/", ".")}`.slice(0, 80),
+      outcome: response.ok ? "success" : "failure",
+      statusCode: response.status,
+      errorCode: response.ok ? "none" : "evaluator_request_failed",
+      durationMs: Math.max(0, Date.now() - startedAt),
+      correlationId: requestId,
+      releaseId: env.HERD_RELEASE_ID ?? "unknown",
+    }));
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
   },
 };
 

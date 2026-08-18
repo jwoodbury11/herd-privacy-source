@@ -1735,7 +1735,7 @@ test("missing evaluator configuration and invalid evaluator results stay pending
     assert.equal(requests.length, 1);
     assert.equal(
       telemetry.flat().join("\n"),
-      `Herd event evaluation failed {\n  eventId: '${eventId}',\n  code: 'evaluator_http_503'\n}`,
+      "Herd event evaluation failed { code: 'evaluator_http_503' }",
     );
     const released = await database
       .prepare(

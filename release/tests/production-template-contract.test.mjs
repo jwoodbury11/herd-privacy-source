@@ -175,7 +175,7 @@ test("protected workflow verifies predecessor continuity before provenance", asy
   assert.match(workflow, /Require exact-main hosted privacy gates before production signing/u);
   assert.match(workflow, /test "\$GITHUB_REF" = "refs\/heads\/main"/u);
   assert.match(workflow, /head_sha=\$GITHUB_SHA&status=completed/u);
-  assert.match(workflow, /run\.event==="push"&&run\.conclusion==="success"/u);
+  assert.match(workflow, /run\.event==="workflow_dispatch"&&run\.conclusion==="success"/u);
   assert.match(workflow, /cosign-release: v2\.6\.2/u);
   assert.equal(
     workflow.match(/cosign sign-blob --yes --new-bundle-format=true/gu)?.length,
@@ -242,8 +242,9 @@ test("deliberate hosted native iOS release CI runs the public export with the ex
   const nativeJob = privacyWorkflow.slice(privacyWorkflow.indexOf("  ios-native:"));
   assert.match(nativeJob, /runs-on: macos-26/u);
   assert.match(nativeJob, /github\.event_name == 'workflow_dispatch'/u);
+  assert.match(nativeJob, /github\.repository == 'jwoodbury11\/herd-privacy-source'/u);
   assert.match(nativeJob, /needs\.release-evidence\.result == 'success'/u);
-  assert.doesNotMatch(nativeJob, /github\.repository|self-hosted/u);
+  assert.doesNotMatch(nativeJob, /self-hosted/u);
   assert.match(nativeJob, /Build, verify, and unpack the reviewed public source/u);
   assert.match(nativeJob, /--require-clean/u);
   assert.match(nativeJob, /cd "\$HERD_TEST_ROOT"/u);

@@ -34,6 +34,14 @@ test("operational diagnostics expose only bounded failure classes", () => {
     "release_integrity",
   );
   assert.equal(
+    operationalFailureClass(new TypeError("deployed resource asset-manifest has an unexpected SHA-256")),
+    "release_integrity",
+  );
+  assert.equal(
+    operationalFailureClass(new TypeError("well-known evaluator contains unsupported or missing fields")),
+    "release_integrity",
+  );
+  assert.equal(
     operationalFailureClass(new TypeError("STATUS_KV mirror storage failed")),
     "monitor_storage",
   );

@@ -39,7 +39,6 @@ async function twilioVerifyRequest(
     if (!response.ok) {
       console.error("Twilio Verify request failed", {
         status: response.status,
-        providerMessage: payload.message,
       });
       throw new ApiError(
         503,
@@ -50,7 +49,9 @@ async function twilioVerifyRequest(
     return payload;
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    console.error("Twilio Verify network error", error);
+    console.error("Twilio Verify network error", {
+      reason: error instanceof Error ? error.name : "unknown",
+    });
     throw new ApiError(
       503,
       "sms_unavailable",

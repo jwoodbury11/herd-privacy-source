@@ -218,6 +218,27 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     ).bind(oldResponse, oldResponse),
   ]);
 
+  await database.batch([
+    database.prepare(`
+      INSERT INTO operational_metrics
+        (bucket_started_at, component, signal, operation, outcome, status_class,
+         error_code, latency_bucket, release_id, count, latency_total_ms,
+         latency_max_ms, updated_at)
+      VALUES
+        (?, 'api', 'api_request', 'get.events', 'success', '2xx', 'none',
+         'lt100ms', 'retention-test', 1, 10, 10, ?),
+        (?, 'api', 'api_request', 'get.events', 'success', '2xx', 'none',
+         'lt100ms', 'retention-test', 1, 10, 10, ?)
+    `).bind(oldAuth, oldAuth, recent, recent),
+    database.prepare(`
+      INSERT INTO operational_alerts
+        (id, recorded_at, recovered, target, failure_class, release_id, duration_ms)
+      VALUES
+        ('old-alert', ?, 0, 'retention-test', 'availability', 'retention-test', 10),
+        ('new-alert', ?, 1, 'retention-test', 'none', 'retention-test', 10)
+    `).bind(oldAuth, recent),
+  ]);
+
   const scheduled = await miniflare.dispatchFetch(
     `http://localhost/cdn-cgi/handler/scheduled?time=${Date.parse(now)}&cron=${encodeURIComponent("* * * * *")}`,
   );
@@ -245,6 +266,12 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     await scalar(database, "SELECT COUNT(*) AS value FROM response_transparency_entries"),
     1,
   );
+  assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM operational_metrics"), 3);
+  assert.equal(
+    await scalar(database, `SELECT COUNT(*) AS value FROM operational_metrics WHERE bucket_started_at = '${oldAuth}'`),
+    0,
+  );
+  assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM operational_alerts"), 1);
   assert.deepEqual(
     await database.prepare(
       `SELECT provider_message_sid AS sid, provider_status AS status,

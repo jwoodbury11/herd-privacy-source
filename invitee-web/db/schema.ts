@@ -105,6 +105,65 @@ export const authIpRateLimits = sqliteTable("auth_ip_rate_limits", {
   lastRequestedAt: text("last_requested_at").notNull(),
 });
 
+// Privacy-preserving operational telemetry. This table intentionally contains
+// aggregate counters only: no request, account, event, invitation, device, IP,
+// or correlation identifiers are durable.
+export const operationalMetrics = sqliteTable(
+  "operational_metrics",
+  {
+    bucketStartedAt: text("bucket_started_at").notNull(),
+    component: text("component").notNull(),
+    signal: text("signal").notNull(),
+    operation: text("operation").notNull(),
+    outcome: text("outcome").notNull(),
+    statusClass: text("status_class").notNull(),
+    errorCode: text("error_code").notNull(),
+    latencyBucket: text("latency_bucket").notNull(),
+    releaseId: text("release_id").notNull(),
+    count: integer("count").notNull().default(0),
+    latencyTotalMs: integer("latency_total_ms").notNull().default(0),
+    latencyMaxMs: integer("latency_max_ms").notNull().default(0),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.bucketStartedAt,
+        table.component,
+        table.signal,
+        table.operation,
+        table.outcome,
+        table.statusClass,
+        table.errorCode,
+        table.latencyBucket,
+        table.releaseId,
+      ],
+    }),
+    index("operational_metrics_bucket_idx").on(table.bucketStartedAt),
+    index("operational_metrics_signal_idx").on(
+      table.signal,
+      table.bucketStartedAt,
+    ),
+  ],
+);
+
+export const operationalAlerts = sqliteTable(
+  "operational_alerts",
+  {
+    id: text("id").primaryKey(),
+    recordedAt: text("recorded_at").notNull(),
+    recovered: integer("recovered", { mode: "boolean" }).notNull(),
+    target: text("target").notNull(),
+    failureClass: text("failure_class").notNull(),
+    releaseId: text("release_id").notNull(),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("operational_alerts_recorded_idx").on(table.recordedAt),
+    index("operational_alerts_failure_idx").on(table.failureClass, table.recordedAt),
+  ],
+);
+
 export const events = sqliteTable(
   "events",
   {

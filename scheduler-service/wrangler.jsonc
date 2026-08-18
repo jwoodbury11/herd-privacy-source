@@ -5,6 +5,15 @@
   "compatibility_date": "2026-07-31",
   "workers_dev": false,
   "preview_urls": false,
+  "vars": {
+    "HERD_DEPLOYMENT_PROFILE": "production",
+    "HERD_PUBLIC_APP_URL": "https://app.herdprivacy.com",
+    "HERD_EVALUATOR_URL": "https://evaluator.herdprivacy.com/api/v1/relay/",
+    "HERD_EVALUATOR_KEY_ID": "herd-evaluator-epoch-2026-08-04-v1.response-decryption",
+    "HERD_ARTIFACT_RELEASE_ID": "2026.08.03.2",
+    "HERD_RELEASE_ID": "herd-evaluator-epoch-2026-08-04-v1",
+    "HERD_RELEASE_CONFIGURATION_SHA256": "61b80fa63ec1bb2e3dc0383f7844a58d59b43ef0781e734ef4f35ff930d5dfcb"
+  },
   "triggers": {
     "crons": ["* * * * *"]
   },

@@ -113,6 +113,18 @@ Selecting a reply is local editing state. It must never show `Responded` or
 perform a network write until the explicit encrypted-reply submit action
 succeeds.
 
+For invitation details, both renderers use `invited` and `min attendees` in the
+metric strip, `Your encrypted reply has been sent` beside the lock, and
+`View my encrypted reply` for the primary unlock action. An unreadable local
+reply changes to the replacement action instead of repeating an unusable unlock.
+Primary reply actions share one filled treatment; platform-native Face ID and
+keyboard controls may use their native symbols while keeping equivalent meaning.
+
+Existing draft hosted events expose the same `Allow attendees to add guests`
+boolean. iPhone uses the native switch and web uses an accessible `role=switch`
+control; both show a distinct track and thumb, persist the value to the shared
+event, and disable mutation after invitations freeze the event policy.
+
 ## Visual regression evidence
 
 Paired reference screenshots and the screen-by-screen decision matrix live in
