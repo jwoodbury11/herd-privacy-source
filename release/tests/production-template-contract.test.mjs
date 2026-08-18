@@ -242,8 +242,9 @@ test("deliberate hosted native iOS release CI runs the public export with the ex
   const nativeJob = privacyWorkflow.slice(privacyWorkflow.indexOf("  ios-native:"));
   assert.match(nativeJob, /runs-on: macos-26/u);
   assert.match(nativeJob, /github\.event_name == 'workflow_dispatch'/u);
+  assert.match(nativeJob, /github\.repository == 'jwoodbury11\/herd-privacy-source'/u);
   assert.match(nativeJob, /needs\.release-evidence\.result == 'success'/u);
-  assert.doesNotMatch(nativeJob, /github\.repository|self-hosted/u);
+  assert.doesNotMatch(nativeJob, /self-hosted/u);
   assert.match(nativeJob, /Build, verify, and unpack the reviewed public source/u);
   assert.match(nativeJob, /--require-clean/u);
   assert.match(nativeJob, /cd "\$HERD_TEST_ROOT"/u);
