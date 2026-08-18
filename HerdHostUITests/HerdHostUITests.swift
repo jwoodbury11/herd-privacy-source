@@ -372,8 +372,11 @@ final class HerdHostUITests: XCTestCase {
         submit.tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["Cancel"].tap()
-        scrollToMakeHittable(submit, in: app.scrollViews.firstMatch)
-        XCTAssertTrue(submit.exists)
+        XCTAssertFalse(confirmation.waitForExistence(timeout: 1))
+        XCTAssertTrue(
+            app.staticTexts["Private Picnic Invitation"]
+                .waitForExistence(timeout: 5)
+        )
     }
 
     private func launch(
