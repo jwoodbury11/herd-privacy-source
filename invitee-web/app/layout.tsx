@@ -74,6 +74,9 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body>
+        {process.env.HERD_RELEASE_CONFIGURATION_SHA256 ? (
+          <script src="/client/assets/herd-release-config.js" defer />
+        ) : null}
         <script
           dangerouslySetInnerHTML={{
             __html: `window.__HERD_PUBLIC_RUNTIME_CONFIG__=${serializedConfig};`,
