@@ -412,10 +412,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["Cancel"].tap()
         XCTAssertFalse(confirmation.waitForExistence(timeout: 1))
-        XCTAssertTrue(
-            app.staticTexts["Private Picnic Invitation"]
-                .waitForExistence(timeout: 5)
-        )
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
     }
 
     private func launch(
