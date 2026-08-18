@@ -1,9 +1,12 @@
 name: Privacy boundary CI
 
 on:
-  # Private hosted runners are intentionally opt-in. The comprehensive release
-  # suite runs locally, while the exported public source keeps its free CI gate.
+  # Private hosted runners are intentionally opt-in. Public-source pull requests
+  # run the comprehensive gate so GitHub can bind its check runs to protection.
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 concurrency:
   group: privacy-ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +23,7 @@ env:
 jobs:
   release-evidence:
     name: Release, export, and monitor tools
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -73,6 +77,7 @@ jobs:
 
   privacy-services:
     name: Privacy services and client contracts
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -166,7 +171,7 @@ jobs:
   ios-native:
     name: Native iOS privacy, erasure, and UI tests from public source
     needs: release-evidence
-    if: ${{ github.event_name == 'workflow_dispatch' && needs.release-evidence.result == 'success' }}
+    if: ${{ needs.release-evidence.result == 'success' && (github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source') }}
     runs-on: macos-26
     timeout-minutes: 30
     permissions:
