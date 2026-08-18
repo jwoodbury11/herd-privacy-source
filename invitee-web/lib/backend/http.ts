@@ -139,11 +139,16 @@ export async function withApiErrors(
             ...(error.details ? { details: error.details } : {}),
           },
         },
-        { status: error.status },
+        {
+          status: error.status,
+          headers: { "x-herd-error-code": error.code },
+        },
       );
     }
 
-    console.error("Unhandled Herd API error", error);
+    console.error("Unhandled Herd API error", {
+      name: error instanceof Error ? error.name : "unknown",
+    });
     return jsonResponse(
       {
         error: {
@@ -151,7 +156,7 @@ export async function withApiErrors(
           message: "The service could not complete the request.",
         },
       },
-      { status: 500 },
+      { status: 500, headers: { "x-herd-error-code": "internal_error" } },
     );
   }
 }

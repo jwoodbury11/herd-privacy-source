@@ -845,6 +845,119 @@ final class EventStoreRecoveryTests: XCTestCase {
         XCTAssertEqual(event.responseCertificationStatus, .certified)
     }
 
+    func testUnreadableSavedReplyBecomesActionableWithoutExposingProtocolFailure() async throws {
+        let eventID = UUID()
+        let token = "Recovery_unreadable-saved-reply-token-123"
+        let epochID = UUID(uuidString: "80000000-0000-4000-8000-000000000008")!
+        let userID = "recovery-unreadable-saved-reply-account"
+        let keyStore = AccountKeyStore(
+            service: "com.herd.tests.recovery.unreadable.\(UUID().uuidString.lowercased())"
+        )
+        let rootSecret = try await keyStore.createRootSecret(userID: userID, epochID: epochID)
+        let commitment = await keyStore.commitment(for: rootSecret)
+        let storedEnvelope: [String: Any] = [
+            "protocolVersion": PrivateResponseProtocol.version,
+            "cipherSuite": PrivateResponseProtocol.cipherSuite,
+            "envelopeId": UUID().uuidString.lowercased(),
+            "eventId": eventID.uuidString.lowercased(),
+            "inviteeId": "30000000-0000-4000-8000-000000000003",
+            "policyHash": String(repeating: "b", count: 64),
+            "revision": 1,
+            "accountKeyEpochId": epochID.uuidString.lowercased(),
+            "evaluatorKeyId": "test-evaluator",
+            "payloadCiphertext": "fixture-payload",
+            "userKeyWrap": "fixture-user-wrap",
+            "evaluatorKeyWrap": "fixture-evaluator-wrap",
+            "responseSigningPublicKey": "fixture-signing-key",
+            "responseSignature": "fixture-signature",
+            "ciphertextHash": "fixture-ciphertext-hash",
+            "createdAt": "2026-08-13T18:00:01.000Z",
+            "updatedAt": "2026-08-13T18:00:01.000Z",
+        ]
+        InvitationMockURLProtocol.install { request in
+            try Self.jsonResponse(
+                request,
+                object: Self.privateInvitationResponse(
+                    eventID: eventID,
+                    token: token,
+                    epochID: epochID,
+                    commitment: commitment,
+                    storedEnvelope: storedEnvelope,
+                    certificationStatus: "certified"
+                )
+            )
+        }
+        let client = Self.client()
+        await client.setAccessToken("recovery-unreadable-saved-reply-token")
+        let dependencies = EventStorePrivateResponseDependencies(
+            makeCrypto: {
+                throw PrivateResponseCryptoError.invalidEnvelope(
+                    "This private reply uses an unsupported policy or cipher suite."
+                )
+            },
+            verifyAttestation: { _, _, _ in },
+            verifyReceipt: { _ in },
+            verifyPublication: { _, _ in }
+        )
+        let store = EventStore(
+            defaults: try Self.defaults("unreadable-saved-reply"),
+            apiClient: client,
+            accountKeyStore: keyStore,
+            privateResponseDependencies: dependencies
+        )
+        store.activate(userID: userID)
+
+        let outcome = await store.openInvitation(inviteToken: token)
+        XCTAssertEqual(outcome, .loaded(eventID))
+        let event = try XCTUnwrap(store.events.first)
+
+        let unlocked = await store.unlockPrivateResponse(for: event)
+
+        XCTAssertFalse(unlocked)
+        XCTAssertEqual(store.unavailablePrivateResponseEventID, eventID)
+        XCTAssertNil(store.errorMessage)
+        XCTAssertFalse(store.isMutating)
+        XCTAssertNil(store.unlockedDrafts[eventID])
+    }
+
+    func testOnlyUnreadableSavedReplyFailuresOfferReplacement() {
+        XCTAssertEqual(
+            EventStore.savedReplyReplacementErrorCode(
+                for: .invalidEnvelope("mismatched envelope")
+            ),
+            "saved_reply_invalid_envelope"
+        )
+        XCTAssertEqual(
+            EventStore.savedReplyReplacementErrorCode(for: .invalidDraft("invalid draft")),
+            "saved_reply_invalid_draft"
+        )
+        XCTAssertEqual(
+            EventStore.savedReplyReplacementErrorCode(for: .decryptionFailed),
+            "saved_reply_decryption_failed"
+        )
+        XCTAssertNil(
+            EventStore.savedReplyReplacementErrorCode(for: .invalidPolicy("untrusted policy"))
+        )
+        XCTAssertNil(
+            EventStore.savedReplyReplacementErrorCode(for: .untrustedEvaluator)
+        )
+        XCTAssertNil(
+            EventStore.savedReplyReplacementErrorCode(for: .invalidReceipt("bad receipt"))
+        )
+        XCTAssertEqual(
+            EventStore.savedReplyBlockedErrorCode(for: .invalidPolicy("untrusted policy")),
+            "saved_reply_invalid_policy"
+        )
+        XCTAssertEqual(
+            EventStore.savedReplyBlockedErrorCode(for: .untrustedEvaluator),
+            "saved_reply_untrusted_evaluator"
+        )
+        XCTAssertEqual(
+            EventStore.savedReplyBlockedErrorCode(for: .invalidReceipt("bad receipt")),
+            "saved_reply_invalid_receipt"
+        )
+    }
+
     func testDeviceSwitchCompletesResetReencryptionCertificationAndLocalUnlock() async throws {
         try await verifyDeviceSwitchTransaction(failingOnceAt: nil)
     }

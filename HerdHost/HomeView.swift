@@ -2389,35 +2389,36 @@ private struct InvitationDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Button {
-                    Task {
-                        if await store.unlockPrivateResponse(for: event) {
-                            isReplacingUnavailableReply = false
-                            synchronizePrivateDraft()
-                        }
-                    }
-                } label: {
-                    Label(replyExperience.unlockButton, systemImage: "faceid")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(store.isMutating)
-
                 if replyIsUnavailable {
                     Button {
                         store.clearError()
                         isReplacingUnavailableReply = true
                         synchronizePrivateDraft()
                     } label: {
-                        Text(replyExperience.replaceButton)
-                            .font(.headline)
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 11)
-                            .background(.white, in: .rect(cornerRadius: 10))
+                        primaryReplyActionLabel(title: replyExperience.replaceButton)
                     }
                     .buttonStyle(PlainPressButtonStyle())
+                    .disabled(store.isMutating)
+                    .accessibilityLabel(replyExperience.replaceButton)
                     .accessibilityIdentifier("reply-replace-unavailable")
+                } else {
+                    Button {
+                        Task {
+                            if await store.unlockPrivateResponse(for: event) {
+                                isReplacingUnavailableReply = false
+                                synchronizePrivateDraft()
+                            }
+                        }
+                    } label: {
+                        primaryReplyActionLabel(
+                            title: replyExperience.unlockButton,
+                            systemImage: "faceid"
+                        )
+                    }
+                    .buttonStyle(PlainPressButtonStyle())
+                    .disabled(store.isMutating)
+                    .accessibilityLabel(replyExperience.unlockButton)
+                    .accessibilityIdentifier("reply-unlock")
                 }
             }
 
@@ -2439,21 +2440,12 @@ private struct InvitationDetailView: View {
                 Button {
                     submitResponse(for: event)
                 } label: {
-                    HStack(spacing: 10) {
-                        if isSubmitting {
-                            ProgressView().tint(.black)
-                        }
-                        Text(
-                            isSubmitting
-                                ? replyExperience.submittingButton
-                                : replyActionTitle(for: event)
-                        )
-                        .font(.headline)
-                    }
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(.white, in: .rect(cornerRadius: 14))
+                    primaryReplyActionLabel(
+                        title: isSubmitting
+                            ? replyExperience.submittingButton
+                            : replyActionTitle(for: event),
+                        showsProgress: isSubmitting
+                    )
                 }
                 .buttonStyle(PlainPressButtonStyle())
                 .disabled(
@@ -2494,6 +2486,27 @@ private struct InvitationDetailView: View {
             .accessibilityIdentifier("reply-preview-trigger")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func primaryReplyActionLabel(
+        title: String,
+        systemImage: String? = nil,
+        showsProgress: Bool = false
+    ) -> some View {
+        HStack(spacing: 10) {
+            if showsProgress {
+                ProgressView().tint(.black)
+            }
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            Text(title)
+        }
+        .font(.headline)
+        .foregroundStyle(.black)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 15)
+        .background(.white, in: .rect(cornerRadius: 14))
     }
 
     private func replyVisibilityPreview(_ event: HerdEvent) -> some View {

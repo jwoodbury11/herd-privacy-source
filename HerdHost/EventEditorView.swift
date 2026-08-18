@@ -198,6 +198,7 @@ struct EventEditorView: View {
                                     Text("Allow attendees to add guests")
                                 }
                             }
+                            .tint(Color(uiColor: .systemGreen))
                             .padding(.horizontal, 16)
                             .frame(minHeight: 66)
                             .accessibilityIdentifier("event-allow-attendee-guests")

@@ -1,15 +1,8 @@
 name: Privacy boundary CI
 
 on:
-  pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "Partiful iOS Oct 2025/**"
-  push:
-    branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "Partiful iOS Oct 2025/**"
+  # Private hosted runners are intentionally opt-in. The comprehensive release
+  # suite runs locally, while the exported public source keeps its free CI gate.
   workflow_dispatch:
 
 concurrency:

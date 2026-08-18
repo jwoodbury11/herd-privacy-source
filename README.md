@@ -1,5 +1,9 @@
 # Herd
 
+Documentation entry point: [`docs/README.md`](docs/README.md). Current deployed state:
+[`CURRENT_BUILDS.md`](CURRENT_BUILDS.md). Operational troubleshooting:
+[`docs/observability/troubleshooting.md`](docs/observability/troubleshooting.md).
+
 Herd helps groups make plans that depend on enough people—and sometimes the right combination of people—being able to attend. This repository keeps the iPhone and web experiences together on one authenticated backend.
 
 ## Start here

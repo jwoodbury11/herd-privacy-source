@@ -1,7 +1,7 @@
 # Herd data retention, backup, and privacy validation
 
 Status: production operating contract
-Last reviewed: 2026-08-03
+Last reviewed: 2026-08-17
 
 Herd's private reply, minimum, and required-person groups are sealed on the
 user's device. Ordinary application storage receives a fixed-size ciphertext,
@@ -22,12 +22,16 @@ minimization.
 | Phone/IP rate-limit keys | 24 hours after last request |
 | Expired or revoked sessions | 30 days |
 | Messaging-provider IDs, status text, bounded error details, dispatch time | Scrubbed after 30 days; delivery outcome remains |
+| Privacy-safe hourly operational counters and latency buckets | 30 days |
+| Bounded independent-monitor failure/recovery records | 30 days |
 | Events that were not confirmed | Deleted 5 days after the reply deadline |
 | Sealed response envelopes and both key wraps | Deleted 90 days after final event resolution, or earlier when the host deletes the event |
 | Signed response-log commitments and heads | Indefinite, append-only; they contain hashes and identifiers, not condition plaintext or response ciphertext |
 | Confirmed event, account, guest, final-result, and signed result-proof records | Until the host/account owner deletes the owning record; the result proof is public verification material and is retained with the final outcome. Invitee deletion preserves a scrubbed mutable member placeholder while the immutable signed policy retains only the opaque event-scoped member ID |
 
-The retention task logs counts only. It never logs IDs, phones, tokens,
+The operational tables contain only fixed component, signal, operation, outcome, status/error
+class, latency bucket, release ID, and aggregate counts—or a fixed monitor target/failure class.
+They never persist correlation IDs. The retention task logs counts only. It never logs IDs, phones, tokens,
 ciphertext, conditions, or request bodies. Its behavior is exercised against a
 real built Worker and D1 database in `invitee-web/tests/data-retention.test.mjs`.
 

@@ -161,9 +161,8 @@ function evaluationFailureCode(error: unknown): string {
   return "unexpected_evaluation_error";
 }
 
-function reportEvaluationFailure(eventId: string, error: unknown): void {
+function reportEvaluationFailure(_eventId: string, error: unknown): void {
   console.error("Herd event evaluation failed", {
-    eventId,
     code: evaluationFailureCode(error),
   });
 }

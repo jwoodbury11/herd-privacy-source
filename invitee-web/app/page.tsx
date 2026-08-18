@@ -37,6 +37,7 @@ import {
   configuredTransparencySigningPin,
   verifyPrivateResponseReceiptPublication,
 } from "@/lib/privacy/trust-verification";
+import { reportClientSignal, trackedFetch } from "@/lib/client/telemetry";
 
 const OTP_LENGTH = 4;
 const RECENT_PHONE_VERIFICATION_WINDOW_MS = 9 * 60 * 1000;
@@ -957,6 +958,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [eventDeletionOpen, setEventDeletionOpen] = useState(false);
   const [eventDeletionError, setEventDeletionError] = useState("");
   const [eventDeletionPending, setEventDeletionPending] = useState(false);
+  const [guestPermissionError, setGuestPermissionError] = useState("");
+  const [guestPermissionPending, setGuestPermissionPending] = useState(false);
   const [guestDrafts, setGuestDrafts] = useState<GuestDraft[]>([]);
   const [guestAdditionError, setGuestAdditionError] = useState("");
   const [guestAdditionPending, setGuestAdditionPending] = useState(false);
@@ -1010,6 +1013,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setEventDeletionOpen(false);
     setEventDeletionError("");
     setEventDeletionPending(false);
+    setGuestPermissionError("");
+    setGuestPermissionPending(false);
     setGuestDrafts([]);
     setGuestAdditionError("");
     setGuestAdditionPending(false);
@@ -1056,7 +1061,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setEventsRefreshPending(true);
     setHomeRefreshError("");
     try {
-      const response = await fetch("/api/events", { credentials: "include" });
+      const response = await trackedFetch("/api/events", { credentials: "include" });
       if (response.status === 401) {
         recoverExpiredSession();
         return;
@@ -1136,6 +1141,36 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       : null;
 
   useEffect(() => {
+    void reportClientSignal({
+      signal: "client_session",
+      operation: "app.loaded",
+      outcome: "success",
+    });
+    const runtimeError = () => {
+      void reportClientSignal({
+        signal: "client_runtime_error",
+        operation: "app.runtime",
+        outcome: "failure",
+        errorCode: "unhandled_error",
+      });
+    };
+    const rejectedPromise = () => {
+      void reportClientSignal({
+        signal: "client_runtime_error",
+        operation: "app.promise",
+        outcome: "failure",
+        errorCode: "unhandled_rejection",
+      });
+    };
+    window.addEventListener("error", runtimeError);
+    window.addEventListener("unhandledrejection", rejectedPromise);
+    return () => {
+      window.removeEventListener("error", runtimeError);
+      window.removeEventListener("unhandledrejection", rejectedPromise);
+    };
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -1173,7 +1208,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       try {
         const token = resolutionRefreshTarget.inviteToken ?? inviteToken;
         if (screen === "event" && resolutionRefreshTarget.role !== "host" && token) {
-          const response = await fetch(`/api/invites/${encodeURIComponent(token)}`, {
+          const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}`, {
             credentials: "include",
           });
           if (response.status === 401) {
@@ -1208,7 +1243,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           dueHostEvents.map((event) => relayHostEventEvaluation(event.id)),
         );
 
-        const response = await fetch("/api/events", { credentials: "include" });
+        const response = await trackedFetch("/api/events", { credentials: "include" });
         if (response.status === 401) {
           recoverExpiredSession();
           return;
@@ -1251,7 +1286,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       setInvitePreviewPending(true);
       setInvitePreviewError("");
       try {
-        const response = await fetch(`/api/invites/${encodeURIComponent(inviteToken)}`, {
+        const response = await trackedFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, {
           credentials: "include",
         });
         if (!response.ok) {
@@ -1302,7 +1337,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch("/api/me", { credentials: "include" });
+        const response = await trackedFetch("/api/me", { credentials: "include" });
         if (response.status === 401) return;
         if (!response.ok) throw new Error(await responseError(response, "Couldn’t restore your session."));
         const body = await response.json() as { user: ApiUser; accountKeyEpochId?: string };
@@ -1373,9 +1408,16 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       if (!inviteMetadata.responseEnvelope) {
         setPrivateResponseState("idle");
         setReplyError("Your encrypted response could not be loaded. Refresh and try again.");
+        void reportClientSignal({
+          signal: "client_decode",
+          operation: "reply.saved.open",
+          outcome: "failure",
+          errorCode: "saved_reply_missing_envelope",
+        });
         return;
       }
       setPrivateResponseState("loading");
+      const savedReplyOpenStartedAt = performance.now();
       try {
         const envelopeUsesActiveEpoch =
           inviteMetadata.responseEnvelope.accountKeyEpochId ===
@@ -1395,6 +1437,13 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           return;
         }
         if (!accountRootSecret) {
+          void reportClientSignal({
+            signal: "client_decode",
+            operation: "reply.saved.open",
+            outcome: "failure",
+            errorCode: "saved_reply_missing_key",
+            durationMs: performance.now() - savedReplyOpenStartedAt,
+          });
           setPrivateResponseState("unreadable");
           setSavedReplyFingerprint(null);
           setReply(null);
@@ -1450,8 +1499,26 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           }
         }
         setPrivateResponseState("ready");
+        void reportClientSignal({
+          signal: "client_decode",
+          operation: "reply.saved.open",
+          outcome: "success",
+          errorCode: "none",
+          durationMs: performance.now() - savedReplyOpenStartedAt,
+        });
       } catch (error) {
         if (cancelled) return;
+        void reportClientSignal({
+          signal: "client_decode",
+          operation: "reply.saved.open",
+          outcome: "failure",
+          errorCode: error instanceof PrivateVaultError
+            ? error.canSwitchDevice ? "saved_reply_local_key_unavailable" : "saved_reply_local_key_error"
+            : error instanceof PrivateResponseCryptoError
+              ? error.canSwitchDevice ? "saved_reply_crypto_unreadable" : "saved_reply_crypto_rejected"
+              : "saved_reply_open_failed",
+          durationMs: performance.now() - savedReplyOpenStartedAt,
+        });
         setPrivateResponseState(
           (error instanceof PrivateVaultError && error.canSwitchDevice) ||
             (error instanceof PrivateResponseCryptoError && error.canSwitchDevice)
@@ -1644,10 +1711,10 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   async function loadAuthenticatedData(): Promise<boolean> {
     const requests: Promise<Response>[] = [
-      fetch("/api/events", { credentials: "include" }),
+      trackedFetch("/api/events", { credentials: "include" }),
     ];
     if (inviteToken) {
-      requests.push(fetch(`/api/invites/${encodeURIComponent(inviteToken)}`, { credentials: "include" }));
+      requests.push(trackedFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, { credentials: "include" }));
     }
 
     const [eventsResponse, inviteResponse] = await Promise.all(requests);
@@ -1701,6 +1768,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setConditionGroups([]);
     setInviteMetadata(null);
     setReplyError("");
+    setGuestPermissionError("");
     setScreen("event");
     if (event.role === "host") {
       setPrivateResponseState("idle");
@@ -1714,7 +1782,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     }
     setPrivateResponseState("loading");
     try {
-      const response = await fetch(`/api/invites/${encodeURIComponent(token)}`, {
+      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}`, {
         credentials: "include",
       });
       if (response.status === 401) {
@@ -1748,6 +1816,66 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     eventActionsRef.current?.removeAttribute("open");
     setEventDeletionError("");
     setEventDeletionOpen(true);
+  }
+
+  async function toggleHostGuestPermission() {
+    const event = activeEvent;
+    if (
+      !event ||
+      event.role !== "host" ||
+      event.invitationsSent ||
+      guestPermissionPending
+    ) return;
+
+    const allowsAttendeesToAddGuests = !event.allowsAttendeesToAddGuests;
+    setGuestPermissionPending(true);
+    setGuestPermissionError("");
+    try {
+      const response = await trackedFetch(`/api/events/${encodeURIComponent(event.id)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          id: event.id,
+          title: event.title,
+          eventDate: event.eventDate,
+          endDate: event.endDate,
+          hostName: event.hostName,
+          locationName: event.locationName,
+          locationAddress: event.locationAddress,
+          invitees: event.invitees.map(({ id, displayName, phoneNumber }) => ({
+            id,
+            displayName,
+            phoneNumber,
+          })),
+          minimumParticipants: event.minimumParticipants,
+          allowsAttendeesToAddGuests,
+          requiredGroups: event.requiredGroups,
+          rsvpDeadline: event.rsvpDeadline,
+          eventDescription: event.eventDescription,
+          createdAt: event.createdAt,
+          invitationsSent: false,
+        }),
+      });
+      if (response.status === 401) {
+        recoverExpiredSession();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(await responseError(response, "Couldn’t update guest permissions."));
+      }
+      const body = await response.json() as { event: ApiEvent };
+      const updatedEvent = await verifiedApiEvent({ ...body.event, role: "host" });
+      setSelectedEvent(updatedEvent);
+      setEvents((current) => upsertHomeEvent(current, updatedEvent));
+      markEventsUpdated();
+    } catch (error) {
+      setGuestPermissionError(
+        error instanceof Error ? error.message : "Couldn’t update guest permissions.",
+      );
+    } finally {
+      setGuestPermissionPending(false);
+    }
   }
 
   function newGuestDraft(): GuestDraft {
@@ -1817,7 +1945,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setGuestAdditionPending(true);
     setGuestAdditionError("");
     try {
-      const response = await fetch(`/api/events/${encodeURIComponent(event.id)}/attendees`, {
+      const response = await trackedFetch(`/api/events/${encodeURIComponent(event.id)}/attendees`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -1859,7 +1987,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setEventDeletionPending(true);
     setEventDeletionError("");
     try {
-      const response = await fetch(`/api/events/${encodeURIComponent(eventToDelete.id)}`, {
+      const response = await trackedFetch(`/api/events/${encodeURIComponent(eventToDelete.id)}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -1894,7 +2022,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setProfileNotice("");
     setProfilePending(true);
     try {
-      const response = await fetch("/api/me", {
+      const response = await trackedFetch("/api/me", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -1921,14 +2049,14 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   }
 
   async function logOut() {
-    await fetch("/api/auth/session", { method: "DELETE", credentials: "include" }).catch(() => undefined);
+    await trackedFetch("/api/auth/session", { method: "DELETE", credentials: "include" }).catch(() => undefined);
     resetAuthenticatedExperience();
   }
 
   async function switchInviteAccount() {
     if (authPending) return;
     setAuthPending(true);
-    await fetch("/api/auth/session", {
+    await trackedFetch("/api/auth/session", {
       method: "DELETE",
       credentials: "include",
     }).catch(() => undefined);
@@ -1939,7 +2067,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   }
 
   async function performAccountDeletion(): Promise<"deleted" | "reauthenticate"> {
-    const response = await fetch("/api/me", {
+    const response = await trackedFetch("/api/me", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       credentials: "include",
@@ -1971,7 +2099,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   async function requestAccountDeletionCode() {
     if (!currentUser) throw new Error("Sign in again before deleting your account.");
-    const response = await fetch("/api/auth/request-code", {
+    const response = await trackedFetch("/api/auth/request-code", {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
@@ -2022,7 +2150,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setAccountDeletionPending(true);
     setAccountDeletionError("");
     try {
-      const response = await fetch("/api/auth/verify-code", {
+      const response = await trackedFetch("/api/auth/verify-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2079,7 +2207,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setAuthError("");
     setResendNotice("");
     try {
-      const response = await fetch("/api/auth/request-code", {
+      const response = await trackedFetch("/api/auth/request-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2123,7 +2251,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setAuthPending(true);
     setOtpError("");
     try {
-      const response = await fetch("/api/auth/verify-code", {
+      const response = await trackedFetch("/api/auth/verify-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2298,7 +2426,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setDeviceSwitchStage("requesting");
     setDeviceSwitchError("");
     try {
-      const response = await fetch("/api/auth/request-code", {
+      const response = await trackedFetch("/api/auth/request-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2340,7 +2468,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setDeviceSwitchPending(true);
     setDeviceSwitchError("");
     try {
-      const response = await fetch("/api/auth/verify-code", {
+      const response = await trackedFetch("/api/auth/verify-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2447,7 +2575,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         return notSaved();
       }
       if (mustSwitchAccountKey) {
-        const switchResponse = await fetch("/api/account/key-epoch/reset", {
+        const switchResponse = await trackedFetch("/api/account/key-epoch/reset", {
           method: "POST",
           headers: { "content-type": "application/json" },
           credentials: "include",
@@ -2484,7 +2612,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         accountKeyCommitment = await accountRootSecretCommitment(
           localAccountKey.bytes,
         );
-        const initializeResponse = await fetch("/api/account/key-epoch/initialize", {
+        const initializeResponse = await trackedFetch("/api/account/key-epoch/initialize", {
           method: "POST",
           headers: { "content-type": "application/json" },
           credentials: "include",
@@ -2569,7 +2697,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           envelope,
         };
       }
-      const response = await fetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
+      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -2683,7 +2811,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setAuthPending(true);
     setReplyError("");
     try {
-      const response = await fetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
+      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         credentials: "include",
@@ -3379,6 +3507,27 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <AvatarStack hostName={activeEvent.hostName} invitees={activeEvent.invitees} />
                 <span className="chevron" aria-hidden="true">›</span>
               </button> : null}
+
+              {activeEvent.role === "host" && !activeEvent.invitationsSent ? (
+                <section className="host-draft-setting" aria-label="Event attendance settings">
+                  <div className="host-draft-setting-copy">
+                    <strong>Allow attendees to add guests</strong>
+                    <span>{activeEvent.allowsAttendeesToAddGuests ? "Allowed" : "Not allowed"}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="herd-switch"
+                    role="switch"
+                    aria-checked={activeEvent.allowsAttendeesToAddGuests}
+                    aria-label="Allow attendees to add guests"
+                    disabled={guestPermissionPending}
+                    onClick={() => void toggleHostGuestPermission()}
+                  >
+                    <span className="herd-switch-thumb" aria-hidden="true" />
+                  </button>
+                  {guestPermissionError ? <p className="inline-error" role="alert">{guestPermissionError}</p> : null}
+                </section>
+              ) : null}
 
               <section className="privacy-callout">
                 <div>

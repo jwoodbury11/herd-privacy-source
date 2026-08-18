@@ -24,5 +24,6 @@ test("web app retries due host evaluations without failing event refresh", () =>
   assert.match(pageSource, /await Promise\.allSettled\(/u);
   assert.match(pageSource, /event\.role === "host"/u);
   assert.match(pageSource, /Date\.parse\(event\.rsvpDeadline!\) <= now/u);
-  assert.match(pageSource, /fetch\("\/api\/events", \{ credentials: "include" \}\)/u);
+  assert.match(pageSource, /trackedFetch\("\/api\/events", \{ credentials: "include" \}\)/u);
+  assert.match(relaySource, /trackedFetch/u);
 });

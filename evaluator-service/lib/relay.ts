@@ -740,6 +740,8 @@ export async function handleRelayOptionsRequest(
       "cache-control",
       "content-type",
       "pragma",
+      "x-herd-client-platform",
+      "x-herd-request-id",
     ]);
     if (
       !requestedHeaders.includes("content-type") ||
@@ -755,7 +757,7 @@ export async function handleRelayOptionsRequest(
         headers: {
           "access-control-allow-methods": "POST",
           "access-control-allow-headers":
-            "content-type, cache-control, pragma",
+            "content-type, cache-control, pragma, x-herd-client-platform, x-herd-request-id",
           "access-control-max-age": "600",
           "cache-control": "no-store",
           "x-content-type-options": "nosniff",

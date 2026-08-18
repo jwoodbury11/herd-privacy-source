@@ -96,7 +96,7 @@ export function operationalFailureClass(error) {
   if (/(transparency|witness|log index|entry hash|signed head|fork|rewind)/u.test(message)) {
     return "response_transparency";
   }
-  if (/(release|manifest|deployment|predecessor|rollback|artifact|resource hash)/u.test(message)) {
+  if (/(release|manifest|deployment|predecessor|rollback|artifact|well-known|deployed resource|resource (?:hash|bytes)|sha-?256)/u.test(message)) {
     return "release_integrity";
   }
   return "unknown";
@@ -445,8 +445,48 @@ export class ReleaseMonitorCoordinator {
     this.serial = resultPromise.then(() => undefined, () => undefined);
     try {
       const status = await resultPromise;
+      console.info(JSON.stringify({
+        schemaVersion: 1,
+        kind: "herd.operational",
+        recordedAt: new Date().toISOString(),
+        component: "monitor",
+        signal: "monitor_run",
+        operation: "release_and_transparency",
+        outcome: status.ok ? "success" : "failure",
+        statusCode: status.ok ? 200 : 503,
+        errorCode: status.ok
+          ? "none"
+          : (status.configurationError
+              ? operationalFailureClass(status.configurationError)
+              : (status.storageError
+                  ? operationalFailureClass(status.storageError)
+                  : (status.targets.find((target) => target.ok !== true)?.failureClass ?? "unknown"))),
+        durationMs: Array.isArray(status.targets)
+          ? status.targets.reduce((maximum, target) => Math.max(maximum, Number(target.durationMs) || 0), 0)
+          : 0,
+        correlationId: crypto.randomUUID(),
+        releaseId: "monitor",
+        targetCount: Array.isArray(status.targets) ? status.targets.length : 0,
+        failedTargetCount: Array.isArray(status.targets) ? status.targets.filter((target) => target.ok !== true).length : 0,
+      }));
       return json(status, status.ok ? 200 : 503);
     } catch (error) {
+      console.error(JSON.stringify({
+        schemaVersion: 1,
+        kind: "herd.operational",
+        recordedAt: new Date().toISOString(),
+        component: "monitor",
+        signal: "monitor_run",
+        operation: "release_and_transparency",
+        outcome: "failure",
+        statusCode: 503,
+        errorCode: "monitor_exception",
+        durationMs: 0,
+        correlationId: crypto.randomUUID(),
+        releaseId: "monitor",
+        targetCount: 0,
+        failedTargetCount: 0,
+      }));
       return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 503);
     }
   }

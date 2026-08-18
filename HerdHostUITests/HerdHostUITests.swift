@@ -100,6 +100,11 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["contact-section-selected"].exists)
         XCTAssertFalse(app.staticTexts["contact-section-contacts"].exists)
 
+        let keyboardDone = app.keyboards.buttons["Done"]
+        XCTAssertTrue(keyboardDone.waitForExistence(timeout: 5))
+        keyboardDone.tap()
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
+
         app.navigationBars.buttons["Next"].tap()
         XCTAssertTrue(app.navigationBars["Review invites"].waitForExistence(timeout: 5))
         let reviewedName = app.textFields["Name"]
@@ -111,6 +116,34 @@ final class HerdHostUITests: XCTestCase {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
 
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+        let guestPermission = app.switches["event-allow-attendee-guests"]
+        scrollToMakeHittable(guestPermission, in: app)
+        XCTAssertEqual(guestPermission.value as? String, "1")
+        let switchControl = guestPermission.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)
+        )
+        switchControl.tap()
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "value == '0'"),
+                    object: guestPermission
+                )],
+                timeout: 2
+            ),
+            .completed
+        )
+        switchControl.tap()
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "value == '1'"),
+                    object: guestPermission
+                )],
+                timeout: 2
+            ),
+            .completed
+        )
         let eventDate = app.buttons["event-date"]
         let deadline = app.buttons["event-rsvp-deadline"]
         XCTAssertTrue(eventDate.waitForExistence(timeout: 5))

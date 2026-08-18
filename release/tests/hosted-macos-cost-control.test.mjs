@@ -7,9 +7,11 @@ const workflow = fs.readFileSync(
   "utf8",
 );
 
-test("documentation-only changes do not start privacy CI", () => {
-  const markdownIgnores = workflow.match(/- "\*\*\/\*\.md"/gu) ?? [];
-  assert.equal(markdownIgnores.length, 2);
+test("private hosted CI is restricted to deliberate manual runs", () => {
+  const triggers = workflow.slice(0, workflow.indexOf("concurrency:"));
+  assert.match(triggers, /workflow_dispatch:/u);
+  assert.doesNotMatch(triggers, /pull_request:/u);
+  assert.doesNotMatch(triggers, /push:/u);
 });
 
 test("the paid hosted Mac is restricted to deliberate full-suite runs", () => {

@@ -1910,7 +1910,9 @@ async function handleRelayOptionsRequest(request, bindings) {
     const allowedHeaders = /* @__PURE__ */ new Set([
       "cache-control",
       "content-type",
-      "pragma"
+      "pragma",
+      "x-herd-client-platform",
+      "x-herd-request-id"
     ]);
     if (!requestedHeaders.includes("content-type") || new Set(requestedHeaders).size !== requestedHeaders.length || requestedHeaders.some((header) => !allowedHeaders.has(header)) || request.headers.has("access-control-request-private-network")) {
       forbidden();
@@ -1920,7 +1922,7 @@ async function handleRelayOptionsRequest(request, bindings) {
         status: 204,
         headers: {
           "access-control-allow-methods": "POST",
-          "access-control-allow-headers": "content-type, cache-control, pragma",
+          "access-control-allow-headers": "content-type, cache-control, pragma, x-herd-client-platform, x-herd-request-id",
           "access-control-max-age": "600",
           "cache-control": "no-store",
           "x-content-type-options": "nosniff"

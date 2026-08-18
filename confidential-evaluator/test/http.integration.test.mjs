@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createEvaluatorApp } from "../src/app.mjs";
 import {
+  POLICY_DESCRIPTOR_CAPABILITY,
   POLICY_SIGNATURE_DOMAIN,
   TRANSPARENCY_LOG_ENTRY_HASH_DOMAIN,
   TRANSPARENCY_LOG_ID,
@@ -131,6 +132,7 @@ test("health exposes only public key binding metadata", async () => {
   assert.equal(response.headers.get("cache-control"), "no-store");
   const body = await response.json();
   assert.equal(body.status, "ok");
+  assert.deepEqual(body.capabilities, [POLICY_DESCRIPTOR_CAPABILITY]);
   assert.deepEqual(body.keyBinding, keyStore.metadata);
   assert.equal(body.keyBindingHash, keyStore.keyBindingHash);
   assert.equal(JSON.stringify(body).includes("private"), false);

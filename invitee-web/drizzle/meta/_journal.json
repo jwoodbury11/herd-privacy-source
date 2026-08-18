@@ -120,6 +120,20 @@
       "when": 1786558259291,
       "tag": "0016_illegal_hedge_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1786998962710,
+      "tag": "0017_jittery_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1786999317685,
+      "tag": "0018_daffy_venom",
+      "breakpoints": true
     }
   ]
 }

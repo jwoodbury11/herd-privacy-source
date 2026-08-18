@@ -1,5 +1,7 @@
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const REQUIRED_POLICY_CAPABILITY =
+  "policy_descriptor_evaluator_measurement_v1";
 
 function requiredString(value, label) {
   if (typeof value !== "string" || value.length === 0) {
@@ -20,6 +22,15 @@ export function verifyLiveReadinessSample(value, expected = {}) {
   }
   if (value.runtimeMatchesState !== true || value.state?.mode !== "active") {
     throw new TypeError("Live evaluator runtime does not match the active D1 epoch.");
+  }
+  if (
+    value.evaluatorCompatibility?.protocolVersion !== 1 ||
+    value.evaluatorCompatibility?.policyDescriptorCapability !==
+      REQUIRED_POLICY_CAPABILITY
+  ) {
+    throw new TypeError(
+      "Live evaluator does not support the deployed policy descriptor format.",
+    );
   }
   const artifactReleaseId = requiredString(
     value.artifactReleaseId,
@@ -60,6 +71,7 @@ export function verifyLiveReadinessSample(value, expected = {}) {
     evaluatorKeyEpochId,
     epochDescriptorSha256,
     workloadImageDigest,
+    evaluatorPolicyDescriptorCapability: REQUIRED_POLICY_CAPABILITY,
     stateGeneration: value.state.generation,
   };
 }

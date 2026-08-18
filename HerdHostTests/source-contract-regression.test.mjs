@@ -165,6 +165,25 @@ test("invitation details keep private-reply failures visible and retryable", asy
   );
 });
 
+test("saved-reply opening emits only bounded local diagnostics", async () => {
+  const [client, store] = await Promise.all([
+    source("APIClient.swift"),
+    source("EventStore.swift"),
+  ]);
+  assert.match(client, /func reportLocalClientTelemetry\(/u);
+  assert.match(client, /guard baseURL\.host == "app\.herdprivacy\.com" else \{ return \}/u);
+  assert.match(client, /"signal": "client_decode"/u);
+  assert.match(client, /"correlationId": UUID\(\)\.uuidString\.lowercased\(\)/u);
+  const reporterStart = client.indexOf("func reportLocalClientTelemetry(");
+  const reporterEnd = client.indexOf("private func requireSuccess(", reporterStart);
+  assert.ok(reporterStart >= 0 && reporterEnd > reporterStart);
+  const localReporter = client.slice(reporterStart, reporterEnd);
+  assert.doesNotMatch(localReporter, /eventId|inviteToken|phoneNumber|responseEnvelope/u);
+  assert.match(store, /operation: "reply\.saved\.open"/u);
+  assert.match(store, /saved_reply_invalid_envelope/u);
+  assert.match(store, /saved_reply_invalid_policy/u);
+});
+
 test("host OR choices exclude people already used in any required row", async () => {
   const editor = await source("EventEditorView.swift");
   assert.match(

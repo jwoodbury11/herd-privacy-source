@@ -1353,6 +1353,208 @@ function authorizedJsonRequest(method, body, accessToken) {
   };
 }
 
+test("operational telemetry correlates API boundaries and stores aggregates only", async (t) => {
+  const observabilityToken = "observability-test-token-0123456789-abcdef";
+  const alertSecret = "monitor-alert-test-secret-0123456789-abcdef";
+  const { miniflare, database } = await createHarness({
+    bindings: {
+      HERD_OBSERVABILITY_TOKEN: observabilityToken,
+      HERD_MONITOR_ALERT_HMAC_SECRET: alertSecret,
+    },
+  });
+  t.after(() => miniflare.dispose());
+
+  const requestId = "90000000-0000-4000-8000-000000000001";
+  const failed = await api(miniflare, "/api/events", {
+    headers: {
+      "x-herd-request-id": requestId,
+      "x-herd-client-platform": "ios",
+    },
+  });
+  assert.equal(failed.status, 401);
+  assert.equal(failed.headers.get("x-herd-request-id"), requestId);
+  assert.equal(failed.headers.get("x-herd-error-code"), "authentication_required");
+
+  const clientSignal = await api(miniflare, "/api/telemetry", jsonRequest("POST", {
+    schemaVersion: 1,
+    platform: "web",
+    signal: "client_api_request",
+    operation: "get.events",
+    outcome: "failure",
+    statusCode: 401,
+    errorCode: "authentication_required",
+    durationMs: 12,
+    correlationId: requestId,
+  }));
+  assert.equal(clientSignal.status, 204);
+
+  const localDecodeSignal = await api(miniflare, "/api/telemetry", jsonRequest("POST", {
+    schemaVersion: 1,
+    platform: "web",
+    signal: "client_decode",
+    operation: "reply.saved.open",
+    outcome: "failure",
+    statusCode: 0,
+    errorCode: "saved_reply_invalid_envelope",
+    durationMs: 8,
+    correlationId: "90000000-0000-4000-8000-000000000003",
+  }));
+  assert.equal(localDecodeSignal.status, 204);
+
+  const rows = await database.prepare(`
+    SELECT component, signal, operation, outcome, status_class AS statusClass,
+      error_code AS errorCode, count
+    FROM operational_metrics
+    ORDER BY component, signal
+  `).all();
+  assert.deepEqual(rows.results.map((row) => ({ ...row })), [
+    {
+      component: "api",
+      signal: "api_request",
+      operation: "get.events",
+      outcome: "failure",
+      statusClass: "4xx",
+      errorCode: "authentication_required",
+      count: 1,
+    },
+    {
+      component: "ios",
+      signal: "service_boundary",
+      operation: "get.events",
+      outcome: "failure",
+      statusClass: "4xx",
+      errorCode: "authentication_required",
+      count: 1,
+    },
+    {
+      component: "web",
+      signal: "client_api_request",
+      operation: "get.events",
+      outcome: "failure",
+      statusClass: "4xx",
+      errorCode: "authentication_required",
+      count: 1,
+    },
+    {
+      component: "web",
+      signal: "client_decode",
+      operation: "reply.saved.open",
+      outcome: "failure",
+      statusClass: "none",
+      errorCode: "saved_reply_invalid_envelope",
+      count: 1,
+    },
+  ]);
+
+  const alertBody = JSON.stringify({
+    schemaVersion: 1,
+    ok: false,
+    checkedAt: new Date().toISOString(),
+    configurationFailureClass: null,
+    storageFailureClass: null,
+    targets: [{
+      target: "herd-production",
+      ok: false,
+      durationMs: 250,
+      failureClass: "availability",
+      releaseId: "2026.08.12.1",
+    }],
+  });
+  const alertSignature = createHmac("sha256", alertSecret).update(alertBody).digest("hex");
+  const alert = await api(miniflare, "/api/internal/observability/alerts", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-herd-signature": `sha256=${alertSignature}`,
+    },
+    body: alertBody,
+  });
+  assert.equal(alert.status, 204);
+
+  const unauthorized = await api(miniflare, "/api/internal/observability/summary?hours=24");
+  assert.equal(unauthorized.status, 401);
+  const summary = await api(miniflare, "/api/internal/observability/summary?hours=24", {
+    headers: { authorization: `Bearer ${observabilityToken}` },
+  });
+  assert.equal(summary.status, 200);
+  const summaryBody = await summary.json();
+  assert.equal(summaryBody.schemaVersion, 1);
+  assert.equal(summaryBody.rows.length, 4);
+  assert.equal(summaryBody.health.alertFailureCount, 1);
+  assert.equal(summaryBody.health.alertRecoveryCount, 0);
+  assert.equal(summaryBody.health.activeAlertCount, 1);
+
+  const badAlert = await api(miniflare, "/api/internal/observability/alerts", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-herd-signature": "sha256=deadbeef",
+    },
+    body: alertBody,
+  });
+  assert.equal(badAlert.status, 401);
+
+  const recoveryBody = JSON.stringify({
+    ...JSON.parse(alertBody),
+    ok: true,
+    checkedAt: new Date(Date.now() + 1_000).toISOString(),
+    targets: [{
+      ...JSON.parse(alertBody).targets[0],
+      ok: true,
+      failureClass: null,
+    }],
+  });
+  const recoverySignature = createHmac("sha256", alertSecret).update(recoveryBody).digest("hex");
+  const recovery = await api(miniflare, "/api/internal/observability/alerts", {
+    method: "POST",
+    headers: { "x-herd-signature": `sha256=${recoverySignature}` },
+    body: recoveryBody,
+  });
+  assert.equal(recovery.status, 204);
+  const recoveredSummary = await api(miniflare, "/api/internal/observability/summary?hours=24", {
+    headers: { authorization: `Bearer ${observabilityToken}` },
+  });
+  assert.equal(recoveredSummary.status, 200);
+  assert.equal((await recoveredSummary.json()).health.activeAlertCount, 0);
+});
+
+test("telemetry rejects identifiers, payload fields, and malformed dimensions", async (t) => {
+  const { miniflare, database } = await createHarness();
+  t.after(() => miniflare.dispose());
+  const base = {
+    schemaVersion: 1,
+    platform: "web",
+    signal: "client_api_request",
+    operation: "put.invites.invite.rsvp",
+    outcome: "success",
+    statusCode: 200,
+    errorCode: "none",
+    durationMs: 20,
+    correlationId: "90000000-0000-4000-8000-000000000002",
+  };
+  for (const body of [
+    { ...base, eventId: "private-event" },
+    { ...base, phoneNumber: "+14155550100" },
+    { ...base, operation: "/api/invites/secret-token/rsvp" },
+  ]) {
+    const response = await api(miniflare, "/api/telemetry", jsonRequest("POST", body));
+    assert.equal(response.status, 400);
+  }
+
+  const baseRequest = jsonRequest("POST", base);
+  const crossOrigin = await api(miniflare, "/api/telemetry", {
+    ...baseRequest,
+    headers: { ...baseRequest.headers, origin: "https://attacker.example" },
+  });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal(
+    await database.prepare("SELECT COUNT(*) AS count FROM operational_metrics").first("count"),
+    0,
+  );
+  const unsignedAlert = await api(miniflare, "/api/internal/observability/alerts", jsonRequest("POST", {}));
+  assert.equal(unsignedAlert.status, 401);
+});
+
 test("account key mutations authenticate before parsing request bodies", async (t) => {
   const { miniflare } = await createHarness();
   t.after(() => miniflare.dispose());

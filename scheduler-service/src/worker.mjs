@@ -20,8 +20,16 @@ export const SCHEDULER_RUNTIME_VARIABLE_NAMES = Object.freeze([
   "HERD_RELEASE_ID",
 ]);
 
-function fail(message) {
-  throw new Error(message);
+class SchedulerError extends Error {
+  constructor(message, code = "scheduler_failure") {
+    super(message);
+    this.name = "SchedulerError";
+    this.code = code;
+  }
+}
+
+function fail(message, code) {
+  throw new SchedulerError(message, code);
 }
 
 function isRecord(value) {
@@ -313,12 +321,15 @@ function timeoutSignal(maximumMilliseconds, deadline, now) {
 
 async function schedulerRequest(fetchImpl, config, path, options) {
   const { body, acceptedStatuses, deadline, now = Date.now } = options;
+  const requestId = crypto.randomUUID();
   const response = await fetchImpl(new URL(path, config.herdOrigin), {
     method: "POST",
     redirect: "manual",
     headers: {
       authorization: `Bearer ${config.schedulerToken}`,
       accept: "application/json",
+      "x-herd-client-platform": "scheduler",
+      "x-herd-request-id": requestId,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -330,7 +341,7 @@ async function schedulerRequest(fetchImpl, config, path, options) {
     } catch {
       // The status remains authoritative.
     }
-    fail(`Herd rejected a courier request (HTTP ${response.status}).`);
+    fail(`Herd rejected a courier request (HTTP ${response.status}).`, `herd_http_${response.status}`);
   }
   return response;
 }
@@ -362,6 +373,7 @@ async function claimJob(fetchImpl, config, now, deadline) {
 }
 
 async function relayJob(fetchImpl, config, job, now, deadline) {
+  const requestId = crypto.randomUUID();
   const response = await fetchImpl(config.evaluatorUrl, {
     method: "POST",
     redirect: "manual",
@@ -369,6 +381,8 @@ async function relayJob(fetchImpl, config, job, now, deadline) {
       accept: "application/json",
       "content-type": "application/json",
       "cache-control": "no-store",
+      "x-herd-client-platform": "scheduler",
+      "x-herd-request-id": requestId,
     },
     body: JSON.stringify(job.relayRequest),
     signal: timeoutSignal(EVALUATOR_REQUEST_TIMEOUT_MS, deadline, now),
@@ -379,7 +393,7 @@ async function relayJob(fetchImpl, config, job, now, deadline) {
     } catch {
       // The unsuccessful status remains authoritative.
     }
-    fail(`The evaluator rejected an opaque job (HTTP ${response.status}).`);
+    fail(`The evaluator rejected an opaque job (HTTP ${response.status}).`, `evaluator_http_${response.status}`);
   }
   const result = await readJson(response, MAXIMUM_RESULT_BYTES);
   if (!isRecord(result)) fail("The evaluator returned an invalid signed result.");
@@ -422,6 +436,8 @@ async function releaseJob(fetchImpl, config, job) {
 }
 
 export async function runCourier(env, options = {}) {
+  const invocationId = crypto.randomUUID();
+  const startedAt = Date.now();
   const config = validateRuntimeConfig(env);
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
@@ -453,22 +469,55 @@ export async function runCourier(env, options = {}) {
         now,
         invocationDeadline,
       );
-    } catch {
+    } catch (error) {
       try {
         await releaseJob(fetchImpl, config, job);
       } catch {
         // The short lease still makes the job safely retryable.
       }
-      fail("An opaque evaluation could not be completed safely.");
+      fail(
+        "An opaque evaluation could not be completed safely.",
+        error instanceof SchedulerError ? error.code : "evaluation_boundary_failed",
+      );
     }
   }
-  console.log(`Herd opaque courier completed ${completed} due job(s).`);
+  console.info(JSON.stringify({
+    schemaVersion: 1,
+    kind: "herd.operational",
+    recordedAt: new Date().toISOString(),
+    component: "scheduler",
+    signal: "scheduler_run",
+    operation: "scheduled_resolution",
+    outcome: "success",
+    statusCode: 200,
+    errorCode: "none",
+    durationMs: Math.max(0, Date.now() - startedAt),
+    correlationId: invocationId,
+    releaseId: config.artifactReleaseId,
+    completedCount: completed,
+  }));
   return completed;
 }
 
 export default {
   scheduled(_controller, env, context) {
-    context.waitUntil(runCourier(env));
+    context.waitUntil(runCourier(env).catch((error) => {
+      console.error(JSON.stringify({
+        schemaVersion: 1,
+        kind: "herd.operational",
+        recordedAt: new Date().toISOString(),
+        component: "scheduler",
+        signal: "scheduler_run",
+        operation: "scheduled_resolution",
+        outcome: "failure",
+        statusCode: 500,
+        errorCode: error instanceof SchedulerError ? error.code : "scheduler_run_failed",
+        durationMs: 0,
+        correlationId: crypto.randomUUID(),
+        releaseId: "unknown",
+      }));
+      throw error;
+    }));
   },
 
   fetch() {

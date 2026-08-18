@@ -1,7 +1,7 @@
 {
   "bundle": {
     "path": "vendor/relay-core.mjs",
-    "sha256": "938f70be69742bafdada5700acff1535f1416ebb43569bfa707ab3afcd459a87"
+    "sha256": "c3c62cafd7ca676171f7d2894558d67c829e7c030c629c3c9a81731e7f1844b5"
   },
   "sources": [
     {
@@ -10,7 +10,7 @@
     },
     {
       "path": "../evaluator-service/lib/relay.ts",
-      "sha256": "615edd7e431bca54201bb46cb1bd90aff313ae56cd23ab79e7f8d765896a8490"
+      "sha256": "b1c9db8c58c4d54b6499c456fec8f07010f85348734cf26e52b4cdd9a39651d2"
     },
     {
       "path": "../evaluator-service/lib/evaluate.ts",
