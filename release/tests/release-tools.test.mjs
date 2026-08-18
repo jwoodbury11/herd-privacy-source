@@ -135,6 +135,24 @@ test("evaluator epoch identity uses the stable policy measurement across image r
     `${manifest.trust.workload.imageDigest.algorithm}:${manifest.trust.workload.imageDigest.value}`,
   );
 });
+
+test("signed predecessor manifests map the legacy workload policy without relaxing new manifests", () => {
+  const legacy = structuredClone(makeReleaseFixture().manifest);
+  legacy.trust.workload.imageDigest = legacy.trust.workload.policyMeasurement;
+  legacy.trust.workload.attestationClaimPolicy.imageDigest = legacy.trust.workload.policyMeasurement;
+  delete legacy.trust.workload.policyMeasurement;
+  delete legacy.trust.workload.attestationClaimPolicy.allowedImageDigests;
+
+  assert.throws(() => normalizeReleaseManifest(legacy, { requireProduction: true }));
+  const normalized = normalizeReleaseManifest(legacy, {
+    requireProduction: true,
+    allowLegacyWorkloadPolicy: true,
+  });
+  assert.deepEqual(normalized.trust.workload.policyMeasurement, legacy.trust.workload.imageDigest);
+  assert.deepEqual(normalized.trust.workload.attestationClaimPolicy.allowedImageDigests, [
+    legacy.trust.workload.imageDigest,
+  ]);
+});
 const TEST_ROOT_CERTIFICATE = `-----BEGIN CERTIFICATE-----
 MIIBwDCCAWWgAwIBAgIUSNN9w5LfurZ0bwlrvV4ZGA9EyaIwCgYIKoZIzj0EAwIw
 NTEfMB0GA1UEAwwWSGVyZCBSZWxlYXNlIFRlc3QgUm9vdDESMBAGA1UECgwJSGVy

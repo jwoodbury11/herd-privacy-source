@@ -163,7 +163,13 @@ async function main() {
   ]);
   const previousManifest = normalizeReleaseManifest(
     parseCanonical(manifestFetch.bytes, "current signed manifest"),
-    { requireProduction: true },
+    {
+      requireProduction: true,
+      // The already-signed predecessor predates the split between the runtime
+      // image digest and the stable policy measurement. Its original bytes are
+      // still verified below; this only supplies the legacy semantic mapping.
+      allowLegacyWorkloadPolicy: true,
+    },
   );
   if (
     previousManifest.releaseId !== pointer.releaseId ||
