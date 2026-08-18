@@ -76,6 +76,7 @@
     },
     { "path": "scripts/test-all", "optional": true },
     { "path": "scripts/verify-data-contract.mjs" },
+    { "path": "scripts/observability-dashboard.mjs" },
     { "path": "scripts/scan-sensitive-artifacts.mjs" },
     {
       "path": "HerdHost",
