@@ -299,16 +299,17 @@ final class HerdHostUITests: XCTestCase {
     func testReplyPreviewDismissesFromTheEdgeOfTheVisibleButton() {
         let app = launch(scenario: "invitation-account-switch")
 
-        XCTAssertTrue(
-            app.staticTexts["Your invitation is ready and will open after you sign in."]
-                .waitForExistence(timeout: 10)
-        )
+        let pendingNotice = app.staticTexts[
+            "Your invitation is ready and will open after you sign in."
+        ]
+        XCTAssertTrue(pendingNotice.waitForExistence(timeout: 10))
         signIn(app, phoneNumber: "4155550101")
         XCTAssertTrue(
             app.staticTexts["This invitation is for another account"]
                 .waitForExistence(timeout: 10)
         )
         app.buttons["switch-invitation-account"].tap()
+        XCTAssertTrue(pendingNotice.waitForExistence(timeout: 10))
         signIn(app, phoneNumber: "4155550102")
 
         XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
@@ -328,16 +329,17 @@ final class HerdHostUITests: XCTestCase {
     func testDeviceSwitchConfirmationReliablyPresentsPhoneVerification() {
         let app = launch(scenario: "invitation-account-switch")
 
-        XCTAssertTrue(
-            app.staticTexts["Your invitation is ready and will open after you sign in."]
-                .waitForExistence(timeout: 10)
-        )
+        let pendingNotice = app.staticTexts[
+            "Your invitation is ready and will open after you sign in."
+        ]
+        XCTAssertTrue(pendingNotice.waitForExistence(timeout: 10))
         signIn(app, phoneNumber: "4155550101")
         XCTAssertTrue(
             app.staticTexts["This invitation is for another account"]
                 .waitForExistence(timeout: 10)
         )
         app.buttons["switch-invitation-account"].tap()
+        XCTAssertTrue(pendingNotice.waitForExistence(timeout: 10))
         signIn(app, phoneNumber: "4155550102")
 
         XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
@@ -370,7 +372,8 @@ final class HerdHostUITests: XCTestCase {
         submit.tap()
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["Cancel"].tap()
-        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        scrollToMakeHittable(submit, in: app.scrollViews.firstMatch)
+        XCTAssertTrue(submit.exists)
     }
 
     private func launch(
