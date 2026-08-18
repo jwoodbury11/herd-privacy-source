@@ -170,8 +170,9 @@ export function computeWorkloadKeyBindingHash(binding) {
     .digest("base64url");
 }
 
-function normalizeClaimPolicy(value, { binding, imageDigest }) {
+function normalizeClaimPolicy(value, { binding, imageDigest, allowLegacyWorkloadPolicy = false }) {
   const label = "trust.workload.attestationClaimPolicy";
+  const legacyPolicy = allowLegacyWorkloadPolicy && value.allowedImageDigests === undefined;
   exactKeys(
     value,
     [
@@ -185,7 +186,7 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
       "keyBindingHashEncoding",
       "keyBindingHash",
       "imageDigest",
-      "allowedImageDigests",
+      ...(legacyPolicy ? [] : ["allowedImageDigests"]),
       "projectId",
       "serviceAccount",
       "hwmodel",
@@ -226,14 +227,15 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
   ) {
     throw new TypeError(`${label}.imageDigest must exactly match trust.workload.imageDigest.`);
   }
+  const sourceAllowedImageDigests = legacyPolicy ? [value.imageDigest] : value.allowedImageDigests;
   if (
-    !Array.isArray(value.allowedImageDigests) ||
-    value.allowedImageDigests.length === 0 ||
-    value.allowedImageDigests.length > 2
+    !Array.isArray(sourceAllowedImageDigests) ||
+    sourceAllowedImageDigests.length === 0 ||
+    sourceAllowedImageDigests.length > 2
   ) {
     throw new TypeError(`${label}.allowedImageDigests must contain one or two exact digests.`);
   }
-  const allowedImageDigests = value.allowedImageDigests.map((digest, index) =>
+  const allowedImageDigests = sourceAllowedImageDigests.map((digest, index) =>
     normalizeDigest(digest, `${label}.allowedImageDigests[${index}]`, { sha256Only: true }),
   );
   const allowedImageDigestValues = allowedImageDigests.map(
@@ -305,13 +307,14 @@ function normalizeClaimPolicy(value, { binding, imageDigest }) {
   };
 }
 
-function normalizeWorkload(value, binding) {
+function normalizeWorkload(value, binding, { allowLegacyWorkloadPolicy = false } = {}) {
+  const legacyPolicy = allowLegacyWorkloadPolicy && value.policyMeasurement === undefined;
   exactKeys(
     value,
     [
       "platform",
       "imageDigest",
-      "policyMeasurement",
+      ...(legacyPolicy ? [] : ["policyMeasurement"]),
       "measurements",
       "attestationProvider",
       "attestationClaimPolicy",
@@ -341,7 +344,7 @@ function normalizeWorkload(value, binding) {
       sha256Only: true,
     });
   const policyMeasurement = normalizeDigest(
-    value.policyMeasurement,
+    legacyPolicy ? value.imageDigest : value.policyMeasurement,
     "trust.workload.policyMeasurement",
     { sha256Only: true },
   );
@@ -356,6 +359,7 @@ function normalizeWorkload(value, binding) {
     attestationClaimPolicy: normalizeClaimPolicy(value.attestationClaimPolicy, {
       binding,
       imageDigest,
+      allowLegacyWorkloadPolicy: legacyPolicy,
     }),
     attestationRootFingerprint: normalizeDigest(
       value.attestationRootFingerprint,
@@ -479,7 +483,10 @@ function normalizePreviousRelease(value, currentReleaseId) {
   };
 }
 
-export function normalizeReleaseManifest(value, { requireProduction = false } = {}) {
+export function normalizeReleaseManifest(
+  value,
+  { requireProduction = false, allowLegacyWorkloadPolicy = false } = {},
+) {
   exactKeys(
     value,
     [
@@ -597,7 +604,9 @@ export function normalizeReleaseManifest(value, { requireProduction = false } = 
     policySigning,
     receiptTransparencySigning,
     releaseManifestSigning,
-    workload: normalizeWorkload(value.trust.workload, operationalKeyBinding),
+    workload: normalizeWorkload(value.trust.workload, operationalKeyBinding, {
+      allowLegacyWorkloadPolicy,
+    }),
   };
   const trustKeys = [
     trust.evaluatorEncryption,
