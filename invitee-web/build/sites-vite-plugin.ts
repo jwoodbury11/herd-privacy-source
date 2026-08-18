@@ -1,6 +1,7 @@
 import { access, cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
+import { PUBLIC_RUNTIME_CONFIG_KEYS } from "../lib/public-runtime-config.ts";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -49,6 +50,12 @@ export function sites(): Plugin {
         "assets",
         "manifest.json",
       );
+      const publicReleaseConfig = resolve(
+        distributionDirectory,
+        "client",
+        "assets",
+        "herd-release-config.js",
+      );
 
       await rm(outputDirectory, { recursive: true, force: true });
       await mkdir(outputDirectory, { recursive: true });
@@ -71,6 +78,7 @@ export function sites(): Plugin {
       // deployment archive. Remove any stale marker on ordinary test builds.
       await rm(releaseMarker, { force: true });
       await rm(artifactReleaseMarker, { force: true });
+      await rm(publicReleaseConfig, { force: true });
       const publicDigest =
         process.env.NEXT_PUBLIC_HERD_RELEASE_CONFIGURATION_SHA256?.trim();
       const runtimeDigest = process.env.HERD_RELEASE_CONFIGURATION_SHA256?.trim();
@@ -113,6 +121,28 @@ export function sites(): Plugin {
           encoding: "utf8",
           mode: 0o644,
         });
+      }
+
+      if (publicDigest !== undefined) {
+        const publicValues = Object.fromEntries(
+          PUBLIC_RUNTIME_CONFIG_KEYS.map((key) => {
+            const value = process.env[`NEXT_PUBLIC_${key}`];
+            if (typeof value !== "string" || value.length === 0) {
+              throw new TypeError(
+                `NEXT_PUBLIC_${key} is required for a signed production web build.`,
+              );
+            }
+            return [key, value];
+          }),
+        );
+        await mkdir(resolve(distributionDirectory, "client", "assets"), {
+          recursive: true,
+        });
+        await writeFile(
+          publicReleaseConfig,
+          `window.__HERD_PUBLIC_RUNTIME_CONFIG__=Object.freeze(${JSON.stringify(publicValues)});\n`,
+          { encoding: "utf8", mode: 0o644 },
+        );
       }
     },
   };
