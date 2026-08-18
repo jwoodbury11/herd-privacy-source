@@ -26,6 +26,7 @@ final class LocationSearchModel: NSObject, ObservableObject, MKLocalSearchComple
 
     init(initialQuery: String = "") {
         query = initialQuery
+#if DEBUG
         fixtureResults = HerdUITestEnvironment.current == nil
             ? nil
             : [
@@ -34,6 +35,9 @@ final class LocationSearchModel: NSObject, ObservableObject, MKLocalSearchComple
                     subtitle: "San Francisco, CA 94114"
                 )
             ]
+#else
+        fixtureResults = nil
+#endif
         super.init()
         completer.delegate = self
         completer.resultTypes = [.address, .pointOfInterest]
