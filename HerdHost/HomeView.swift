@@ -954,11 +954,12 @@ private struct ProfileView: View {
     @State private var name = ""
     @State private var address = ""
     @State private var hasLoadedProfile = false
+    @State private var showsAddressSearch = false
     @State private var showsLogoutConfirmation = false
     @State private var showsAccountDeletionConfirmation = false
     @State private var showsAccountDeletionVerification = false
     @State private var accountDeletionCode = ""
-    @State private var savedNotice = ""
+    @FocusState private var isNameFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -980,7 +981,8 @@ private struct ProfileView: View {
                         label: experience.nameLabel,
                         placeholder: experience.namePlaceholder,
                         text: $name,
-                        accessibilityIdentifier: "profile-name"
+                        accessibilityIdentifier: "profile-name",
+                        isFocused: $isNameFocused
                     )
 
                     Divider()
@@ -995,12 +997,13 @@ private struct ProfileView: View {
                     Divider()
                         .padding(.leading, 16)
 
-                    ProfileField(
+                    ProfileAddressPicker(
                         label: experience.addressLabel,
                         placeholder: experience.addressPlaceholder,
-                        text: $address,
-                        accessibilityIdentifier: "profile-address",
-                        axis: .vertical
+                        address: $address,
+                        onSelect: {
+                            showsAddressSearch = true
+                        }
                     )
                 }
                 .background(HerdTheme.surface, in: .rect(cornerRadius: 18))
@@ -1010,13 +1013,6 @@ private struct ProfileView: View {
                 }
 
                 profileAccountActions
-
-                if !savedNotice.isEmpty {
-                    Label(savedNotice, systemImage: "checkmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.green)
-                        .padding(.horizontal, 4)
-                }
 
                 if let errorMessage = authStore.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.circle.fill")
@@ -1091,6 +1087,11 @@ private struct ProfileView: View {
             Text(experience.accountDeletion.body)
         }
         .sheet(
+            isPresented: $showsAddressSearch
+        ) {
+            AddressSearchView(address: $address)
+        }
+        .sheet(
             isPresented: $showsAccountDeletionVerification,
             onDismiss: {
                 accountDeletionCode = ""
@@ -1106,12 +1107,6 @@ private struct ProfileView: View {
             name = user.name
             address = user.address
             hasLoadedProfile = true
-        }
-        .onChange(of: name) { _, _ in
-            savedNotice = ""
-        }
-        .onChange(of: address) { _, _ in
-            savedNotice = ""
         }
     }
 
@@ -1221,10 +1216,9 @@ private struct ProfileView: View {
 
     private var saveButton: some View {
         Button {
+            isNameFocused = false
             Task {
-                if await authStore.updateProfile(name: name, address: address) {
-                    savedNotice = experience.savedNotice
-                }
+                _ = await authStore.updateProfile(name: name, address: address)
             }
         } label: {
             HStack(spacing: 10) {
@@ -1340,7 +1334,7 @@ private struct ProfileField: View {
     var accessibilityIdentifier: String
     var keyboardType: UIKeyboardType = .default
     var axis: Axis = .horizontal
-    @FocusState private var isFocused: Bool
+    var isFocused: FocusState<Bool>.Binding
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1353,13 +1347,13 @@ private struct ProfileField: View {
                     .keyboardType(keyboardType)
                     .textContentType(textContentType)
                     .lineLimit(axis == .vertical ? 2...4 : 1...1)
-                    .focused($isFocused)
+                    .focused(isFocused)
                     .accessibilityIdentifier(accessibilityIdentifier)
 
-                if isFocused && !text.isEmpty {
+                if isFocused.wrappedValue && !text.isEmpty {
                     Button {
                         text = ""
-                        isFocused = true
+                        isFocused.wrappedValue = true
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.tertiary)
@@ -1380,6 +1374,63 @@ private struct ProfileField: View {
         case "Address": .fullStreetAddress
         default: nil
         }
+    }
+}
+
+private struct ProfileAddressPicker: View {
+    let label: String
+    let placeholder: String
+    @Binding var address: String
+    let onSelect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                Button(action: onSelect) {
+                    HStack(spacing: 10) {
+                        Text(trimmedAddress.isEmpty ? placeholder : trimmedAddress)
+                            .foregroundStyle(trimmedAddress.isEmpty ? .tertiary : .primary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(label)
+                .accessibilityValue(trimmedAddress.isEmpty ? "Not set" : trimmedAddress)
+                .accessibilityHint("Opens address search suggestions")
+                .accessibilityIdentifier("profile-address")
+
+                if !trimmedAddress.isEmpty {
+                    Button {
+                        address = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear \(label)")
+                    .accessibilityIdentifier("profile-address-clear")
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private var trimmedAddress: String {
+        address.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -2798,7 +2849,7 @@ private struct InvitationDetailView: View {
                             removeConditionMember(memberID, from: group.id)
                         } label: {
                             HStack(spacing: 6) {
-                                Text(event.name(for: memberID))
+                                Text(RequiredAttendeeName.shortened(event.name(for: memberID)))
                                     .lineLimit(1)
                                 Image(systemName: "xmark")
                                     .font(.caption2.weight(.bold))

@@ -55,6 +55,29 @@ test("profile editing stays private and saves only after a real change", async (
   assert.match(home, /private var profileHasChanges: Bool/u);
 });
 
+test("contact search provides an in-field clear action without dropping focus", async () => {
+  const attendeeFlow = await source("AttendeeFlowView.swift");
+  assert.match(
+    attendeeFlow,
+    /if !searchText\.isEmpty[\s\S]*searchText = ""[\s\S]*isSearchFocused = true/u,
+  );
+  assert.match(attendeeFlow, /accessibilityIdentifier\("clear-contact-search"\)/u);
+});
+
+test("selected required-attendee chips abbreviate names without changing stored names", async () => {
+  const [editor, home, models] = await Promise.all([
+    source("EventEditorView.swift"),
+    source("HomeView.swift"),
+    source("Models.swift"),
+  ]);
+  assert.match(models, /enum RequiredAttendeeName[\s\S]*func shortened/u);
+  assert.match(editor, /Text\(RequiredAttendeeName\.shortened\(name\(for: memberID\)\)\)/u);
+  assert.match(home, /Text\(RequiredAttendeeName\.shortened\(event\.name\(for: memberID\)\)\)/u);
+  assert.ok(
+    editor.includes('.accessibilityLabel("Remove \\(name(for: memberID)) from required attendees")'),
+  );
+});
+
 test("account deletion is available in-app and erases server and device state", async () => {
   const [auth, client, home, eventStore, keyStore] = await Promise.all([
     source("AuthStore.swift"),
@@ -190,6 +213,14 @@ test("host OR choices exclude people already used in any required row", async ()
     editor,
     /case \.alternative:[\s\S]*?!usedRequiredInviteeIDs\.contains\(\$0\.id\)/u,
   );
+});
+
+test("event editor uses attendee language for required-attendee controls", async () => {
+  const source = await readFile(new URL("../HerdHost/EventEditorView.swift", import.meta.url), "utf8");
+
+  assert.match(source, /EditorGroup\(title: "Required attendees"/u);
+  assert.match(source, /Text\("Add required attendee"\)/u);
+  assert.doesNotMatch(source, /Required attendance|Add required attendance/u);
 });
 
 test("iOS relays due host evaluations without exposing app credentials", async () => {

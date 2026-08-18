@@ -100,6 +100,14 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["contact-section-selected"].exists)
         XCTAssertFalse(app.staticTexts["contact-section-contacts"].exists)
 
+        let clearSearch = app.buttons["clear-contact-search"]
+        XCTAssertTrue(clearSearch.waitForExistence(timeout: 5))
+        clearSearch.tap()
+        XCTAssertFalse(clearSearch.exists)
+        XCTAssertTrue(app.staticTexts["contact-section-selected"].exists)
+        XCTAssertTrue(app.staticTexts["contact-section-contacts"].exists)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+
         let keyboardDone = app.keyboards.buttons["Done"]
         XCTAssertTrue(keyboardDone.waitForExistence(timeout: 5))
         keyboardDone.tap()
@@ -205,8 +213,39 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(save.isEnabled)
         save.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
 
-        XCTAssertTrue(app.staticTexts["Profile saved."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["Profile saved."].exists)
         XCTAssertFalse(save.isEnabled)
+    }
+
+    func testProfileAddressUsesTheLocationAutocompleteFlow() {
+        let app = launch(scenario: "host-create")
+        let profile = app.buttons["Open profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.tap()
+
+        let address = app.buttons["profile-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 5))
+        XCTAssertEqual(address.value as? String, "1 Fixture Way")
+        address.tap()
+
+        let addressSearch = app.textFields["profile-address-search"]
+        XCTAssertTrue(addressSearch.waitForExistence(timeout: 5))
+        XCTAssertEqual(addressSearch.value as? String, "1 Fixture Way")
+        XCTAssertTrue(app.navigationBars["Address"].exists)
+
+        let suggestion = app.buttons["profile-address-result-0"]
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["219 Cumberland Street"].exists)
+        suggestion.tap()
+        app.navigationBars["Address"].buttons["Save"].tap()
+
+        XCTAssertTrue(address.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            address.value as? String,
+            "219 Cumberland Street, San Francisco, CA 94114"
+        )
+        XCTAssertTrue(app.buttons["profile-save-changes"].isEnabled)
     }
 
     func testHostEditsAndPersistsExistingDraft() {
@@ -373,10 +412,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(confirmation.waitForExistence(timeout: 10))
         confirmation.buttons["Cancel"].tap()
         XCTAssertFalse(confirmation.waitForExistence(timeout: 1))
-        XCTAssertTrue(
-            app.staticTexts["Private Picnic Invitation"]
-                .waitForExistence(timeout: 5)
-        )
+        XCTAssertTrue(submit.waitForExistence(timeout: 5))
     }
 
     private func launch(
