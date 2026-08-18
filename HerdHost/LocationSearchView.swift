@@ -2,26 +2,54 @@ import Combine
 import MapKit
 import SwiftUI
 
+struct LocationSearchSuggestion: Equatable {
+    let title: String
+    let subtitle: String
+}
+
 final class LocationSearchModel: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
     @Published var query: String {
         didSet {
+            if let fixtureResults {
+                results = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? []
+                    : fixtureResults
+                return
+            }
             completer.queryFragment = query
         }
     }
-    @Published private(set) var results: [MKLocalSearchCompletion] = []
+    @Published private(set) var results: [LocationSearchSuggestion] = []
 
     private let completer = MKLocalSearchCompleter()
+    private let fixtureResults: [LocationSearchSuggestion]?
 
     init(initialQuery: String = "") {
         query = initialQuery
+        fixtureResults = HerdUITestEnvironment.current == nil
+            ? nil
+            : [
+                LocationSearchSuggestion(
+                    title: "219 Cumberland Street",
+                    subtitle: "San Francisco, CA 94114"
+                )
+            ]
         super.init()
         completer.delegate = self
         completer.resultTypes = [.address, .pointOfInterest]
-        completer.queryFragment = initialQuery
+        if let fixtureResults {
+            results = initialQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? []
+                : fixtureResults
+        } else {
+            completer.queryFragment = initialQuery
+        }
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let latestResults = completer.results
+        let latestResults = completer.results.map {
+            LocationSearchSuggestion(title: $0.title, subtitle: $0.subtitle)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.results = latestResults
         }
@@ -196,29 +224,31 @@ struct AddressSearchView: View {
                         LocationSearchField(
                             placeholder: "Street, city, state",
                             query: $searchModel.query,
-                            usesAddressContentType: true
+                            usesAddressContentType: true,
+                            accessibilityIdentifier: "profile-address-search"
                         )
                     }
 
                     if !searchModel.results.isEmpty {
                         LocationGroup(title: "Suggestions") {
                             ForEach(Array(searchModel.results.enumerated()), id: \.offset) { index, result in
-                            let fullAddress = [result.title, result.subtitle]
-                                .filter { !$0.isEmpty }
-                                .joined(separator: ", ")
+                                let fullAddress = [result.title, result.subtitle]
+                                    .filter { !$0.isEmpty }
+                                    .joined(separator: ", ")
 
-                            Button {
-                                selectedAddress = fullAddress
-                                searchModel.query = fullAddress
-                            } label: {
+                                Button {
+                                    selectedAddress = fullAddress
+                                    searchModel.query = fullAddress
+                                } label: {
                                     LocationResultRow(
                                         icon: "mappin.and.ellipse",
                                         title: result.title,
                                         subtitle: result.subtitle,
                                         isSelected: selectedAddress == fullAddress
                                     )
-                            }
+                                }
                                 .buttonStyle(LocationRowButtonStyle())
+                                .accessibilityIdentifier("profile-address-result-\(index)")
 
                                 if index < searchModel.results.count - 1 {
                                     Divider()
@@ -265,6 +295,7 @@ private struct LocationSearchField: View {
     let placeholder: String
     @Binding var query: String
     var usesAddressContentType = false
+    var accessibilityIdentifier: String? = nil
 
     var body: some View {
         HStack(spacing: 11) {
@@ -277,6 +308,7 @@ private struct LocationSearchField: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
+                .accessibilityIdentifier(accessibilityIdentifier ?? placeholder)
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 50)

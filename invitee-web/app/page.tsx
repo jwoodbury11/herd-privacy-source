@@ -38,6 +38,7 @@ import {
   verifyPrivateResponseReceiptPublication,
 } from "@/lib/privacy/trust-verification";
 import { reportClientSignal, trackedFetch } from "@/lib/client/telemetry";
+import { requiredAttendeeName } from "@/lib/client/display-names.mjs";
 
 const OTP_LENGTH = 4;
 const RECENT_PHONE_VERIFICATION_WINDOW_MS = 9 * 60 * 1000;
@@ -2019,6 +2020,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   async function saveProfile() {
     if (!profileHasChanges || profilePending) return false;
+    profileNameInputRef.current?.blur();
+    profileAddressInputRef.current?.blur();
     setProfileNotice("");
     setProfilePending(true);
     try {
@@ -2038,7 +2041,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       }
       const body = await response.json() as { user: ApiUser };
       applyUser(body.user);
-      setProfileNotice(PROFILE_EXPERIENCE.savedNotice);
       return true;
     } catch {
       setProfileNotice("Couldn’t save your profile.");
@@ -3432,7 +3434,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                   {PROFILE_EXPERIENCE.logoutButton}
                 </button>
               </div>
-              {profileNotice ? <p className={profileNotice === PROFILE_EXPERIENCE.savedNotice ? "inline-success" : "inline-error"}>{profileNotice}</p> : null}
+              {profileNotice ? <p className="inline-error">{profileNotice}</p> : null}
             </div>
             <div className="bottom-action profile-save-action">
               <button
@@ -3648,7 +3650,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                                     removeConditionPerson(groupIndex, personID);
                                   }}
                                 >
-                                  <span>{displayName}</span>
+                                  <span>{requiredAttendeeName(displayName)}</span>
                                   <span aria-hidden="true">×</span>
                                 </button>
                               </Fragment>

@@ -226,6 +226,13 @@ final class PrivateResponseInteropTests: XCTestCase {
 }
 
 final class HerdHostBusinessRuleTests: XCTestCase {
+    func testRequiredAttendeeNamesUseFirstNameAndUppercaseLastInitial() {
+        XCTAssertEqual(RequiredAttendeeName.shortened("Grant Bernero"), "Grant B")
+        XCTAssertEqual(RequiredAttendeeName.shortened("  Ella   herdTestUser  "), "Ella H")
+        XCTAssertEqual(RequiredAttendeeName.shortened("Prince"), "Prince")
+        XCTAssertEqual(RequiredAttendeeName.shortened(" \n "), "Guest")
+    }
+
     func testNewEventDefaultsChooseSaturdayAndThursdayDeadline() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!

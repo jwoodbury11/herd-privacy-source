@@ -330,6 +330,20 @@ struct AttendeeFlowView: View {
                 .onSubmit {
                     isSearchFocused = false
                 }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear contact search")
+                .accessibilityIdentifier("clear-contact-search")
+            }
         }
         .padding(.horizontal, 16)
         .frame(height: 50)

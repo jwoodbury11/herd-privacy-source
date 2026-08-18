@@ -1,5 +1,16 @@
 import Foundation
 
+enum RequiredAttendeeName {
+    static func shortened(_ fullName: String) -> String {
+        let parts = fullName.split(whereSeparator: \.isWhitespace)
+        guard let firstName = parts.first else { return "Guest" }
+        guard parts.count > 1, let lastInitial = parts.last?.first else {
+            return String(firstName)
+        }
+        return "\(firstName) \(String(lastInitial).uppercased())"
+    }
+}
+
 struct HerdUser: Identifiable, Codable, Hashable, Sendable {
     let id: String
     var phoneNumber: String

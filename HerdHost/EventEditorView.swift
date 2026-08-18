@@ -422,7 +422,7 @@ struct EventEditorView: View {
 
     @ViewBuilder
     private var requiredAttendeeSection: some View {
-        EditorGroup(title: "Required attendance", footer: requiredAttendeeFooter) {
+        EditorGroup(title: "Required attendees", footer: requiredAttendeeFooter) {
             VStack(spacing: 0) {
                 ForEach(Array(draft.requiredGroups.enumerated()), id: \.element.id) { index, group in
                     if index > 0 {
@@ -454,7 +454,7 @@ struct EventEditorView: View {
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 32)
-                        Text("Add required attendance")
+                        Text("Add required attendee")
                             .font(.body.weight(.medium))
                         Spacer()
                     }
@@ -870,7 +870,7 @@ private struct RequiredRuleRow: View {
                             onRemoveMember(memberID)
                         } label: {
                             HStack(spacing: 6) {
-                                Text(name(for: memberID))
+                                Text(RequiredAttendeeName.shortened(name(for: memberID)))
                                     .lineLimit(1)
                                 Image(systemName: "xmark")
                                     .font(.caption2.weight(.bold))
@@ -887,6 +887,7 @@ private struct RequiredRuleRow: View {
                             .contentShape(.capsule)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove \(name(for: memberID)) from required attendees")
                         .accessibilityHint("Removes this person from the rule")
                     }
 
