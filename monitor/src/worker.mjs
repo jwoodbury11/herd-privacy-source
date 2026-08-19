@@ -208,16 +208,20 @@ function validKeyWitness(value) {
 }
 
 function validEvaluatorKeyEpoch(value) {
+  const legacyKeys = [
+    "evaluatorKeyEpochId",
+    "sha256",
+    "workloadImageDigest",
+    "responseDecryption",
+    "evaluationResultSigning",
+    "policySigning",
+    "responseTransparency",
+  ];
+  const currentKeys = ["identityBasis", ...legacyKeys];
   return (
-    exactRecord(value, [
-      "evaluatorKeyEpochId",
-      "sha256",
-      "workloadImageDigest",
-      "responseDecryption",
-      "evaluationResultSigning",
-      "policySigning",
-      "responseTransparency",
-    ]) &&
+    (exactRecord(value, legacyKeys) ||
+      (exactRecord(value, currentKeys) &&
+        value.identityBasis === "policy-measurement-v1")) &&
     validIdentifier(value.evaluatorKeyEpochId) &&
     validSha256(value.sha256) &&
     typeof value.workloadImageDigest === "string" &&
@@ -273,8 +277,19 @@ export function assertReleaseContinuity(previous, result) {
   }
   if (nextEpoch.evaluatorKeyEpochId === priorEpoch.evaluatorKeyEpochId) {
     if (nextEpoch.sha256 !== priorEpoch.sha256) {
+      const migratingLegacyIdentity =
+        priorEpoch.identityBasis === undefined &&
+        nextEpoch.identityBasis === "policy-measurement-v1" &&
+        result.manifestSha256 !== previous.manifestSha256 &&
+        ["responseDecryption", "evaluationResultSigning", "policySigning"].every(
+          (purpose) =>
+            nextEpoch[purpose].keyId === priorEpoch[purpose].keyId &&
+            nextEpoch[purpose].publicKeySha256 ===
+              priorEpoch[purpose].publicKeySha256,
+        );
+      if (migratingLegacyIdentity) return;
       throw new TypeError(
-        "existing evaluator epoch changed its image or evaluator key tuple.",
+        "existing evaluator epoch changed its stable policy or evaluator key tuple.",
       );
     }
     return;

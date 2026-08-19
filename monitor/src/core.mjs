@@ -1313,6 +1313,7 @@ async function evaluatorKeyEpochWitness(manifest) {
     manifest.trust.workload.policyMeasurement.value;
   const descriptor = {
     schemaVersion: 1,
+    identityBasis: "policy-measurement-v1",
     evaluatorKeyEpochId: manifest.evaluatorKeyEpochId,
     workloadImageDigest,
     responseDecryption: {
@@ -1334,6 +1335,7 @@ async function evaluatorKeyEpochWitness(manifest) {
     },
   };
   return {
+    identityBasis: "policy-measurement-v1",
     evaluatorKeyEpochId: manifest.evaluatorKeyEpochId,
     sha256: await sha256Hex(encoder.encode(canonicalStringify(descriptor))),
     workloadImageDigest,
