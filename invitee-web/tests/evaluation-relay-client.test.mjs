@@ -19,11 +19,14 @@ test("web host evaluation relay is origin-pinned, bounded, and credential-free",
   assert.doesNotMatch(relaySource, /authorization/iu);
 });
 
-test("web app retries due host evaluations without failing event refresh", () => {
+test("web app retries participant evaluations without failing event refresh", () => {
   assert.match(pageSource, /relayHostEventEvaluation/u);
   assert.match(pageSource, /await Promise\.allSettled\(/u);
-  assert.match(pageSource, /event\.role === "host"/u);
-  assert.match(pageSource, /Date\.parse\(event\.rsvpDeadline!\) <= now/u);
+  assert.match(pageSource, /function needsResolutionRelay\(event: ApiEvent\)/u);
+  assert.match(pageSource, /event\.resolution\?\.status === "pending"/u);
+  assert.match(pageSource, /event\.resolution\?\.status === "confirmed"/u);
+  assert.match(pageSource, /!event\.resolution\.attendanceRevealed/u);
+  assert.doesNotMatch(pageSource, /Date\.parse\(event\.rsvpDeadline!\) <= now/u);
   assert.match(pageSource, /trackedFetch\("\/api\/events", \{ credentials: "include" \}\)/u);
   assert.match(relaySource, /trackedFetch/u);
 });

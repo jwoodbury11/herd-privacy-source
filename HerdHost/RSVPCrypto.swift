@@ -41,7 +41,7 @@ enum PrivateResponseCryptoError: LocalizedError, Sendable {
         case let .randomGenerationFailed(status):
             "Herd couldn’t generate secure random data (error \(status))."
         case .decryptionFailed:
-            "Herd couldn’t open this private reply with this device’s account key."
+            "This older saved private response could not be verified."
         }
     }
 }

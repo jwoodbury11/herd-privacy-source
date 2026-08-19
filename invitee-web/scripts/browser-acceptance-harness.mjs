@@ -420,8 +420,6 @@ async function localAttestationResponse(release, nonce) {
 }
 
 function installLocalSigner(fetchMock, release) {
-  let failNextAttestation = false;
-  let failNextTransparency = false;
   fetchMock.disableNetConnect();
   fetchMock
     .get("https://api.twilio.com")
@@ -533,10 +531,6 @@ function installLocalSigner(fetchMock, release) {
             typeof body.canonicalReceiptPayload === "string",
           "The Worker sent an invalid transparency-signing request.",
         );
-        if (failNextTransparency) {
-          failNextTransparency = false;
-          return JSON.stringify({ error: "temporary transparency failure" });
-        }
         let certification = appendResponses.get(body.canonicalReceiptPayload);
         if (!certification) {
           certification = appendCertification(body.canonicalReceiptPayload);
@@ -565,25 +559,12 @@ function installLocalSigner(fetchMock, release) {
             base64Url(Buffer.from(body.nonce, "base64url")) === body.nonce,
           "The Worker sent an invalid local attestation nonce.",
         );
-        const response = await localAttestationResponse(release, body.nonce);
-        if (failNextAttestation) {
-          failNextAttestation = false;
-          response.attestationToken = "invalid";
-        }
-        return JSON.stringify(response);
+        return JSON.stringify(await localAttestationResponse(release, body.nonce));
       },
       { headers: { "content-type": "application/json" } },
     )
     .persist();
 
-  return {
-    failNextAttestation() {
-      failNextAttestation = true;
-    },
-    failNextTransparency() {
-      failNextTransparency = true;
-    },
-  };
 }
 
 function workerBindings(release) {
@@ -867,7 +848,7 @@ export async function startBrowserAcceptanceHarness(options = {}) {
   });
 
   const fetchMock = createFetchMock();
-  const signerControls = installLocalSigner(fetchMock, release);
+  installLocalSigner(fetchMock, release);
   const modulePaths = await javascriptModules(serverRoot);
   const entryPath = path.join(serverRoot, "index.js");
   modulePaths.sort((left, right) => {
@@ -911,8 +892,6 @@ export async function startBrowserAcceptanceHarness(options = {}) {
       scenario,
       baseUrl: readyUrl,
       browserUrl,
-      failNextAttestation: signerControls.failNextAttestation,
-      failNextTransparency: signerControls.failNextTransparency,
       stop: () => miniflare.dispose(),
     };
   } catch (error) {

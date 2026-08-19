@@ -1,7 +1,7 @@
 {
   "bundle": {
     "path": "test/vendor/invitee-relay-completion.mjs",
-    "sha256": "abbe1ab210ae1adce1a4a4828ab28b8131f37e9d91f83c9e842c2ea127199521"
+    "sha256": "d6ec981c7ada6ae55e82d47502e55224a208fa07329d9298ede3332e80df263f"
   },
   "sources": [
     {
@@ -10,7 +10,7 @@
     },
     {
       "path": "../invitee-web/lib/backend/resolutions.ts",
-      "sha256": "9ddd1310415a8b4a083523e6aa5ef8dcf559c6e11bdb3fd79342adfc4ea2f049"
+      "sha256": "92bc7f85d2980d2aa48adc9ec36ec46af1523b309f83403aeb1a13ce0c787f83"
     },
     {
       "path": "../invitee-web/lib/backend/config.ts",
@@ -23,6 +23,14 @@
     {
       "path": "../invitee-web/lib/backend/http.ts",
       "sha256": "1caa60a17ef2db94770cbd71ae98e80bf7f49728089a1fb100c770a8b66b0b70"
+    },
+    {
+      "path": "../invitee-web/lib/backend/invite-tokens.ts",
+      "sha256": "37cc4b5bba4da8c18528bbb70056634964f6c044e258e2d49a2f59f313da3f60"
+    },
+    {
+      "path": "../invitee-web/lib/backend/resolution-notifications.ts",
+      "sha256": "640b28a57446eebefa48c738a172bc974c3a3f1778706ac2470a4b1a28e1684e"
     },
     {
       "path": "../invitee-web/lib/backend/response-envelopes.ts",

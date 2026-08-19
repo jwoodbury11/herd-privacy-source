@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 
-export const LEGAL_EFFECTIVE_DATE = "Effective August 2, 2026";
+export const LEGAL_EFFECTIVE_DATE = "Effective August 18, 2026";
 export const HERD_SUPPORT_EMAIL = "jwoodbury11@gmail.com";
 export const HERD_MESSAGING_NUMBER = "+1 (855) 253-9387";
 
@@ -116,7 +116,7 @@ export function PrivacyDocument({
     <Page
       eyebrow="Privacy policy"
       title="Private replies, with honest boundaries."
-      intro="This policy describes the information Herd uses for accounts, events, invitations, encrypted replies, and one-time text delivery."
+      intro="This policy describes the information Herd uses for accounts, events, invitations, private replies, and one-time text delivery."
     >
       <Section title="Information Herd handles">
         <ul>
@@ -129,26 +129,20 @@ export function PrivacyDocument({
             Invitation delivery, provider-reported opt-out and support status, abuse-prevention, security, and limited network
             and operational records.
           </li>
-          <li>
-            Fixed-size encrypted reply envelopes, key wraps, revisions, hashes, and signed publication commitments. Herd’s
-            ordinary application database does not store readable reply, minimum, or required-person fields.
-          </li>
         </ul>
       </Section>
 
       <Section title="How private replies work">
         <p>
-          Your device encrypts and pads the reply before upload. Herd can still see the account, event, guest membership,
-          response slot, timing, revision, and other metadata described above. An approved confidential evaluator can decrypt
-          the response only long enough to compute the event result allowed by the frozen event rules. Herd does not represent
-          a release as hardware-backed unless the matching signed deployment evidence is published.
+          Your conditions are evaluated using a private, event-specific ballot ID—not your name, phone number, account, or
+          other identifying information. They’re never shown to hosts, guests, or third parties.
         </p>
       </Section>
 
       <Section title="How the information is used">
         <p>
           Herd uses this information to authenticate accounts, create and display events, deliver a one-time invitation, open
-          the correct event page, protect the service, publish response commitments, and compute the permitted final event
+          the correct event page, protect the service, and compute the permitted final event
           result. The configured messaging provider handles STOP, START, and HELP replies and maintains its messaging block
           list. The invitation flow is not used to enroll recipients in recurring marketing or reminder texts.
         </p>
@@ -169,14 +163,12 @@ export function PrivacyDocument({
       <Section title="Retention">
         <p>
           Expired phone-verification challenges and rate-limit keys are removed after 24 hours. Expired or revoked sessions are
-          removed after 30 days. Messaging-provider identifiers and delivery diagnostics are scrubbed after 30 days. Encrypted
-          reply envelopes are removed 90 days after a final event result, or sooner when the owning event or account is deleted.
+          removed after 30 days. Messaging-provider identifiers and delivery diagnostics are scrubbed after 30 days. Private
+          reply revisions are removed 90 days after a final event result, or sooner when the owning event or account is deleted.
         </p>
         <p>
-          Event and account information otherwise remains until the owner deletes it. Signed response-log commitments are
-          retained as an append-only audit record; they contain hashes and identifiers, not readable replies or response
-          ciphertext. A deletion may remain temporarily in a hosting provider’s disaster-recovery history for its published
-          recovery window.
+          Event and account information otherwise remains until the owner deletes it. A deletion may remain temporarily in a
+          hosting provider’s disaster-recovery history for its published recovery window.
         </p>
       </Section>
 
@@ -184,11 +176,8 @@ export function PrivacyDocument({
         <p>
           You can permanently delete your account from <strong>Your profile</strong> in the Herd app or web experience. Herd
           confirms your phone again when the current session is not recent. Deletion removes your profile and phone, hosted
-          events, sessions, account keys, invitation capabilities tied to you, and encrypted replies. In another host’s
-          already-frozen event, the mutable guest record becomes “Deleted account,” while the signed rules retain only an opaque
-          event member ID—not your guest name, phone number, or a phone-derived assignment—so the rules and final audit record
-          cannot be silently rewritten. Public cryptographic commitments remain, but the reply data they committed to is
-          deleted.
+          events, sessions, invitation capabilities tied to you, and private replies. In another host’s already-sent event,
+          the guest record may remain as “Deleted account” so the event record and final result stay consistent.
         </p>
         <p>
           The configured messaging provider handles STOP, START, and HELP replies and maintains its opt-out block list. Reply

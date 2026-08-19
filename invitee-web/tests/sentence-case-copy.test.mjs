@@ -37,7 +37,7 @@ function collectSharedButtonLabels(value, pathParts = [], result = []) {
 }
 
 test("shared reply actions use sentence case", () => {
-  assert.equal(experience.reply.previewButton, "Preview how others will see it");
+  assert.equal(experience.reply.previewButton, "Preview how others see it");
 });
 
 test("all shared button labels use sentence case", () => {

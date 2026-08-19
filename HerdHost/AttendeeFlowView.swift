@@ -106,10 +106,10 @@ struct AttendeeFlowView: View {
                 permissionState
             }
         }
-        .background(Color.black.ignoresSafeArea())
+        .background(HerdTheme.canvas.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(startsWithReview && showsContactPicker)
-        .toolbarBackground(Color.black, for: .navigationBar)
+        .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -244,19 +244,17 @@ struct AttendeeFlowView: View {
                     .padding(.vertical, 30)
                 }
             } else if showsSelectionSections {
-                Section {
-                    candidateRows(visibleSelectedCandidates)
-                } header: {
-                    Text("Selected")
-                        .accessibilityIdentifier("contact-section-selected")
-                }
+                contactSectionLabel(
+                    "Selected",
+                    accessibilityIdentifier: "contact-section-selected"
+                )
+                candidateRows(visibleSelectedCandidates)
 
-                Section {
-                    candidateRows(visibleUnselectedCandidates)
-                } header: {
-                    Text("Contacts")
-                        .accessibilityIdentifier("contact-section-contacts")
-                }
+                contactSectionLabel(
+                    "Contacts",
+                    accessibilityIdentifier: "contact-section-contacts"
+                )
+                candidateRows(visibleUnselectedCandidates)
             } else {
                 Section {
                     candidateRows(visibleCandidates)
@@ -293,10 +291,23 @@ struct AttendeeFlowView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Color.black)
+        .background(HerdTheme.canvas)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             searchBar
         }
+    }
+
+    private func contactSectionLabel(
+        _ title: String,
+        accessibilityIdentifier: String
+    ) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .listRowInsets(EdgeInsets(top: 16, leading: 32, bottom: 8, trailing: 24))
+            .listRowBackground(HerdTheme.canvas)
+            .listRowSeparator(.hidden)
     }
 
     @ViewBuilder
@@ -354,7 +365,7 @@ struct AttendeeFlowView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(Color.black)
+        .background(HerdTheme.canvas)
     }
 
     @ViewBuilder

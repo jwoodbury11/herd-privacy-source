@@ -268,6 +268,16 @@ struct PrivateResponseDraft: Hashable, Sendable {
     let requiredGroups: [RSVPConditionGroup]
 }
 
+struct SimplifiedBallot: Codable, Hashable, Sendable {
+    let protocolVersion: Int
+    let ballotId: String
+    let revision: Int
+    let response: RSVPResponse
+    let minimumParticipants: Int?
+    let requiredGroups: [RSVPConditionGroup]
+    let createdAt: Date
+}
+
 enum PrivateResponseCertificationStatus: String, Codable, Hashable, Sendable {
     case certified
     case pending
@@ -295,6 +305,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
     var displayName: String
     var phoneNumber: String
     var isCurrentUser: Bool
+    var hasResponded: Bool?
     var responseHistory: ResponseHistory?
 
     init(
@@ -303,6 +314,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         displayName: String,
         phoneNumber: String,
         isCurrentUser: Bool = false,
+        hasResponded: Bool? = nil,
         responseHistory: ResponseHistory? = nil
     ) {
         self.id = id
@@ -310,6 +322,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         self.displayName = displayName
         self.phoneNumber = phoneNumber
         self.isCurrentUser = isCurrentUser
+        self.hasResponded = hasResponded
         self.responseHistory = responseHistory
     }
 
@@ -319,6 +332,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         case displayName
         case phoneNumber
         case isCurrentUser
+        case hasResponded
         case responseHistory
     }
 
@@ -332,6 +346,7 @@ struct Invitee: Identifiable, Codable, Hashable, Sendable {
         displayName = try container.decode(String.self, forKey: .displayName)
         phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber) ?? ""
         isCurrentUser = try container.decodeIfPresent(Bool.self, forKey: .isCurrentUser) ?? false
+        hasResponded = try container.decodeIfPresent(Bool.self, forKey: .hasResponded)
         responseHistory = try container.decodeIfPresent(ResponseHistory.self, forKey: .responseHistory)
     }
 }
@@ -413,6 +428,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     var accountKeyEpochId: UUID?
     var accountKeyCommitment: String?
     var hasResponse: Bool
+    var hasBallot: Bool
     var responseRevision: Int?
     var responseCertificationStatus: PrivateResponseCertificationStatus?
     var privateResponsePolicy: PrivateResponsePolicyV1?
@@ -440,6 +456,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         accountKeyEpochId: UUID? = nil,
         accountKeyCommitment: String? = nil,
         hasResponse: Bool = false,
+        hasBallot: Bool = false,
         responseRevision: Int? = nil,
         responseCertificationStatus: PrivateResponseCertificationStatus? = nil,
         privateResponsePolicy: PrivateResponsePolicyV1? = nil,
@@ -466,6 +483,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.accountKeyEpochId = accountKeyEpochId
         self.accountKeyCommitment = accountKeyCommitment
         self.hasResponse = hasResponse
+        self.hasBallot = hasBallot
         self.responseRevision = responseRevision
         self.responseCertificationStatus = responseCertificationStatus
         self.privateResponsePolicy = privateResponsePolicy
@@ -622,6 +640,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         case accountKeyEpochId
         case accountKeyCommitment
         case hasResponse
+        case hasBallot
         case responseRevision
         case privateResponsePolicy
         case resolution
@@ -653,6 +672,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         accountKeyEpochId = try container.decodeIfPresent(UUID.self, forKey: .accountKeyEpochId)
         accountKeyCommitment = try container.decodeIfPresent(String.self, forKey: .accountKeyCommitment)
         hasResponse = try container.decodeIfPresent(Bool.self, forKey: .hasResponse) ?? false
+        hasBallot = try container.decodeIfPresent(Bool.self, forKey: .hasBallot) ?? false
         responseRevision = try container.decodeIfPresent(Int.self, forKey: .responseRevision)
         privateResponsePolicy = try container.decodeIfPresent(
             PrivateResponsePolicyV1.self,
@@ -687,6 +707,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         try container.encodeIfPresent(accountKeyEpochId, forKey: .accountKeyEpochId)
         try container.encodeIfPresent(accountKeyCommitment, forKey: .accountKeyCommitment)
         try container.encode(hasResponse, forKey: .hasResponse)
+        try container.encode(hasBallot, forKey: .hasBallot)
         try container.encodeIfPresent(responseRevision, forKey: .responseRevision)
         try container.encodeIfPresent(privateResponsePolicy, forKey: .privateResponsePolicy)
         try container.encodeIfPresent(resolution, forKey: .resolution)

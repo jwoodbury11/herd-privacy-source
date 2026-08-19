@@ -4,6 +4,7 @@
   "license": "Apache-2.0",
   "maximumFileBytes": 8388608,
   "prohibitedPathFragments": [
+    ".ds_store",
     ".git",
     ".local-secrets",
     ".openai",
@@ -117,7 +118,7 @@
     { "path": "invitee-web/vite.config.ts" },
     {
       "path": "invitee-web/.env.example",
-      "exampleSha256": "aa9f1e84484ac36ec194d0e38fdb90a18b0758034af81ac124cf00de3ce23d03"
+      "exampleSha256": "f30970ac5bef93ccbdcf7485d3339e50924c944891d878a057e628473425a526"
     },
     {
       "path": "invitee-web/public/herd-icon.png",

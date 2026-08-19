@@ -604,7 +604,6 @@ private struct CreateEventCard: View {
 private struct AccountStatusView: View {
     @Environment(EventStore.self) private var store
     @Environment(AuthStore.self) private var authStore
-    @State private var keyDiagnostics: [AccountKeyDiagnostic] = []
     @State private var checkedAt: Date?
     @State private var isChecking = false
 
@@ -616,18 +615,13 @@ private struct AccountStatusView: View {
         invitedEvents.filter { InvitationToken.normalize($0.inviteToken) != nil }.count
     }
 
-    private var missingKeys: [AccountKeyDiagnostic] {
-        keyDiagnostics.filter(\.requiresRecovery)
-    }
-
     private var verificationIssueCount: Int {
         store.events.filter { $0.resolution?.status == .verificationUnavailable }.count
     }
 
     private var overallState: StatusState {
         guard authStore.isAuthenticated else { return .problem }
-        if store.errorMessage != nil || store.isUsingCachedData || !missingKeys.isEmpty
-            || verificationIssueCount > 0 {
+        if store.errorMessage != nil || store.isUsingCachedData || verificationIssueCount > 0 {
             return .attention
         }
         return .healthy
@@ -641,12 +635,6 @@ private struct AccountStatusView: View {
                 connectionSection
                 securitySection
                 trustSection
-
-                Text("Private keys never leave this device and are not shown here. Only shortened identifiers and availability checks are displayed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
@@ -705,7 +693,7 @@ private struct AccountStatusView: View {
     private var summaryDetail: String {
         switch overallState {
         case .healthy:
-            "Your account, event sync, and device security checks passed."
+            "Your account, event sync, and private reply access checks passed."
         case .attention:
             "Open the checks below to see what may prevent sync or private replies."
         case .problem:
@@ -756,56 +744,28 @@ private struct AccountStatusView: View {
 
     private var securitySection: some View {
         statusSection("Private reply security") {
-            if keyDiagnostics.isEmpty {
-                StatusRow(
-                    state: .notConfigured,
-                    icon: "key.horizontal",
-                    title: "Device-bound private key",
-                    detail: "A key will be created when this account sends its first private reply"
-                )
-            } else {
-                ForEach(Array(keyDiagnostics.enumerated()), id: \.element.id) { index, diagnostic in
-                    if index > 0 { Divider().padding(.leading, 46) }
-                    StatusRow(
-                        state: keyState(diagnostic),
-                        icon: diagnostic.isAvailableOnDevice
-                            ? "key.fill"
-                            : (diagnostic.requiresRecovery ? "key.slash" : "key.horizontal"),
-                        title: diagnostic.isAvailableOnDevice
-                            ? "Private replies available"
-                            : (diagnostic.requiresRecovery ? "Private replies unavailable on this device" : "Private replies not set up yet"),
-                        detail: keyDetail(diagnostic),
-                        value: "Epoch \(mask(diagnostic.epochID.uuidString)) · Key \(mask(diagnostic.commitment))"
-                    )
-                }
-            }
+            StatusRow(
+                state: authStore.user == nil ? .notConfigured : .healthy,
+                icon: "key.fill",
+                title: authStore.user == nil
+                    ? "Sign in to view private replies"
+                    : "Private replies available",
+                detail: authStore.user == nil
+                    ? "Private replies are connected to your account."
+                    : "Your private replies are available anywhere you sign in to this account."
+            )
         }
     }
 
     private var trustSection: some View {
-        let policies = store.events.compactMap(\.privateResponsePolicy)
-        let protectedEventCount = policies.count
-        let policyValue = policies.first.map {
-            "Key \(mask($0.evaluatorKeyId)) · Measurement \(mask($0.evaluatorMeasurement))"
-        }
-        return statusSection("Trust and verification") {
-            StatusRow(
-                state: protectedEventCount > 0 ? .healthy : .notConfigured,
-                icon: "checkmark.seal",
-                title: "Herd evaluator trust",
-                detail: protectedEventCount == 0
-                    ? "No encrypted-reply policies are active"
-                    : "\(protectedEventCount) signed event \(protectedEventCount == 1 ? "policy" : "policies") loaded",
-                value: policyValue
-            )
-            Divider().padding(.leading, 46)
+        statusSection("Event results") {
             StatusRow(
                 state: verificationIssueCount == 0 ? .healthy : .problem,
                 icon: "shield.lefthalf.filled",
-                title: "Result verification",
+                title: "Result checks",
                 detail: verificationIssueCount == 0
-                    ? "No event verification failures detected"
-                    : "\(verificationIssueCount) event \(verificationIssueCount == 1 ? "has" : "have") an unverifiable result"
+                    ? "No event result issues detected"
+                    : "\(verificationIssueCount) event \(verificationIssueCount == 1 ? "needs" : "need") attention"
             )
         }
     }
@@ -832,28 +792,6 @@ private struct AccountStatusView: View {
         return suffix.isEmpty ? "Active account" : "Phone ending in \(suffix)"
     }
 
-    private func keyDetail(_ diagnostic: AccountKeyDiagnostic) -> String {
-        let eventLabel = diagnostic.eventCount == 1 ? "event" : "events"
-        if diagnostic.isAvailableOnDevice {
-            return "This device can open replies for \(diagnostic.eventCount) \(eventLabel)"
-        }
-        if diagnostic.commitment == nil {
-            return "Herd will set up this device when you send the first private reply"
-        }
-        return "This device can’t open private replies for \(diagnostic.eventCount) \(eventLabel). When you send a new reply, Herd can verify your phone number and switch private replies to this device."
-    }
-
-    private func keyState(_ diagnostic: AccountKeyDiagnostic) -> StatusState {
-        if diagnostic.isAvailableOnDevice { return .healthy }
-        return diagnostic.requiresRecovery ? .problem : .notConfigured
-    }
-
-    private func mask(_ value: String?) -> String {
-        guard let value, !value.isEmpty else { return "not set" }
-        if value.count <= 12 { return "••••\(value.suffix(4))" }
-        return "\(value.prefix(6))••••\(value.suffix(4))"
-    }
-
     @ViewBuilder
     private func statusSection<Content: View>(
         _ title: String,
@@ -873,7 +811,6 @@ private struct AccountStatusView: View {
         guard !isChecking else { return }
         isChecking = true
         await store.refresh()
-        keyDiagnostics = await store.accountKeyDiagnostics()
         checkedAt = .now
         isChecking = false
     }
@@ -1389,42 +1326,20 @@ private struct ProfileAddressPicker: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Button(action: onSelect) {
-                    HStack(spacing: 10) {
-                        Text(trimmedAddress.isEmpty ? placeholder : trimmedAddress)
-                            .foregroundStyle(trimmedAddress.isEmpty ? .tertiary : .primary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-
-                        Spacer(minLength: 8)
-
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
+            Button(action: onSelect) {
+                Text(trimmedAddress.isEmpty ? placeholder : trimmedAddress)
+                    .foregroundStyle(trimmedAddress.isEmpty ? .tertiary : .primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
                     .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(label)
-                .accessibilityValue(trimmedAddress.isEmpty ? "Not set" : trimmedAddress)
-                .accessibilityHint("Opens address search suggestions")
-                .accessibilityIdentifier("profile-address")
-
-                if !trimmedAddress.isEmpty {
-                    Button {
-                        address = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear \(label)")
-                    .accessibilityIdentifier("profile-address-clear")
-                }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityValue(trimmedAddress.isEmpty ? "Not set" : trimmedAddress)
+            .accessibilityHint("Opens address search suggestions")
+            .accessibilityIdentifier("profile-address")
         }
         .padding(16)
     }
@@ -1487,8 +1402,15 @@ private struct EventCard: View {
                     .frame(width: 1, height: 34)
                 if event.resolution?.status == .confirmed {
                     metric(
-                        value: "\(max(0, event.resolution?.attendingMemberIds?.count ?? 0))",
+                        value: event.resolution?.attendanceRevealed == true
+                            ? "\(event.resolution?.attendingMemberIds?.count ?? 0)"
+                            : "—",
                         label: "attending"
+                    )
+                } else if event.canViewResponseProgress {
+                    metric(
+                        value: "\(event.respondedInviteeCount)",
+                        label: "responded"
                     )
                 } else {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -1587,6 +1509,14 @@ private struct EventCard: View {
 }
 
 private extension HerdEvent {
+    var canViewResponseProgress: Bool {
+        role == .host || hasResponse || hasBallot
+    }
+
+    var respondedInviteeCount: Int {
+        invitees.filter { $0.hasResponded == true }.count
+    }
+
     var hasUnavailableLegacyResult: Bool {
         invitationsSent
             && privateResponsePolicy == nil
@@ -1624,18 +1554,10 @@ private struct InvitationDetailView: View {
     @Environment(EventStore.self) private var store
     private let invitationExperience = HerdExperience.shared.invitation
     private let replyExperience = HerdExperience.shared.reply
-    private let authenticationLayout = HerdExperience.shared.authentication.layout
 
     let eventID: UUID
     @State private var selectedResponse: RSVPResponse?
     @State private var isSubmitting = false
-    @State private var showsDeviceSwitchConfirmation = false
-    @State private var showsDeviceSwitchVerification = false
-    @State private var awaitsDeviceSwitchAlertDismissal = false
-    @State private var deviceSwitchVerificationCode = ""
-    @FocusState private var isDeviceSwitchVerificationCodeFocused: Bool
-    @State private var deviceSwitchStage: DeviceSwitchStage = .requestingCode
-    @State private var deviceSwitchError: String?
     @State private var isReplacingUnavailableReply = false
     @State private var showsSuccess = false
     @State private var showsConditionPicker = false
@@ -1647,16 +1569,11 @@ private struct InvitationDetailView: View {
     @State private var showsCollapsedEventTitle = false
     @State private var showsEventDeletionConfirmation = false
     @State private var eventDeletionError: String?
+    @State private var confirmedReplyNoticeID: UUID?
+    @State private var addressCopiedNoticeID: UUID?
 
     private var event: HerdEvent? {
         store.events.first(where: { $0.id == eventID })
-    }
-
-    private enum DeviceSwitchStage: Equatable {
-        case requestingCode
-        case requestFailed
-        case enteringCode
-        case verified
     }
 
     var body: some View {
@@ -1771,29 +1688,6 @@ private struct InvitationDetailView: View {
         } message: {
             Text(eventDeletionError ?? invitationExperience.eventActions.failureBody)
         }
-        .alert(
-            replyExperience.deviceSwitch.title,
-            isPresented: $showsDeviceSwitchConfirmation
-        ) {
-            Button(replyExperience.deviceSwitch.cancelButton, role: .cancel) {
-                awaitsDeviceSwitchAlertDismissal = false
-                store.cancelDeviceSwitch()
-            }
-            Button(replyExperience.deviceSwitch.confirmButton, role: .destructive) {
-                awaitsDeviceSwitchAlertDismissal = true
-                showsDeviceSwitchConfirmation = false
-            }
-        } message: {
-            Text(event?.hasResponse == true
-                ? replyExperience.deviceSwitch.replaceBody
-                : replyExperience.deviceSwitch.newReplyBody)
-        }
-        .sheet(
-            isPresented: $showsDeviceSwitchVerification,
-            onDismiss: finishDeviceSwitchDismissal
-        ) {
-            deviceSwitchVerificationSheet
-        }
         .sheet(isPresented: $showsConditionPicker) {
             if let event {
                 InvitationConditionPicker(
@@ -1830,9 +1724,13 @@ private struct InvitationDetailView: View {
                     response: selectedResponse ?? .cantCommit,
                     displayName: event.invitees.first(where: \.isCurrentUser)?.displayName
                         ?? HerdExperience.shared.attendees.currentUserLabel,
-                    onViewInvitation: { showsSuccess = false },
+                    onViewInvitation: {
+                        showsSuccess = false
+                        lockPrivateReply()
+                    },
                     onHome: {
                         showsSuccess = false
+                        lockPrivateReply()
                         DispatchQueue.main.async { dismiss() }
                     }
                 )
@@ -1840,22 +1738,12 @@ private struct InvitationDetailView: View {
         }
         .onAppear {
             synchronizePrivateDraft()
-            showsDeviceSwitchConfirmation = store.deviceSwitchEventID == eventID
         }
-        .onChange(of: store.deviceSwitchEventID) { _, switchEventID in
-            showsDeviceSwitchConfirmation = switchEventID == eventID
-        }
-        .onChange(of: showsDeviceSwitchConfirmation) { wasPresented, isPresented in
-            guard wasPresented, !isPresented, awaitsDeviceSwitchAlertDismissal else { return }
-            Task { @MainActor in
-                // SwiftUI cannot reliably replace an alert with a sheet in the
-                // same presentation transaction. Wait until the alert has left
-                // the hierarchy so device recovery never disappears silently.
-                try? await Task.sleep(for: .milliseconds(250))
-                guard awaitsDeviceSwitchAlertDismissal else { return }
-                awaitsDeviceSwitchAlertDismissal = false
-                beginDeviceSwitch()
-            }
+        .onDisappear {
+            confirmedReplyNoticeID = nil
+            addressCopiedNoticeID = nil
+            guard !showsSuccess else { return }
+            lockPrivateReply()
         }
         .onChange(of: store.unlockedDrafts[eventID]) { _, _ in
             synchronizePrivateDraft()
@@ -1863,6 +1751,27 @@ private struct InvitationDetailView: View {
         .task(id: eventID) {
             guard let inviteToken = event?.inviteToken else { return }
             _ = await store.openInvitation(inviteToken: inviteToken)
+        }
+        .overlay(alignment: .bottom) {
+            if confirmedReplyNoticeID != nil || addressCopiedNoticeID != nil {
+                Text(addressCopiedNoticeID != nil
+                    ? "Address copied to clipboard"
+                    : replyExperience.confirmedLockedMessage)
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: .capsule)
+                    .overlay {
+                        Capsule().stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityIdentifier(addressCopiedNoticeID != nil
+                        ? "address-copied-toast"
+                        : "confirmed-reply-toast")
+            }
         }
     }
 
@@ -1880,260 +1789,6 @@ private struct InvitationDetailView: View {
                 eventDeletionError = store.errorMessage
                     ?? invitationExperience.eventActions.failureBody
             }
-        }
-    }
-
-    private var deviceSwitchVerificationSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(deviceSwitchVerificationMessage)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if deviceSwitchStage == .enteringCode {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Verification code")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        deviceSwitchVerificationCodeEntry
-                    }
-                }
-
-                if let errorMessage = deviceSwitchError
-                    ?? authStore.errorMessage
-                    ?? (deviceSwitchStage == .verified ? store.errorMessage : nil) {
-                    Label(errorMessage, systemImage: "exclamationmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Button(action: performDeviceSwitchAction) {
-                    HStack(spacing: 10) {
-                        if deviceSwitchStage == .requestingCode
-                            || authStore.isBusy
-                            || store.isSwitchingDevice {
-                            ProgressView().tint(.white)
-                        }
-                        Text(deviceSwitchButtonTitle)
-                            .font(.headline)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .disabled(deviceSwitchActionIsDisabled)
-                .accessibilityIdentifier("device-switch-action")
-
-                Button("Cancel") {
-                    showsDeviceSwitchVerification = false
-                }
-                .frame(maxWidth: .infinity)
-                .disabled(authStore.isBusy || store.isSwitchingDevice)
-
-                Spacer()
-            }
-            .padding(20)
-            .background(HerdTheme.canvas)
-            .navigationTitle("Confirm your phone number")
-            .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled(authStore.isBusy || store.isSwitchingDevice)
-        }
-        .presentationDetents([.medium])
-    }
-
-    private var deviceSwitchVerificationCodeEntry: some View {
-        ZStack {
-            HStack(spacing: authenticationLayout.verificationCodeGap) {
-                ForEach(0..<4, id: \.self) { index in
-                    let digit = deviceSwitchVerificationCode.count > index
-                        ? String(
-                            deviceSwitchVerificationCode[
-                                deviceSwitchVerificationCode.index(
-                                    deviceSwitchVerificationCode.startIndex,
-                                    offsetBy: index
-                                )
-                            ]
-                        )
-                        : ""
-                    let isActive = isDeviceSwitchVerificationCodeFocused
-                        && index == min(deviceSwitchVerificationCode.count, 3)
-
-                    Text(digit)
-                        .font(.system(size: 25, weight: .semibold, design: .rounded))
-                        .frame(
-                            width: authenticationLayout.verificationCodeWidth,
-                            height: authenticationLayout.verificationCodeHeight
-                        )
-                        .background(
-                            isActive ? HerdTheme.raisedSurface : HerdTheme.surface,
-                            in: .rect(
-                                cornerRadius: authenticationLayout.verificationCodeCornerRadius
-                            )
-                        )
-                        .overlay {
-                            RoundedRectangle(
-                                cornerRadius: authenticationLayout.verificationCodeCornerRadius
-                            )
-                            .stroke(
-                                isActive ? Color.white.opacity(0.62) : HerdTheme.subtleBorder,
-                                lineWidth: 1
-                            )
-                        }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-
-            TextField("", text: $deviceSwitchVerificationCode)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .focused($isDeviceSwitchVerificationCodeFocused)
-                .foregroundStyle(.clear)
-                .tint(.clear)
-                .opacity(0.02)
-                .accessibilityLabel("Verification code")
-                .accessibilityIdentifier("device-switch-verification-code")
-                .onChange(of: deviceSwitchVerificationCode) { _, newValue in
-                    deviceSwitchVerificationCode = String(
-                        newValue.filter(\.isWholeNumber).prefix(4)
-                    )
-                    authStore.clearError()
-                    deviceSwitchError = nil
-                }
-        }
-        .contentShape(.rect)
-        .onTapGesture {
-            isDeviceSwitchVerificationCodeFocused = true
-        }
-        .onAppear {
-            isDeviceSwitchVerificationCodeFocused = true
-        }
-    }
-
-    private var deviceSwitchVerificationMessage: String {
-        switch deviceSwitchStage {
-        case .requestingCode:
-            replyExperience.deviceSwitch.requestingCode
-        case .requestFailed:
-            replyExperience.deviceSwitch.requestFailed
-        case .enteringCode:
-            "\(replyExperience.deviceSwitch.verificationPrefix) \(maskedAccountPhoneNumber) \(replyExperience.deviceSwitch.verificationSuffix)"
-        case .verified:
-            replyExperience.deviceSwitch.verifiedBody
-        }
-    }
-
-    private var deviceSwitchButtonTitle: String {
-        if authStore.isBusy { return replyExperience.deviceSwitch.verifyingButton }
-        if store.isSwitchingDevice { return replyExperience.deviceSwitch.switchingButton }
-        switch deviceSwitchStage {
-        case .requestingCode: return "Sending code…"
-        case .requestFailed: return "Send code again"
-        case .enteringCode: return replyExperience.deviceSwitch.verifyButton
-        case .verified: return replyExperience.deviceSwitch.retryButton
-        }
-    }
-
-    private var deviceSwitchActionIsDisabled: Bool {
-        authStore.isBusy
-            || store.isSwitchingDevice
-            || deviceSwitchStage == .requestingCode
-            || (deviceSwitchStage == .enteringCode
-                && deviceSwitchVerificationCode.count != 4)
-    }
-
-    private var maskedAccountPhoneNumber: String {
-        let digits = authStore.user?.phoneNumber.filter(\.isWholeNumber) ?? ""
-        let suffix = String(digits.suffix(4))
-        let padding = String(repeating: "•", count: max(0, 4 - suffix.count))
-        return "••• ••• \(padding)\(suffix)"
-    }
-
-    private func beginDeviceSwitch() {
-        deviceSwitchVerificationCode = ""
-        deviceSwitchError = nil
-        deviceSwitchStage = .requestingCode
-        store.clearError()
-        Task { @MainActor in
-            await Task.yield()
-            showsDeviceSwitchVerification = true
-            await requestDeviceSwitchVerificationCode()
-        }
-    }
-
-    private func performDeviceSwitchAction() {
-        Task {
-            switch deviceSwitchStage {
-            case .requestingCode:
-                return
-            case .requestFailed:
-                await requestDeviceSwitchVerificationCode()
-            case .enteringCode:
-                await verifyPhoneAndSwitchDevice()
-            case .verified:
-                await completeDeviceSwitch()
-            }
-        }
-    }
-
-    private func requestDeviceSwitchVerificationCode() async {
-        guard let phoneNumber = authStore.user?.phoneNumber else {
-            deviceSwitchStage = .requestFailed
-            deviceSwitchError = "Herd couldn’t find the phone number for this account."
-            return
-        }
-        deviceSwitchStage = .requestingCode
-        deviceSwitchError = nil
-        authStore.clearError()
-        guard await authStore.requestCode(phoneNumber: phoneNumber) else {
-            deviceSwitchStage = .requestFailed
-            deviceSwitchError = authStore.errorMessage
-                ?? "Herd couldn’t send a verification code."
-            return
-        }
-        if authStore.challenge != nil {
-            deviceSwitchStage = .enteringCode
-        } else {
-            deviceSwitchStage = .verified
-            await completeDeviceSwitch()
-        }
-    }
-
-    private func verifyPhoneAndSwitchDevice() async {
-        deviceSwitchError = nil
-        guard await authStore.verifyCode(deviceSwitchVerificationCode) else { return }
-        deviceSwitchStage = .verified
-        await completeDeviceSwitch()
-    }
-
-    private func completeDeviceSwitch() async {
-        store.clearError()
-        if await store.switchPrivateRepliesToThisDevice(for: eventID) {
-            showsDeviceSwitchVerification = false
-            isReplacingUnavailableReply = false
-            showsSuccess = true
-        } else if store.deviceSwitchEventID != eventID {
-            // The key switch completed, but a later reply step failed. Close the
-            // switch sheet and leave the exact reply error visible and retryable.
-            showsDeviceSwitchVerification = false
-            isReplacingUnavailableReply = false
-        } else {
-            deviceSwitchError = store.errorMessage
-                ?? replyExperience.deviceSwitch.failure
-        }
-    }
-
-    private func finishDeviceSwitchDismissal() {
-        deviceSwitchVerificationCode = ""
-        deviceSwitchError = nil
-        if authStore.challenge != nil {
-            authStore.changePhoneNumber()
-        }
-        if store.deviceSwitchEventID == eventID {
-            store.cancelDeviceSwitch()
         }
     }
 
@@ -2209,12 +1864,30 @@ private struct InvitationDetailView: View {
                 Divider()
                     .padding(.leading, 40)
 
-                InvitationMetaRow(
-                    icon: "mappin",
-                    title: "Location",
-                    detail: invitationLocationSummary(for: event)
-                )
-                .padding(.vertical, 12)
+                if let copyText = locationClipboardText(for: event) {
+                    Button {
+                        UIPasteboard.general.string = copyText
+                        showAddressCopiedNotice()
+                    } label: {
+                        InvitationMetaRow(
+                            icon: "mappin",
+                            title: "Location",
+                            detail: invitationLocationSummary(for: event)
+                        )
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 12)
+                    .accessibilityLabel("Copy location address")
+                    .accessibilityHint("Copies the address to the clipboard")
+                } else {
+                    InvitationMetaRow(
+                        icon: "mappin",
+                        title: "Location",
+                        detail: invitationLocationSummary(for: event)
+                    )
+                    .padding(.vertical, 12)
+                }
 
                 Divider()
                     .padding(.leading, 40)
@@ -2226,17 +1899,19 @@ private struct InvitationDetailView: View {
                 )
                 .padding(.vertical, 12)
 
-                Divider()
-                    .padding(.leading, 40)
+                if event.resolution?.status != .confirmed {
+                    Divider()
+                        .padding(.leading, 40)
 
-                InvitationMetaRow(
-                    icon: "hourglass",
-                    title: event.rsvpDeadline == nil
-                        ? invitationExperience.noReplyDeadline
-                        : invitationExperience.replyByPrefix,
-                    detail: event.rsvpDeadline.map(replyDeadlineSummary) ?? ""
-                )
-                .padding(.top, 12)
+                    InvitationMetaRow(
+                        icon: "hourglass",
+                        title: event.rsvpDeadline == nil
+                            ? invitationExperience.noReplyDeadline
+                            : invitationExperience.replyByPrefix,
+                        detail: event.rsvpDeadline.map(replyDeadlineSummary) ?? ""
+                    )
+                    .padding(.top, 12)
+                }
             }
 
             Divider()
@@ -2285,27 +1960,51 @@ private struct InvitationDetailView: View {
     ) -> (value: String, label: String) {
         switch event.resolution?.status {
         case .confirmed:
-            if event.resolution?.attendanceRevealed != true {
-                return ("Yes", "confirmed")
-            }
             return (
-                "\(event.resolution?.attendingMemberIds?.count ?? 0)",
+                event.resolution?.attendanceRevealed == true
+                    ? "\(event.resolution?.attendingMemberIds?.count ?? 0)"
+                    : "—",
                 invitationExperience.metrics.attending
             )
         case .verificationUnavailable:
             return ("—", "result unavailable")
         case .notConfirmed, .pending, nil:
+            if event.canViewResponseProgress {
+                return ("\(event.respondedInviteeCount)", "responded")
+            }
             return responseCountdown(for: event, at: now)
         }
     }
 
     private func invitationLocationSummary(for event: HerdEvent) -> String {
-        if event.locationName.isEmpty && event.locationAddress.isEmpty {
-            return invitationExperience.locationNotSet
+        let summary = EventLocationPresentation.summary(
+            name: event.locationName,
+            address: event.locationAddress,
+            separator: "\n"
+        )
+        return summary.isEmpty ? invitationExperience.locationNotSet : summary
+    }
+
+    private func locationClipboardText(for event: HerdEvent) -> String? {
+        let address = event.locationAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !address.isEmpty { return address }
+        let name = event.locationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func showAddressCopiedNotice() {
+        let noticeID = UUID()
+        withAnimation(.snappy) {
+            addressCopiedNoticeID = noticeID
+            confirmedReplyNoticeID = nil
         }
-        if event.locationName.isEmpty { return event.locationAddress }
-        if event.locationAddress.isEmpty { return event.locationName }
-        return "\(event.locationName)\n\(event.locationAddress)"
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard addressCopiedNoticeID == noticeID else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                addressCopiedNoticeID = nil
+            }
+        }
     }
 
     private func attendeeDetails(_ event: HerdEvent) -> some View {
@@ -2394,7 +2093,7 @@ private struct InvitationDetailView: View {
     }
 
     private func replyCard(_ event: HerdEvent) -> some View {
-        let savedReplyIsLocked = event.hasResponse
+        let savedReplyIsLocked = event.hasResponse || event.hasBallot
             && store.unlockedDrafts[event.id] == nil
             && !isReplacingUnavailableReply
         let replyIsUnavailable = store.unavailablePrivateResponseEventID == event.id
@@ -2474,41 +2173,56 @@ private struct InvitationDetailView: View {
             }
 
             if !savedReplyIsLocked {
-                goingResponseOption(event)
+                VStack(alignment: .leading, spacing: 16) {
+                    goingResponseOption(event)
 
-                responseButton(
-                    title: replyExperience.cantCommitTitle,
-                    subtitle: replyExperience.cantCommitBody,
-                    response: .cantCommit
-                )
-
-                if event.inviteToken == nil {
-                    Label(replyExperience.missingLinkMessage, systemImage: "link.badge.plus")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button {
-                    submitResponse(for: event)
-                } label: {
-                    primaryReplyActionLabel(
-                        title: isSubmitting
-                            ? replyExperience.submittingButton
-                            : replyActionTitle(for: event),
-                        showsProgress: isSubmitting
+                    responseButton(
+                        title: replyExperience.cantCommitTitle,
+                        subtitle: replyExperience.cantCommitBody,
+                        response: .cantCommit
                     )
+
+                    if event.inviteToken == nil {
+                        Label(replyExperience.missingLinkMessage, systemImage: "link.badge.plus")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        submitResponse(for: event)
+                    } label: {
+                        primaryReplyActionLabel(
+                            title: isSubmitting
+                                ? replyExperience.submittingButton
+                                : replyActionTitle(for: event),
+                            showsProgress: isSubmitting
+                        )
+                    }
+                    .buttonStyle(PlainPressButtonStyle())
+                    .disabled(
+                        !replyHasUnsavedChanges(for: event) || isSubmitting
+                            || event.inviteToken == nil
+                    )
+                    .opacity(
+                        replyHasUnsavedChanges(for: event) && event.inviteToken != nil
+                            ? 1
+                            : 0.45
+                    )
+                    .padding(.top, 16)
                 }
-                .buttonStyle(PlainPressButtonStyle())
-                .disabled(
-                    !replyHasUnsavedChanges(for: event) || isSubmitting || store.isSwitchingDevice
-                        || event.inviteToken == nil
-                )
-                .opacity(
-                    replyHasUnsavedChanges(for: event) && event.inviteToken != nil
-                        ? 1
-                        : 0.45
-                )
-                .padding(.top, 16)
+                .disabled(event.resolution?.status == .confirmed)
+                .allowsHitTesting(event.resolution?.status != .confirmed)
+                .overlay {
+                    if event.resolution?.status == .confirmed {
+                        Button(action: showConfirmedReplyNotice) {
+                            Color.clear
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(replyExperience.confirmedLockedMessage)
+                        .accessibilityIdentifier("confirmed-reply-edit-guard")
+                    }
+                }
             }
 
             if let errorMessage = store.errorMessage {
@@ -2577,6 +2291,7 @@ private struct InvitationDetailView: View {
         return ReplyVisibilityPreview(
             displayName: displayName,
             status: status,
+            isConfirmed: event.resolution?.status == .confirmed,
             confirmedBody: selectedResponse == nil
                 ? replyExperience.noReplyPreviewBody
                 : nil
@@ -2629,6 +2344,20 @@ private struct InvitationDetailView: View {
         .padding(.top, 28)
         .padding(.bottom, 20)
         .background(HerdTheme.canvas)
+    }
+
+    private func showConfirmedReplyNotice() {
+        let noticeID = UUID()
+        withAnimation(.snappy) {
+            confirmedReplyNoticeID = noticeID
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard confirmedReplyNoticeID == noticeID else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                confirmedReplyNoticeID = nil
+            }
+        }
     }
 
     private func responseButton(
@@ -2982,7 +2711,7 @@ private struct InvitationDetailView: View {
 
     private func replyActionTitle(for event: HerdEvent) -> String {
         guard selectedResponse != nil else { return replyExperience.chooseButton }
-        guard event.hasResponse else { return replyExperience.submitButton }
+        guard event.hasResponse || event.hasBallot else { return replyExperience.submitButton }
         if store.hasPendingResponseCertification(for: event.id),
            currentPrivateDraft == savedPrivateDraft {
             return "Finish saved reply certification"
@@ -2994,7 +2723,7 @@ private struct InvitationDetailView: View {
 
     private func replyHasUnsavedChanges(for event: HerdEvent) -> Bool {
         guard let currentDraft = currentPrivateDraft else { return false }
-        return !event.hasResponse ||
+        return !(event.hasResponse || event.hasBallot) ||
             currentDraft != savedPrivateDraft ||
             store.hasPendingResponseSubmission(for: event.id, draft: currentDraft) ||
             store.hasPendingResponseCertification(for: event.id)
@@ -3027,6 +2756,12 @@ private struct InvitationDetailView: View {
             privateMinimumParticipants = max(2, event.minimumParticipants)
             privateRequiredGroups = []
         }
+    }
+
+    private func lockPrivateReply() {
+        store.lockPrivateResponse(for: eventID)
+        synchronizePrivateDraft()
+        isReplacingUnavailableReply = false
     }
 
     private func statusLabel(for event: HerdEvent) -> String {
@@ -3070,15 +2805,6 @@ private struct InvitationDetailView: View {
             return "\(eventDate.formatted(date: .abbreviated, time: .shortened)) – \(endDate.formatted(date: .omitted, time: .shortened))"
         }
         return eventDate.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private func locationSummary(for event: HerdEvent) -> String {
-        if event.locationName.isEmpty && event.locationAddress.isEmpty {
-            return "Location to be announced"
-        }
-        if event.locationName.isEmpty { return event.locationAddress }
-        if event.locationAddress.isEmpty { return event.locationName }
-        return "\(event.locationName)\n\(event.locationAddress)"
     }
 
     private func initials(for name: String) -> String {
@@ -3192,6 +2918,7 @@ private struct InvitationAttendees: View {
 
     private var canAddAttendees: Bool {
         guard let event else { return false }
+        guard event.resolution?.status != .confirmed else { return false }
         return event.isHosted || event.allowsAttendeesToAddGuests
     }
 
@@ -3206,7 +2933,7 @@ private struct InvitationAttendees: View {
         ScrollView {
             if let event {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text(experience.statusDisclosure)
+                    Text(statusDisclosure(for: event))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -3398,9 +3125,13 @@ private struct InvitationAttendees: View {
 
     private func statusLabel(for invitee: Invitee) -> String? {
         guard let event else { return nil }
+        if event.resolution?.status != .confirmed,
+           event.canViewResponseProgress {
+            return invitee.hasResponded == true ? "Responded" : "Not responded"
+        }
         if event.resolution?.status == .confirmed,
            event.resolution?.attendanceRevealed == true,
-           (event.role == .host || event.hasResponse),
+           (event.role == .host || event.hasResponse || event.hasBallot),
            let state = event.resolution?.guestStates?.first(where: {
                $0.memberId == invitee.id.uuidString.lowercased()
            }) {
@@ -3422,6 +3153,19 @@ private struct InvitationAttendees: View {
                 : label
         }
         return nil
+    }
+
+    private func statusDisclosure(for event: HerdEvent) -> String {
+        if event.resolution?.status == .confirmed {
+            return experience.statusDisclosure
+        }
+        if event.role == .host {
+            return "You can see who has responded. What each person chose stays private until the event is confirmed."
+        }
+        if event.canViewResponseProgress {
+            return "You can see who has responded because your private reply has been sent. What each person chose stays private until the event is confirmed."
+        }
+        return "Send your private reply to see who has responded. What each person chose stays private until the event is confirmed."
     }
 
     private func avatar(for name: String, tone: Int, isHost: Bool) -> some View {
@@ -3866,22 +3610,31 @@ private struct InvitationResponseSuccess: View {
 private struct ReplyVisibilityPreview: View {
     let displayName: String
     let status: String
+    let isConfirmed: Bool
     let confirmedBody: String?
     private let experience = HerdExperience.shared.reply
 
-    init(displayName: String, status: String, confirmedBody: String? = nil) {
+    init(
+        displayName: String,
+        status: String,
+        isConfirmed: Bool = false,
+        confirmedBody: String? = nil
+    ) {
         self.displayName = displayName
         self.status = status
+        self.isConfirmed = isConfirmed
         self.confirmedBody = confirmedBody
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(experience.confirmedPreviewLabel)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.7)
+            if !isConfirmed {
+                Text(experience.confirmedPreviewLabel)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.7)
+            }
 
             HStack(spacing: 13) {
                 Text(initials)
@@ -3905,7 +3658,7 @@ private struct ReplyVisibilityPreview: View {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(HerdTheme.subtleBorder, lineWidth: 1)
             }
-            .padding(.top, 12)
+            .padding(.top, isConfirmed ? 0 : 12)
 
             Text(confirmedBody ?? experience.confirmedPreviewBody)
                 .font(.caption)
@@ -3913,34 +3666,36 @@ private struct ReplyVisibilityPreview: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
 
-            Text(experience.notConfirmedPreviewLabel)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .tracking(0.7)
-                .padding(.top, 32)
-
-            HStack(spacing: 12) {
-                Image(systemName: "eye.slash")
+            if !isConfirmed {
+                Text(experience.notConfirmedPreviewLabel)
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .tracking(0.7)
+                    .padding(.top, 32)
 
-                Text(experience.notConfirmedPreviewTitle)
-                    .font(.subheadline.weight(.semibold))
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(HerdTheme.surface, in: .rect(cornerRadius: 14))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-            }
-            .padding(.top, 12)
+                HStack(spacing: 12) {
+                    Image(systemName: "eye.slash")
+                        .foregroundStyle(.secondary)
 
-            Text(experience.notConfirmedPreviewBody)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                    Text(experience.notConfirmedPreviewTitle)
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(HerdTheme.surface, in: .rect(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                }
                 .padding(.top, 12)
+
+                Text(experience.notConfirmedPreviewBody)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
+            }
         }
         .accessibilityElement(children: .contain)
     }

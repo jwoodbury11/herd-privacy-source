@@ -53,7 +53,7 @@ npm --prefix evaluator-service test
 echo "Testing the invitee web app and API"
 npm --prefix invitee-web test
 
-echo "Testing all invitation-account browser permutations"
+echo "Testing invitation-account browser boundaries"
 npm --prefix invitee-web run test:browser-ui
 
 echo "Linting the invitee web app and API"

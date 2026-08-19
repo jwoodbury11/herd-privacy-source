@@ -186,8 +186,7 @@ native requests without an Origin remain valid because the capability MAC is
 mandatory. Relay responses are never cacheable. The maximum relay request body
 is 437391 bytes. Authentication/time failures return generic `401` responses,
 origin failures `403`, malformed input `400`, oversized input `413`, and
-configuration failures `503`; an inner request before its frozen RSVP deadline
-continues to return `409 deadline_not_reached`.
+configuration failures `503`.
 
 ## Validation boundary
 
@@ -198,8 +197,7 @@ Before decrypting anything, the service verifies:
   schemas;
 - the canonical policy hash and all release/key/measurement pins;
 - that the configured private JWK's public point matches the policy public key;
-- canonical event timestamps, a sent-event date, and that the RSVP deadline has
-  passed according to the evaluator's clock;
+- canonical event timestamps and a sent-event date;
 - the exact frozen member set and ordering, required-group membership, and host
   minimum;
 - every envelope's event, member, policy, evaluator key, canonical hash, and

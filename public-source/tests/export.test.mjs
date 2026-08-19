@@ -262,6 +262,11 @@ test("repository policy includes the executable privacy contracts and acceptance
     true,
     "generated release configuration must not enter a public-source archive",
   );
+  assert.equal(
+    repositoryPolicy.prohibitedPathFragments.includes(".ds_store"),
+    true,
+    "desktop metadata must never enter a public-source archive",
+  );
   const files = await collectExportFiles(repositoryRoot, repositoryPolicy);
   const included = new Set(files.map(({ path: filePath }) => filePath));
   for (const requiredPath of [

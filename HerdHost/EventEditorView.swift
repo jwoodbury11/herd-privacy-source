@@ -11,8 +11,11 @@ struct EventEditorView: View {
     @State private var showsInvitees = false
     @State private var showsDeadline = false
     @State private var showsSendConfirmation = false
+    @State private var showsAbandonDraftConfirmation = false
+    @State private var showsDeleteDraftConfirmation = false
     @State private var requiredPicker: RequiredPickerContext?
     @State private var isSaving = false
+    @State private var isDeleting = false
     @State private var saveErrorMessage: String?
     @State private var saveAlertTitle = "Couldn’t save event"
     @FocusState private var focusedField: FocusedField?
@@ -204,7 +207,7 @@ struct EventEditorView: View {
                                     Text("Allow attendees to add guests")
                                 }
                             }
-                            .tint(Color(uiColor: .systemGreen))
+                            .tint(Color(uiColor: .systemGray))
                             .padding(.horizontal, 16)
                             .frame(minHeight: 66)
                             .accessibilityIdentifier("event-allow-attendee-guests")
@@ -212,29 +215,6 @@ struct EventEditorView: View {
                     }
 
                     requiredAttendeeSection
-
-                    if !draft.outstandingTasks.isEmpty {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text("Still needed")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-
-                            ForEach(draft.outstandingTasks, id: \.self) { task in
-                                HStack(alignment: .firstTextBaseline, spacing: 9) {
-                                    Circle()
-                                        .fill(Color.secondary)
-                                        .frame(width: 4, height: 4)
-
-                                    Text(task)
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 4)
-                        .padding(.top, 2)
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
@@ -252,11 +232,12 @@ struct EventEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
-                        dismiss()
+                        handleClose()
                     } label: {
                         Image(systemName: "xmark")
                     }
                     .accessibilityLabel("Close")
+                    .accessibilityIdentifier("event-close")
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -264,7 +245,11 @@ struct EventEditorView: View {
                         handlePrimaryAction()
                     }
                     .fontWeight(.semibold)
-                    .disabled(!draft.isValid || isSaving)
+                    .disabled(
+                        (primaryActionTitle == "Send" && !draft.isValid) ||
+                        isSaving ||
+                        isDeleting
+                    )
                     .accessibilityIdentifier("event-primary-action")
                 }
 
@@ -323,6 +308,24 @@ struct EventEditorView: View {
             draft.removeInvalidRequiredAttendees()
             draft.minimumParticipants = min(draft.minimumParticipants, max(2, invitees.count + 1))
         }
+        .alert("Abandon this draft?", isPresented: $showsAbandonDraftConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                dismiss()
+            }
+            .accessibilityIdentifier("confirm-abandon-draft")
+        } message: {
+            Text("This unsaved draft will be deleted.")
+        }
+        .alert("Delete this draft?", isPresented: $showsDeleteDraftConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                deleteSavedDraft()
+            }
+            .accessibilityIdentifier("confirm-delete-draft")
+        } message: {
+            Text("This permanently deletes the draft. This can’t be undone.")
+        }
         .alert(saveAlertTitle, isPresented: Binding(
             get: { saveErrorMessage != nil },
             set: { if !$0 { saveErrorMessage = nil } }
@@ -377,19 +380,19 @@ struct EventEditorView: View {
             } else if draft.invitationDelivery?.status == .complete {
                 Label("Invitations submitted", systemImage: "lock.shield.fill")
                     .font(.headline)
-                Text("The messaging provider accepted every invitation. Replies remain private until the deadline.")
+                Text("The messaging provider accepted every invitation. Individual conditions are never shown to anyone.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else if draft.invitationDelivery?.status == .suppressed {
                 Label("Invitations ready", systemImage: "lock.shield.fill")
                     .font(.headline)
-                Text("Guests can open this event in Herd. Replies remain private until the deadline.")
+                Text("Guests can open this event in Herd. Individual conditions are never shown to anyone.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else if draft.resolution?.status == .pending {
                 Label("Invitations active", systemImage: "lock.shield.fill")
                     .font(.headline)
-                Text("Replies remain private until the deadline, then Herd will finalize the event.")
+                Text("Herd checks the private conditions as replies arrive and finalizes the event when they are met.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
@@ -486,9 +489,12 @@ struct EventEditorView: View {
     }
 
     private var locationSummary: String? {
-        if draft.locationName.isEmpty { return "Add a place or address" }
-        if draft.locationAddress.isEmpty { return draft.locationName }
-        return "\(draft.locationName) · \(draft.locationAddress)"
+        let summary = EventLocationPresentation.summary(
+            name: draft.locationName,
+            address: draft.locationAddress,
+            separator: " · "
+        )
+        return summary.isEmpty ? "Add a place or address" : summary
     }
 
     private var inviteeSummary: String? {
@@ -551,15 +557,44 @@ struct EventEditorView: View {
         }
     }
 
+    private func handleClose() {
+        focusedField = nil
+        if draft.invitationsSent {
+            dismiss()
+        } else if isExistingEvent {
+            showsDeleteDraftConfirmation = true
+        } else {
+            showsAbandonDraftConfirmation = true
+        }
+    }
+
+    private func deleteSavedDraft() {
+        guard !isDeleting else { return }
+        isDeleting = true
+        Task {
+            let didDelete = await store.delete(draft)
+            isDeleting = false
+            if didDelete {
+                dismiss()
+            } else {
+                saveAlertTitle = "Couldn’t delete draft"
+                saveErrorMessage = store.errorMessage ?? "Please check your connection and try again."
+            }
+        }
+    }
+
     private func save(markInvitationsSent: Bool = false) {
         guard !isSaving else { return }
         let wasSent = draft.invitationsSent
         draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if draft.title.isEmpty {
+            draft.title = "Untitled event"
+        }
         draft.eventDescription = draft.eventDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if markInvitationsSent {
             draft.invitationsSent = true
         }
-        guard draft.isValid else {
+        guard !markInvitationsSent || draft.isValid else {
             draft.invitationsSent = wasSent
             saveAlertTitle = "Event needs attention"
             saveErrorMessage = draft.outstandingTasks.first ?? "Review the event details and try again."

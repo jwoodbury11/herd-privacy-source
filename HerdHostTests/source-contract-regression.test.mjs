@@ -64,6 +64,33 @@ test("contact search provides an in-field clear action without dropping focus", 
   assert.match(attendeeFlow, /accessibilityIdentifier\("clear-contact-search"\)/u);
 });
 
+test("contact groups use static list labels instead of floating section headers", async () => {
+  const attendeeFlow = await source("AttendeeFlowView.swift");
+  assert.match(attendeeFlow, /contactSectionLabel\([\s\S]*?"Selected"/u);
+  assert.match(attendeeFlow, /contactSectionLabel\([\s\S]*?"Contacts"/u);
+  assert.match(attendeeFlow, /private func contactSectionLabel\(/u);
+  assert.doesNotMatch(
+    attendeeFlow,
+    /Section \{\s*candidateRows\(visibleSelectedCandidates\)[\s\S]*?\} header:/u,
+  );
+  assert.doesNotMatch(
+    attendeeFlow,
+    /Section \{\s*candidateRows\(visibleUnselectedCandidates\)[\s\S]*?\} header:/u,
+  );
+});
+
+test("response progress unlocks only after the current guest replies", async () => {
+  const [home, models] = await Promise.all([
+    source("HomeView.swift"),
+    source("Models.swift"),
+  ]);
+  assert.match(models, /var hasResponded: Bool\?/u);
+  assert.match(home, /role == \.host \|\| hasResponse/u);
+  assert.match(home, /respondedInviteeCount/u);
+  assert.match(home, /invitee\.hasResponded == true \? "Responded" : "Not responded"/u);
+  assert.match(home, /Send your private reply to see who has responded/u);
+});
+
 test("selected required-attendee chips abbreviate names without changing stored names", async () => {
   const [editor, home, models] = await Promise.all([
     source("EventEditorView.swift"),
@@ -110,74 +137,17 @@ test("hosted event details expose deletion only behind confirmation", async () =
   assert.match(client, /path: "\/api\/events\/\\\(id\.uuidString\.lowercased\(\)\)"[\s\S]*?method: "DELETE"/u);
 });
 
-test("switching private replies verifies the phone before replacing the saved response", async () => {
-  const [home, store] = await Promise.all([
+test("private replies are account-wide and never expose device-transfer ownership", async () => {
+  const [home, store, client] = await Promise.all([
     source("HomeView.swift"),
     source("EventStore.swift"),
+    source("APIClient.swift"),
   ]);
-  const requestCode = home.indexOf("await authStore.requestCode(phoneNumber: phoneNumber)");
-  const verifyCode = home.indexOf("await authStore.verifyCode(deviceSwitchVerificationCode)");
-  const switchDevice = home.indexOf("await store.switchPrivateRepliesToThisDevice(for: eventID)");
-
-  assert.ok(requestCode >= 0, "device switching must request fresh phone verification");
-  assert.ok(verifyCode > requestCode, "device switching must verify the SMS code");
-  assert.ok(switchDevice > verifyCode, "the key switch must happen only after verification");
-  assert.match(home, /case \.requestFailed:[\s\S]*?requestDeviceSwitchVerificationCode/u);
-  assert.match(home, /case \.verified:[\s\S]*?completeDeviceSwitch/u);
-  assert.doesNotMatch(
-    home,
-    /let saved = await store\.switchPrivateRepliesToThisDevice[\s\S]*?else \{\s*store\.cancelDeviceSwitch\(\)/u,
-  );
-  assert.match(
-    home,
-    /else if store\.deviceSwitchEventID != eventID \{[\s\S]*?showsDeviceSwitchVerification = false/u,
-    "a completed key switch must leave a later reply failure retryable outside the switch sheet",
-  );
-  assert.match(
-    store,
-    /pendingDeviceSwitchDrafts\[event\.id\] = draft\s*deviceSwitchEventID = event\.id/u,
-  );
-  assert.doesNotMatch(
-    store,
-    /context\.hasResponse[\s\S]{0,300}pendingDeviceSwitchDrafts/u,
-  );
-  const replaceKey = store.indexOf("replaceRootSecret(");
-  const saveReplacement = store.indexOf("return await performRespond(", replaceKey);
-  assert.ok(replaceKey >= 0, "device switching must create replacement key material");
-  assert.ok(
-    saveReplacement > replaceKey,
-    "the replacement reply must be saved only after the device key is switched",
-  );
-  assert.match(
-    store.slice(saveReplacement),
-    /preparedAccountKey: PreparedAccountKey\([\s\S]*?rootSecret: accountRootSecret/u,
-    "the replacement reply must reuse the freshly authenticated device key",
-  );
-  assert.match(
-    store,
-    /pendingSubmission\.draft == draft[\s\S]*?envelope = pendingSubmission\.envelope/u,
-    "an ambiguous post-write retry must reuse the exact sealed envelope",
-  );
-  assert.match(
-    store,
-    /pendingResponseSubmissions\[event\.id\] = PendingResponseSubmission\([\s\S]*?envelope: envelope/u,
-    "the sealed envelope must be retained before submission",
-  );
-  assert.match(
-    store,
-    /context\.responseEnvelope\?\.envelope == \$0\.envelope/u,
-    "a retry must recognize the exact envelope even after the server exposes its committed revision",
-  );
-  assert.match(
-    home,
-    /store\.hasPendingResponseSubmission\(for: event\.id, draft: currentDraft\)/u,
-    "a committed-but-uncertified envelope must remain retryable after the event refreshes",
-  );
-  assert.match(
-    store,
-    /pendingResponseSubmissions\[event\.id\] = nil\s*return true/u,
-    "the retained envelope must clear only after the complete receipt path succeeds",
-  );
+  assert.match(client, /func fetchSimplifiedBallot\(inviteToken: String\)/u);
+  assert.match(client, /func submitSimplifiedBallot\([\s\S]*?inviteToken: String/u);
+  assert.match(store, /submitSimplifiedBallot\([\s\S]*?events\[index\]\.hasBallot = true/u);
+  assert.doesNotMatch(home, /deviceSwitch|switchPrivateRepliesToThisDevice/u);
+  assert.doesNotMatch(store, /deviceSwitch|switchPrivateRepliesToThisDevice/u);
 });
 
 test("invitation details keep private-reply failures visible and retryable", async () => {
@@ -223,7 +193,32 @@ test("event editor uses attendee language for required-attendee controls", async
   assert.doesNotMatch(source, /Required attendance|Add required attendance/u);
 });
 
-test("iOS relays due host evaluations without exposing app credentials", async () => {
+test("event editor distinguishes unsaved abandonment from saved-draft deletion", async () => {
+  const editor = await source("EventEditorView.swift");
+  assert.match(
+    editor,
+    /if draft\.invitationsSent[\s\S]*else if isExistingEvent \{\s*showsDeleteDraftConfirmation = true\s*\} else \{\s*showsAbandonDraftConfirmation = true/u,
+  );
+  assert.match(editor, /\.alert\("Abandon this draft\?"[\s\S]*confirm-abandon-draft/u);
+  assert.match(editor, /\.alert\("Delete this draft\?"[\s\S]*confirm-delete-draft/u);
+  assert.match(editor, /let didDelete = await store\.delete\(draft\)/u);
+});
+
+test("blank event drafts always save with the Untitled event fallback", async () => {
+  const editor = await source("EventEditorView.swift");
+  assert.doesNotMatch(editor, /Text\("Still needed"\)|Add an event title/u);
+  assert.match(
+    editor,
+    /primaryActionTitle == "Send" && !draft\.isValid/u,
+  );
+  assert.match(
+    editor,
+    /if draft\.title\.isEmpty \{\s*draft\.title = "Untitled event"\s*\}/u,
+  );
+  assert.match(editor, /guard !markInvitationsSent \|\| draft\.isValid else/u);
+});
+
+test("iOS relays participant evaluations without exposing app credentials", async () => {
   const [client, store] = await Promise.all([
     source("APIClient.swift"),
     source("EventStore.swift"),
@@ -243,6 +238,9 @@ test("iOS relays due host evaluations without exposing app credentials", async (
     /evaluatorRequest\.setValue\([^\n]+Authorization/u,
   );
   assert.match(store, /relayDueHostedEvaluations/u);
+  assert.match(store, /event\.resolution\?\.status == \.pending/u);
+  assert.match(store, /event\.resolution\?\.status == \.confirmed/u);
+  assert.match(store, /event\.resolution\?\.attendanceRevealed != true/u);
   assert.match(store, /catch \{[\s\S]*?leave the resolution pending/u);
 });
 
@@ -278,6 +276,66 @@ test("iOS invitation links survive authentication and open only the exact event"
   assert.match(entitlements, /applinks:\$\(HERD_ASSOCIATED_DOMAIN\)/u);
   assert.doesNotMatch(info, /CFBundleURLSchemes|<string>herd<\/string>/u);
   assert.doesNotMatch(links, /print\(|NSLog|os_log/u);
+});
+
+test("pending invitations keep the normal sign-in screen and keyboard backdrop", async () => {
+  const [auth, app, attendeeFlow] = await Promise.all([
+    source("AuthenticationView.swift"),
+    source("HerdHostApp.swift"),
+    source("AttendeeFlowView.swift"),
+  ]);
+  assert.doesNotMatch(auth, /Your invitation is ready|pending-invitation-notice/u);
+  assert.match(app, /ZStack \{\s*HerdTheme\.canvas\s*\.ignoresSafeArea\(\)/u);
+  assert.doesNotMatch(attendeeFlow, /Color\.black/u);
+  assert.match(attendeeFlow, /toolbarBackground\(HerdTheme\.canvas/u);
+});
+
+test("leaving an invitation always relocks its encrypted reply", async () => {
+  const [home, store] = await Promise.all([
+    source("HomeView.swift"),
+    source("EventStore.swift"),
+  ]);
+  assert.match(
+    store,
+    /func lockPrivateResponse\(for eventID: UUID\)[\s\S]*unlockedResponses\[eventID\] = nil[\s\S]*unlockedDrafts\[eventID\] = nil/u,
+  );
+  assert.match(home, /onViewInvitation:[\s\S]*showsSuccess = false\s*lockPrivateReply\(\)/u);
+  assert.match(home, /onHome:[\s\S]*showsSuccess = false\s*lockPrivateReply\(\)/u);
+  assert.match(
+    home,
+    /\.onDisappear \{[\s\S]*?confirmedReplyNoticeID = nil[\s\S]*?guard !showsSuccess else \{ return \}[\s\S]*?lockPrivateReply\(\)/u,
+  );
+});
+
+test("location pickers attach autocomplete results and support optional units", async () => {
+  const [locationSearch, home] = await Promise.all([
+    source("LocationSearchView.swift"),
+    source("HomeView.swift"),
+  ]);
+  assert.match(locationSearch, /LocationAutocompleteField/u);
+  assert.match(locationSearch, /if isFocused\.wrappedValue && showsSuggestions \{[\s\S]*Divider\(\)[\s\S]*suggestions/u);
+  assert.match(locationSearch, /if isFocused\.wrappedValue && !query\.isEmpty \{[\s\S]*xmark\.circle\.fill/u);
+  assert.match(locationSearch, /clear-location-search/u);
+  assert.match(locationSearch, /clear-profile-address-search/u);
+  assert.match(locationSearch, /location-unit-number/u);
+  assert.match(locationSearch, /profile-unit-number/u);
+  assert.match(locationSearch, /Text\("Unit number"\)/u);
+  assert.match(locationSearch, /LocationUnitAddress\.combine/u);
+  assert.doesNotMatch(locationSearch, /Image\(systemName: "chevron\.right"\)/u);
+  assert.match(
+    locationSearch,
+    /Text\(title\)[\s\S]*\.lineLimit\(1\)[\s\S]*\.truncationMode\(\.tail\)/u,
+  );
+  assert.match(home, /ProfileAddressPicker[\s\S]*\.lineLimit\(1\)[\s\S]*\.truncationMode\(\.tail\)/u);
+  assert.match(home, /UIPasteboard\.general\.string = copyText/u);
+  assert.match(home, /Text\(addressCopiedNoticeID != nil[\s\S]*"Address copied to clipboard"/u);
+  assert.match(home, /accessibilityIdentifier\(addressCopiedNoticeID != nil[\s\S]*"address-copied-toast"/u);
+  assert.match(locationSearch, /enum EventLocationPresentation[\s\S]*foldedAddress == foldedName/u);
+  assert.match(
+    locationSearch,
+    /selectedName\.isEmpty && selectedAddress\.isEmpty && trimmedUnit\.isEmpty[\s\S]*locationName = manualQuery[\s\S]*locationAddress = ""/u,
+  );
+  assert.match(locationSearch, /locationName = normalizedSummary == savedAddress \? "" : savedName/u);
 });
 
 test("every iOS build requires hardware evaluator attestation", async () => {

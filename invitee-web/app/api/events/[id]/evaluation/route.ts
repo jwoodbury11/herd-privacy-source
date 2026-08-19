@@ -18,13 +18,20 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-async function hostedEvent(request: Request, context: RouteContext) {
+async function participantEvent(request: Request, context: RouteContext) {
   const session = await getAuthenticatedSession(request);
   const { id: rawId } = await context.params;
   const eventId = requireUuid(rawId, "event ID");
   const db = await getD1();
   const event = await getEventById(db, eventId);
-  if (!event || event.hostUserId !== session!.user.id) {
+  const isParticipant = event && (
+    event.hostUserId === session!.user.id ||
+    Boolean(await db
+      .prepare("SELECT 1 AS found FROM invitees WHERE event_id = ? AND user_id = ?")
+      .bind(eventId, session!.user.id)
+      .first<{ found: number }>())
+  );
+  if (!event || !isParticipant) {
     throw new ApiError(404, "event_not_found", "The event was not found.");
   }
   const { hostUserId, ...canonicalEvent } = event;
@@ -35,7 +42,7 @@ async function hostedEvent(request: Request, context: RouteContext) {
 export async function POST(request: Request, context: RouteContext) {
   return withApiErrors(async () => {
     requireSameOrigin(request);
-    const { db, event } = await hostedEvent(request, context);
+    const { db, event } = await participantEvent(request, context);
     const result = await startClientRelayEvaluation(
       db,
       await getBindings(),
@@ -55,7 +62,7 @@ export async function POST(request: Request, context: RouteContext) {
 export async function PUT(request: Request, context: RouteContext) {
   return withApiErrors(async () => {
     requireSameOrigin(request);
-    const { db, event } = await hostedEvent(request, context);
+    const { db, event } = await participantEvent(request, context);
     const payload = await readJsonObject(request);
     if (
       Object.keys(payload).length !== 1 ||

@@ -276,6 +276,52 @@ final class HerdHostBusinessRuleTests: XCTestCase {
         XCTAssertNil(LocationSearchSuggestions.profileAddress(from: " \n "))
     }
 
+    func testLocationUnitAddressRoundTripsWithoutChangingLegacyAddresses() {
+        XCTAssertEqual(
+            LocationUnitAddress.combine(base: "219 Cumberland St", unit: "5"),
+            "219 Cumberland St, Unit 5"
+        )
+
+        let separated = LocationUnitAddress.split(" 219 Cumberland St, Unit 5 ")
+        XCTAssertEqual(separated.base, "219 Cumberland St")
+        XCTAssertEqual(separated.unit, "5")
+
+        let legacy = LocationUnitAddress.split("219 Cumberland St")
+        XCTAssertEqual(legacy.base, "219 Cumberland St")
+        XCTAssertEqual(legacy.unit, "")
+        XCTAssertEqual(
+            LocationUnitAddress.combine(base: " 219 Cumberland St ", unit: "  "),
+            "219 Cumberland St"
+        )
+    }
+
+    func testLocationPresentationRemovesDuplicateAddressNames() {
+        XCTAssertEqual(
+            EventLocationPresentation.summary(
+                name: "219 Cumberland St",
+                address: "219 Cumberland St",
+                separator: " · "
+            ),
+            "219 Cumberland St"
+        )
+        XCTAssertEqual(
+            EventLocationPresentation.summary(
+                name: "219 Cumberland St",
+                address: "219 Cumberland St, Unit 5",
+                separator: " · "
+            ),
+            "219 Cumberland St, Unit 5"
+        )
+        XCTAssertEqual(
+            EventLocationPresentation.summary(
+                name: "The Conservatory",
+                address: "100 John F Kennedy Dr",
+                separator: " · "
+            ),
+            "The Conservatory · 100 John F Kennedy Dr"
+        )
+    }
+
     func testParticipantCountAlwaysIncludesTheHost() {
         var event = HerdEvent.newDraft()
         XCTAssertEqual(event.participantCount, 1)

@@ -296,6 +296,14 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                 guard path == "/api/events/10000000-0000-0000-0000-000000000001" else {
                     return (404, ["error": "Unexpected create event identifier"])
                 }
+                if
+                    let body,
+                    let submitted = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                    submitted["invitationsSent"] as? Bool == false
+                {
+                    event = submitted
+                    break
+                }
                 var saved = HerdUITestEnvironment.hostDraft(
                     id: UUID(uuidString: "10000000-0000-0000-0000-000000000001")!,
                     title: "UI Coverage Dinner"
@@ -333,8 +341,12 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         if method == "DELETE",
-           path == "/api/events/20000000-0000-0000-0000-000000000003",
-           scenario == .hostDelete {
+           (
+               (scenario == .hostDelete &&
+                path == "/api/events/20000000-0000-0000-0000-000000000003") ||
+               (scenario == .hostEdit &&
+                path == "/api/events/20000000-0000-0000-0000-000000000002")
+           ) {
             events.removeAll { $0["id"] as? String == path.split(separator: "/").last.map(String.init) }
             return (200, [
                 "deleted": true,

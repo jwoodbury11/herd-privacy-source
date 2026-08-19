@@ -150,7 +150,7 @@ jobs:
       - name: Install the pinned headless browser
         run: cd "$HERD_TEST_ROOT/invitee-web" && npx playwright install --with-deps chromium
 
-      - name: Exercise all invitation-account UI permutations
+      - name: Exercise invitation-account UI boundaries
         run: npm --prefix "$HERD_TEST_ROOT/invitee-web" run test:browser-ui
 
       - name: Lint the web app and ordinary API

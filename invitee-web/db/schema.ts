@@ -378,6 +378,97 @@ export const responseEnvelopes = sqliteTable(
   ],
 );
 
+// Protocol-v2 ballots intentionally have no foreign key or identifying field for
+// an invitee, user, account, phone number, session, or invitation token.
+export const ballotRevisions = sqliteTable(
+  "ballot_revisions",
+  {
+    ballotId: text("ballot_id").notNull(),
+    revision: integer("revision").notNull(),
+    protocolVersion: integer("protocol_version").notNull().default(2),
+    keyVersion: integer("key_version").notNull().default(1),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    response: text("response", { enum: ["going", "cant_commit"] }).notNull(),
+    minimumParticipants: integer("minimum_participants"),
+    requiredGroups: text("required_groups").notNull().default("[]"),
+    source: text("source", {
+      enum: ["user", "support_correction", "legacy_migration"],
+    }).notNull().default("user"),
+    correctionReason: text("correction_reason"),
+    contentDigest: text("content_digest").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ballotId, table.revision] }),
+    uniqueIndex("ballot_revisions_digest_unique").on(table.contentDigest),
+    index("ballot_revisions_event_idx").on(table.eventId, table.ballotId, table.revision),
+  ],
+);
+
+export const ballotEvaluationRuns = sqliteTable(
+  "ballot_evaluation_runs",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    inputDigest: text("input_digest").notNull(),
+    inputRevisions: text("input_revisions").notNull(),
+    status: text("status", { enum: ["confirmed", "not_confirmed", "failed"] }).notNull(),
+    attendingMemberIds: text("attending_member_ids"),
+    errorCode: text("error_code"),
+    source: text("source", { enum: ["automatic", "operator_replay", "operator_override"] })
+      .notNull(),
+    reason: text("reason"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("ballot_evaluation_runs_input_unique").on(table.eventId, table.inputDigest),
+    index("ballot_evaluation_runs_event_idx").on(table.eventId, table.createdAt),
+  ],
+);
+
+// Cached evaluator envelopes make retries deterministic. They are keyed only
+// by the event-scoped ballot pseudonym and revision; no account identity is
+// stored beside the readable ballot record.
+export const ballotEvaluationSlots = sqliteTable(
+  "ballot_evaluation_slots",
+  {
+    ballotId: text("ballot_id").notNull(),
+    revision: integer("revision").notNull(),
+    eventId: text("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    envelope: text("envelope").notNull(),
+    envelopeHash: text("envelope_hash").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ballotId, table.revision] }),
+    uniqueIndex("ballot_evaluation_slots_hash_unique").on(table.envelopeHash),
+    index("ballot_evaluation_slots_event_idx").on(table.eventId),
+  ],
+);
+
+export const ballotOperatorActions = sqliteTable(
+  "ballot_operator_actions",
+  {
+    id: text("id").primaryKey(),
+    eventId: text("event_id").notNull(),
+    ballotId: text("ballot_id"),
+    action: text("action").notNull(),
+    actor: text("actor").notNull(),
+    reason: text("reason").notNull(),
+    previousDigest: text("previous_digest"),
+    nextDigest: text("next_digest"),
+    correlationId: text("correlation_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("ballot_operator_actions_event_idx").on(table.eventId, table.createdAt)],
+);
+
 export const responseTransparencyEntries = sqliteTable(
   "response_transparency_entries",
   {

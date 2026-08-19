@@ -1,4 +1,5 @@
 import { getActiveAccountKeyEpoch } from "./account-keys";
+import { deriveBallotId } from "./ballot-identifiers";
 import { getAuthConfig } from "./config";
 import { pepperedHash } from "./crypto";
 import { requireEvaluatorEpochPolicyFence } from "./evaluator-epoch";
@@ -31,6 +32,66 @@ export type InviteeResponseHistory = {
   missedConfirmedEvents: number;
   totalConfirmedEvents: number;
 };
+
+export async function getRespondedInviteeIdsByEvent(
+  db: D1Database,
+  bindings: Parameters<typeof getAuthConfig>[0],
+  eventIds: string[],
+): Promise<Map<string, Set<string>>> {
+  const respondedByEvent = new Map<string, Set<string>>();
+  const uniqueEventIds = [...new Set(eventIds)];
+  for (let offset = 0; offset < uniqueEventIds.length; offset += 80) {
+    const chunk = uniqueEventIds.slice(offset, offset + 80);
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => "?").join(", ");
+    const rows = await db
+      .prepare(
+        `SELECT DISTINCT
+           invitees.event_id AS eventId,
+           response_envelopes.invitee_id AS inviteeId
+         FROM response_envelopes
+         JOIN invitees ON invitees.id = response_envelopes.invitee_id
+         WHERE invitees.event_id IN (${placeholders})`,
+      )
+      .bind(...chunk)
+      .all<{ eventId: string; inviteeId: string }>();
+    for (const row of rows.results) {
+      const responded = respondedByEvent.get(row.eventId) ?? new Set<string>();
+      responded.add(row.inviteeId);
+      respondedByEvent.set(row.eventId, responded);
+    }
+
+    const [ballotRows, inviteeRows] = await Promise.all([
+      db
+        .prepare(
+          `SELECT DISTINCT event_id AS eventId, ballot_id AS ballotId
+           FROM ballot_revisions
+           WHERE event_id IN (${placeholders})`,
+        )
+        .bind(...chunk)
+        .all<{ eventId: string; ballotId: string }>(),
+      db
+        .prepare(
+          `SELECT event_id AS eventId, id AS inviteeId
+           FROM invitees
+           WHERE event_id IN (${placeholders})`,
+        )
+        .bind(...chunk)
+        .all<{ eventId: string; inviteeId: string }>(),
+    ]);
+    const storedBallots = new Set(
+      ballotRows.results.map(({ eventId, ballotId }) => `${eventId}:${ballotId}`),
+    );
+    for (const invitee of inviteeRows.results) {
+      const ballotId = await deriveBallotId(bindings, invitee.eventId, invitee.inviteeId);
+      if (!storedBallots.has(`${invitee.eventId}:${ballotId}`)) continue;
+      const responded = respondedByEvent.get(invitee.eventId) ?? new Set<string>();
+      responded.add(invitee.inviteeId);
+      respondedByEvent.set(invitee.eventId, responded);
+    }
+  }
+  return respondedByEvent;
+}
 
 type EventRow = {
   id: string;
@@ -523,20 +584,37 @@ export async function getEventsForUser(
     invitedEvents = await hydrateEvents(db, rows.results);
   }
   const accessByEvent = new Map(invitedAccess.map((access) => [access.eventId, access]));
+  const respondedByEvent = await getRespondedInviteeIdsByEvent(
+    db,
+    bindings,
+    [...hosted.map((event) => event.id), ...invitedEvents.map((event) => event.id)],
+  );
   const projected = [
     ...hosted.map((event) => ({
       ...event,
+      invitees: event.invitees.map((invitee) => ({
+        ...invitee,
+        hasResponded: respondedByEvent.get(event.id)?.has(invitee.id) ?? false,
+      })),
       role: "host" as const,
     })),
     ...(await Promise.all(
       invitedEvents.map(async (event) => {
         const access = accessByEvent.get(event.id)!;
         const publicEvent = toPublicEvent(event);
+        const hasBallot = respondedByEvent.get(event.id)?.has(access.inviteeId) ?? false;
+        const canViewResponseProgress = Boolean(access.responseEnvelopeId) || hasBallot;
         return {
           ...publicEvent,
           invitees: publicEvent.invitees.map((invitee) => ({
             ...invitee,
             ...(invitee.id === access.inviteeId ? { isCurrentUser: true } : {}),
+            ...(canViewResponseProgress
+              ? {
+                  hasResponded:
+                    respondedByEvent.get(event.id)?.has(invitee.id) ?? false,
+                }
+              : {}),
           })),
           role: "invitee" as const,
           inviteToken:
@@ -557,6 +635,7 @@ export async function getEventsForUser(
                     access.phoneHash,
                   ),
           hasResponse: Boolean(access.responseEnvelopeId),
+          hasBallot,
           responseRevision: access.responseRevision,
           responseCertificationStatus: access.responseEnvelopeId
             ? access.responseReceiptSignature &&
@@ -1175,6 +1254,17 @@ export async function addEventAttendees(
   }
 
   const nowIso = new Date().toISOString();
+  const resolution = await db
+    .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
+    .bind(eventId)
+    .first<{ status: string }>();
+  if (resolution?.status === "confirmed") {
+    throw new ApiError(
+      409,
+      "event_already_confirmed",
+      "Attendees can’t be added after an event is confirmed.",
+    );
+  }
   if (!stored.rsvpDeadline || stored.rsvpDeadline <= nowIso) {
     throw new ApiError(409, "rsvp_closed", "Attendees can’t be added after replies close.");
   }

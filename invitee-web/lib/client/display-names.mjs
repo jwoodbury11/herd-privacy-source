@@ -1,3 +1,4 @@
+/** @param {string} fullName */
 export function requiredAttendeeName(fullName) {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   const firstName = parts[0];

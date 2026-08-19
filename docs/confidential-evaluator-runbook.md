@@ -1,5 +1,8 @@
 # Confidential evaluator operations runbook
 
+> Protocol-v1 compatibility runbook. Use this only for the isolated evaluator and installed legacy
+> clients during the bounded migration window. Current clients use the account-wide ballot path.
+
 This runbook covers a deployed release of the Confidential Space evaluator.
 It assumes the release passed `docs/confidential-evaluator-deployment.md` and
 that the application pins its image digest, artifact release ID, evaluator-key
@@ -183,7 +186,7 @@ evaluation endpoint, or "continue without transparency" mode.
   remain. A generic signer `409` is a permanent transparency conflict and must
   not be flattened into the transient-unavailable path; only the exact signed
   late-missing disposition above permits bounded local reconciliation.
-- **response key/revision conflict:** do not reset the authority document or
+- **response key/revision conflict (legacy v1 only):** do not reset the authority document or
   invent a revision. Confirm the client receipt includes the exact Ed25519
   public key/signature and has revision 1 or previous + 1. Within an epoch the
   response key must remain unchanged. A phone-verified device switch must rotate

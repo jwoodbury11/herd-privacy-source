@@ -2,6 +2,12 @@
 
 // invitee-web/lib/privacy/protocol.ts
 var PRIVATE_RESPONSE_PROTOCOL_VERSION = 1;
+function publicRuntimeValue(key) {
+  if (typeof window !== "undefined") {
+    return window.__HERD_PUBLIC_RUNTIME_CONFIG__?.[key];
+  }
+  return process.env[`NEXT_PUBLIC_${key}`];
+}
 var PRIVATE_RESPONSE_CIPHER_SUITE = "P256_HKDF_SHA256_AES256_GCM";
 var PRIVATE_RESPONSE_PADDED_PLAINTEXT_BYTES = 4096;
 var PRIVATE_RESPONSE_PAYLOAD_FRAME_BYTES = 4124;
@@ -11,6 +17,8 @@ var PRIVATE_RESPONSE_POLICY_SIGNATURE_DOMAIN = "HERD-POLICY-DESCRIPTOR-SIGNATURE
 var PRIVATE_RESPONSE_RECEIPT_SIGNATURE_DOMAIN = "HERD-TRANSPARENCY-RECEIPT-SIGNATURE-V1";
 var PRIVATE_RESPONSE_LOG_HEAD_SIGNATURE_DOMAIN = "HERD-TRANSPARENCY-LOG-HEAD-SIGNATURE-V1";
 var PRIVATE_RESPONSE_RECONCILIATION_SIGNATURE_DOMAIN = "HERD-TRANSPARENCY-RECONCILIATION-SIGNATURE-V1";
+var PRIVATE_RESPONSE_AUTHORIZATION_DOMAIN = "HERD-RESPONSE-AUTHORIZATION-V1";
+var PRIVATE_RESPONSE_SIGNING_DERIVATION_LABEL = "HERD-RESPONSE-SIGNING-SEED-V1";
 var PRIVATE_RESPONSE_SIGNATURE_BYTES = 64;
 var PRIVATE_RESPONSE_HASH_BYTES = 32;
 var PRIVATE_RESPONSE_SIGNING_PUBLIC_KEY_BYTES = 32;
@@ -197,6 +205,74 @@ function canonicalEnvelopeJson(envelope) {
   void _responseSignature;
   return JSON.stringify(normalizePrivateResponseUnsignedEnvelope(unsigned));
 }
+function canonicalPrivateResponseAuthorizationPayload(envelope, ciphertextHash) {
+  const normalized = normalizePrivateResponseUnsignedEnvelope(
+    Object.fromEntries(
+      Object.entries(envelope).filter(([key]) => key !== "responseSignature")
+    )
+  );
+  return JSON.stringify({
+    protocolVersion: normalized.protocolVersion,
+    eventId: normalized.eventId,
+    inviteeId: normalized.inviteeId,
+    policyHash: normalized.policyHash,
+    accountKeyEpochId: normalized.accountKeyEpochId,
+    revision: normalized.revision,
+    envelopeId: normalized.envelopeId,
+    ciphertextHash: requireBase64UrlBytes(
+      ciphertextHash,
+      "ciphertextHash",
+      PRIVATE_RESPONSE_HASH_BYTES
+    ),
+    responseSigningPublicKey: normalized.responseSigningPublicKey
+  });
+}
+function privateResponseAuthorizationBytes(envelope, ciphertextHash) {
+  return domainSeparatedUtf8(
+    PRIVATE_RESPONSE_AUTHORIZATION_DOMAIN,
+    canonicalPrivateResponseAuthorizationPayload(envelope, ciphertextHash)
+  );
+}
+function privateResponseContext(envelope) {
+  const result = new Uint8Array(101);
+  let offset = 0;
+  result[offset] = PRIVATE_RESPONSE_PROTOCOL_VERSION;
+  offset += 1;
+  for (const value of [
+    uuidToBytes(envelope.eventId),
+    uuidToBytes(envelope.inviteeId),
+    base64UrlToBytes(envelope.policyHash),
+    uuidToBytes(envelope.envelopeId),
+    uuidToBytes(envelope.accountKeyEpochId)
+  ]) {
+    result.set(value, offset);
+    offset += value.length;
+  }
+  new DataView(result.buffer).setUint32(offset, envelope.revision, false);
+  return result;
+}
+function privateResponseAad(purpose, envelope) {
+  const labels = {
+    payload: "HERD-RSVP-PAYLOAD-AAD-V1",
+    "user-key-wrap": "HERD-RSVP-USER-WRAP-AAD-V1",
+    "evaluator-key-wrap": "HERD-RSVP-EVALUATOR-WRAP-AAD-V1",
+    "user-key-derivation": "HERD-RSVP-USER-KEK-V1",
+    "evaluator-key-derivation": "HERD-RSVP-EVALUATOR-KEK-V1"
+  };
+  return concatenateBytes(
+    new TextEncoder().encode(labels[purpose]),
+    new Uint8Array([0]),
+    privateResponseContext(envelope)
+  );
+}
+function uuidToBytes(value) {
+  const normalized = requireUuid(value, "UUID").replaceAll("-", "");
+  const bytes = new Uint8Array(16);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(normalized.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
 function base64UrlToBytes(value) {
   if (base64UrlDecodedLength(value) < 0) throw new TypeError("Invalid base64url value.");
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
@@ -221,6 +297,796 @@ function concatenateBytes(...values) {
   return result;
 }
 
+// invitee-web/lib/privacy/trust-verification.ts
+var PrivateResponseTrustError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PrivateResponseTrustError";
+  }
+};
+function ownedArrayBuffer(value) {
+  return Uint8Array.from(value).buffer;
+}
+function cryptoApi() {
+  if (!globalThis.crypto?.subtle) {
+    throw new PrivateResponseTrustError("This device cannot verify Herd trust proofs.");
+  }
+  return globalThis.crypto;
+}
+function canonicalBase64Url(value, bytes, field) {
+  if (typeof value !== "string") {
+    throw new PrivateResponseTrustError(`${field} is missing.`);
+  }
+  let decoded;
+  try {
+    decoded = base64UrlToBytes(value);
+  } catch {
+    throw new PrivateResponseTrustError(`${field} is invalid.`);
+  }
+  if (decoded.length !== bytes || bytesToBase64Url(decoded) !== value) {
+    throw new PrivateResponseTrustError(`${field} is invalid.`);
+  }
+  return value;
+}
+async function verifyP256(pin, domain, canonicalPayload, signature) {
+  let publicKey;
+  try {
+    publicKey = normalizeEvaluatorPublicKey(pin.publicKey);
+  } catch {
+    throw new PrivateResponseTrustError("This Herd release has an invalid trust key.");
+  }
+  const signatureValue = canonicalBase64Url(
+    signature,
+    PRIVATE_RESPONSE_SIGNATURE_BYTES,
+    "Trust signature"
+  );
+  try {
+    const key = await cryptoApi().subtle.importKey(
+      "raw",
+      ownedArrayBuffer(base64UrlToBytes(publicKey)),
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+    return cryptoApi().subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      ownedArrayBuffer(base64UrlToBytes(signatureValue)),
+      ownedArrayBuffer(domainSeparatedUtf8(domain, canonicalPayload))
+    );
+  } catch (error) {
+    if (error instanceof PrivateResponseTrustError) throw error;
+    return false;
+  }
+}
+function configuredPolicySigningPin() {
+  const keyId = publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_KEY_ID");
+  const publicKey = publicRuntimeValue("HERD_EVALUATOR_POLICY_SIGNING_PUBLIC_KEY");
+  return keyId && publicKey ? { keyId, publicKey } : null;
+}
+async function verifyEventPolicyCertification(policy, pin) {
+  if (!policy.policySigningKeyId || policy.policySigningKeyId !== pin.keyId || !policy.policySignature || !await verifyP256(
+    pin,
+    PRIVATE_RESPONSE_POLICY_SIGNATURE_DOMAIN,
+    policy.canonicalDocument,
+    policy.policySignature
+  )) {
+    throw new PrivateResponseTrustError(
+      "The event policy is not certified by this Herd release."
+    );
+  }
+}
+
+// invitee-web/lib/privacy/private-response-crypto.ts
+var AES_GCM_NONCE_BYTES = 12;
+var AES_GCM_TAG_BITS = 128;
+var RESPONSE_KEY_BYTES = 32;
+var POLICY_HASH_BYTES2 = 32;
+var EVALUATOR_PUBLIC_KEY_BYTES2 = 65;
+var EVALUATOR_SALT_BYTES = 32;
+var DRAFT_NONCE_BYTES = 16;
+var MAX_PARTICIPANTS = 20;
+var ED25519_PKCS8_SEED_PREFIX = Uint8Array.from([
+  48,
+  46,
+  2,
+  1,
+  0,
+  48,
+  5,
+  6,
+  3,
+  43,
+  101,
+  112,
+  4,
+  34,
+  4,
+  32
+]);
+var textEncoder = new TextEncoder();
+var textDecoder = new TextDecoder("utf-8", { fatal: true });
+var bakedEvaluatorKeyId = publicRuntimeValue("HERD_EVALUATOR_KEY_ID");
+var bakedEvaluatorPublicKey = publicRuntimeValue("HERD_EVALUATOR_PUBLIC_KEY");
+var PrivateResponseCryptoError = class extends Error {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "PrivateResponseCryptoError";
+    this.canSwitchDevice = options.canSwitchDevice ?? false;
+  }
+};
+function cryptoApi2() {
+  const value = globalThis.crypto;
+  if (!value?.subtle || typeof value.getRandomValues !== "function") {
+    throw new PrivateResponseCryptoError(
+      "Private responses require a browser with Web Crypto support."
+    );
+  }
+  return value;
+}
+function toArrayBuffer(value) {
+  return value.buffer.slice(
+    value.byteOffset,
+    value.byteOffset + value.byteLength
+  );
+}
+function randomBytes(length) {
+  return cryptoApi2().getRandomValues(new Uint8Array(length));
+}
+function randomUuid() {
+  const bytes = randomBytes(16);
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function strictBase64UrlBytes(value, expectedLength, field) {
+  let bytes;
+  try {
+    bytes = base64UrlToBytes(value);
+  } catch {
+    throw new PrivateResponseCryptoError(`${field} is not valid base64url.`);
+  }
+  if (bytes.length !== expectedLength || bytesToBase64Url(bytes) !== value) {
+    throw new PrivateResponseCryptoError(
+      `${field} must be canonical base64url for ${expectedLength} bytes.`
+    );
+  }
+  return bytes;
+}
+function sameBytes(left, right) {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+function requireRecord(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new PrivateResponseCryptoError(`${field} is invalid.`);
+  }
+  return value;
+}
+function requireExactKeys2(value, expected, field) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new PrivateResponseCryptoError(`${field} contains unsupported fields.`);
+  }
+}
+function normalizeUuid(value, field) {
+  if (typeof value !== "string") {
+    throw new PrivateResponseCryptoError(`${field} must be a UUID.`);
+  }
+  try {
+    uuidToBytes(value);
+  } catch {
+    throw new PrivateResponseCryptoError(`${field} must be a UUID.`);
+  }
+  return value.toLowerCase();
+}
+function boundedInteger(value, field, minimum, maximum) {
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new PrivateResponseCryptoError(
+      `${field} must be an integer from ${minimum} to ${maximum}.`
+    );
+  }
+  return value;
+}
+function normalizeDraft(value, allowedInviteeIds, frozenPolicy) {
+  const input = requireRecord(value, "Private response");
+  requireExactKeys2(
+    input,
+    [
+      "protocolVersion",
+      "eventId",
+      "inviteeId",
+      "policyHash",
+      "envelopeId",
+      "accountKeyEpochId",
+      "revision",
+      "response",
+      "minimumParticipants",
+      "requiredGroups",
+      "nonce"
+    ],
+    "Private response"
+  );
+  if (input.protocolVersion !== PRIVATE_RESPONSE_PROTOCOL_VERSION) {
+    throw new PrivateResponseCryptoError("The private-response version is unsupported.");
+  }
+  const eventId = normalizeUuid(input.eventId, "eventId");
+  const inviteeId = normalizeUuid(input.inviteeId, "inviteeId");
+  const envelopeId = normalizeUuid(input.envelopeId, "envelopeId");
+  const accountKeyEpochId = normalizeUuid(
+    input.accountKeyEpochId,
+    "accountKeyEpochId"
+  );
+  if (typeof input.policyHash !== "string") {
+    throw new PrivateResponseCryptoError("policyHash is invalid.");
+  }
+  strictBase64UrlBytes(input.policyHash, POLICY_HASH_BYTES2, "policyHash");
+  if (!Number.isInteger(input.revision) || input.revision < 1 || input.revision > 1e6) {
+    throw new PrivateResponseCryptoError("revision is invalid.");
+  }
+  if (input.response !== "going" && input.response !== "cant_commit") {
+    throw new PrivateResponseCryptoError("response is invalid.");
+  }
+  const minimumParticipants = input.minimumParticipants;
+  if (input.response === "going") {
+    if (!Number.isInteger(minimumParticipants)) {
+      throw new PrivateResponseCryptoError(
+        "A going response must include an integer minimum participant count."
+      );
+    }
+    if (minimumParticipants < frozenPolicy.hostMinimumParticipants) {
+      throw new PrivateResponseCryptoError(
+        "The response minimum cannot be below the frozen host minimum."
+      );
+    }
+    if (minimumParticipants > frozenPolicy.maximumParticipants) {
+      throw new PrivateResponseCryptoError(
+        "The response minimum cannot exceed the frozen participant maximum."
+      );
+    }
+  }
+  if (!Array.isArray(input.requiredGroups) || input.requiredGroups.length > MAX_PARTICIPANTS) {
+    throw new PrivateResponseCryptoError("requiredGroups is invalid.");
+  }
+  if (!Array.isArray(allowedInviteeIds)) {
+    throw new PrivateResponseCryptoError("allowedInviteeIds is invalid.");
+  }
+  const normalizedAllowedInviteeIds = allowedInviteeIds.map(
+    (id, index) => normalizeUuid(id, `allowedInviteeIds[${index}]`)
+  );
+  const allowed = new Set(normalizedAllowedInviteeIds);
+  const frozenInvitees = new Set(frozenPolicy.inviteeIds);
+  if (allowed.size !== normalizedAllowedInviteeIds.length || allowed.size + 1 !== frozenPolicy.maximumParticipants || allowed.size !== frozenInvitees.size || normalizedAllowedInviteeIds.some((id) => !frozenInvitees.has(id))) {
+    throw new PrivateResponseCryptoError(
+      "The invited people do not match the frozen event policy."
+    );
+  }
+  if (eventId !== frozenPolicy.eventId) {
+    throw new PrivateResponseCryptoError(
+      "The response event does not match the frozen event policy."
+    );
+  }
+  if (!allowed.has(inviteeId)) {
+    throw new PrivateResponseCryptoError(
+      "The respondent is not in the frozen event policy."
+    );
+  }
+  const seenMembers = /* @__PURE__ */ new Set();
+  const seenGroups = /* @__PURE__ */ new Set();
+  const requiredGroups = input.requiredGroups.map((rawGroup, groupIndex) => {
+    const group = requireRecord(rawGroup, `requiredGroups[${groupIndex}]`);
+    requireExactKeys2(group, ["id", "memberIDs"], `requiredGroups[${groupIndex}]`);
+    const id = normalizeUuid(group.id, `requiredGroups[${groupIndex}].id`);
+    if (seenGroups.has(id)) {
+      throw new PrivateResponseCryptoError("Condition group IDs must be unique.");
+    }
+    seenGroups.add(id);
+    if (!Array.isArray(group.memberIDs) || group.memberIDs.length < 1 || group.memberIDs.length > MAX_PARTICIPANTS) {
+      throw new PrivateResponseCryptoError(
+        `requiredGroups[${groupIndex}].memberIDs is invalid.`
+      );
+    }
+    const memberIDs = group.memberIDs.map((rawMemberId, memberIndex) => {
+      const memberId = normalizeUuid(
+        rawMemberId,
+        `requiredGroups[${groupIndex}].memberIDs[${memberIndex}]`
+      );
+      if (memberId === inviteeId || !allowed.has(memberId) || seenMembers.has(memberId)) {
+        throw new PrivateResponseCryptoError(
+          "Each condition member must be another invited person and may appear only once."
+        );
+      }
+      seenMembers.add(memberId);
+      return memberId;
+    });
+    return { id, memberIDs };
+  });
+  if (input.response === "cant_commit" && (minimumParticipants !== null || requiredGroups.length > 0)) {
+    throw new PrivateResponseCryptoError(
+      "A can\u2019t-commit response cannot contain attendance conditions."
+    );
+  }
+  if (typeof input.nonce !== "string") {
+    throw new PrivateResponseCryptoError("nonce is invalid.");
+  }
+  strictBase64UrlBytes(input.nonce, DRAFT_NONCE_BYTES, "nonce");
+  return {
+    protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
+    eventId,
+    inviteeId,
+    policyHash: input.policyHash,
+    envelopeId,
+    accountKeyEpochId,
+    revision: input.revision,
+    response: input.response,
+    minimumParticipants,
+    requiredGroups,
+    nonce: input.nonce
+  };
+}
+async function assertTrustedPolicy(policy, serverVerifiedTrust) {
+  if (policy.protocolVersion !== PRIVATE_RESPONSE_PROTOCOL_VERSION || policy.cipherSuite !== PRIVATE_RESPONSE_CIPHER_SUITE || policy.paddedPlaintextBytes !== PRIVATE_RESPONSE_PADDED_PLAINTEXT_BYTES) {
+    throw new PrivateResponseCryptoError("This event uses an unsupported privacy policy.");
+  }
+  const trustedEvaluatorKeyId = serverVerifiedTrust?.evaluatorKeyId ?? bakedEvaluatorKeyId;
+  const trustedEvaluatorPublicKey = serverVerifiedTrust?.evaluatorPublicKey ?? bakedEvaluatorPublicKey;
+  if (!trustedEvaluatorKeyId || !trustedEvaluatorPublicKey) {
+    throw new PrivateResponseCryptoError(
+      "Private responses are unavailable because this Herd release has no trusted evaluator configured."
+    );
+  }
+  let evaluatorPublicKey2;
+  let expectedPublicKey;
+  try {
+    evaluatorPublicKey2 = normalizeEvaluatorPublicKey(policy.evaluatorPublicKey);
+    expectedPublicKey = normalizeEvaluatorPublicKey(trustedEvaluatorPublicKey);
+  } catch {
+    throw new PrivateResponseCryptoError("The trusted evaluator key is malformed.");
+  }
+  const evaluatorBytes = strictBase64UrlBytes(
+    evaluatorPublicKey2,
+    EVALUATOR_PUBLIC_KEY_BYTES2,
+    "evaluatorPublicKey"
+  );
+  const expectedBytes = strictBase64UrlBytes(
+    expectedPublicKey,
+    EVALUATOR_PUBLIC_KEY_BYTES2,
+    "trusted evaluator public key"
+  );
+  if (policy.evaluatorKeyId !== trustedEvaluatorKeyId || !sameBytes(evaluatorBytes, expectedBytes)) {
+    throw new PrivateResponseCryptoError(
+      "This event\u2019s evaluator does not match the evaluator trusted by this Herd release."
+    );
+  }
+  if (evaluatorBytes[0] !== 4) {
+    throw new PrivateResponseCryptoError(
+      "The trusted evaluator key is not an uncompressed P-256 key."
+    );
+  }
+  const policyHash = strictBase64UrlBytes(
+    policy.policyHash,
+    POLICY_HASH_BYTES2,
+    "policyHash"
+  );
+  if (typeof policy.canonicalDocument !== "string" || !policy.canonicalDocument) {
+    throw new PrivateResponseCryptoError("The frozen event policy is missing.");
+  }
+  const computedPolicyHash = new Uint8Array(
+    await cryptoApi2().subtle.digest(
+      "SHA-256",
+      toArrayBuffer(textEncoder.encode(policy.canonicalDocument))
+    )
+  );
+  if (!sameBytes(policyHash, computedPolicyHash)) {
+    throw new PrivateResponseCryptoError("The frozen event policy hash is invalid.");
+  }
+  if (!serverVerifiedTrust) {
+    const policySigningPin = configuredPolicySigningPin();
+    if (!policySigningPin) {
+      throw new PrivateResponseCryptoError(
+        "Private responses are unavailable because this Herd release has no policy-signing trust pin."
+      );
+    }
+    try {
+      await verifyEventPolicyCertification(policy, policySigningPin);
+    } catch {
+      throw new PrivateResponseCryptoError(
+        "The frozen event policy is not certified by this Herd release."
+      );
+    }
+  }
+  let document;
+  try {
+    const parsed = JSON.parse(policy.canonicalDocument);
+    document = requireRecord(parsed, "Frozen event policy");
+    if (JSON.stringify(parsed) !== policy.canonicalDocument) {
+      throw new PrivateResponseCryptoError(
+        "The frozen event policy document is not canonical JSON."
+      );
+    }
+  } catch (error) {
+    if (error instanceof PrivateResponseCryptoError) throw error;
+    throw new PrivateResponseCryptoError("The frozen event policy could not be decoded.");
+  }
+  const event = requireRecord(document.event, "Frozen event policy event");
+  const eventId = normalizeUuid(event.id, "Frozen event policy event ID");
+  if (!Array.isArray(document.members) || document.members.length > MAX_PARTICIPANTS - 1) {
+    throw new PrivateResponseCryptoError("The frozen event member list is invalid.");
+  }
+  const inviteeIds = document.members.map((rawMember, index) => {
+    const member = requireRecord(rawMember, `Frozen event policy members[${index}]`);
+    return normalizeUuid(member.id, `Frozen event policy members[${index}].id`);
+  });
+  if (new Set(inviteeIds).size !== inviteeIds.length) {
+    throw new PrivateResponseCryptoError("The frozen event contains duplicate members.");
+  }
+  const limits = requireRecord(document.limits, "Frozen event policy limits");
+  const maximumParticipants = boundedInteger(
+    limits.maximumParticipants,
+    "Frozen event participant maximum",
+    2,
+    MAX_PARTICIPANTS
+  );
+  if (inviteeIds.length + 1 !== maximumParticipants) {
+    throw new PrivateResponseCryptoError(
+      "The frozen event participant maximum does not match its member list."
+    );
+  }
+  const hostRules = requireRecord(document.hostRules, "Frozen event policy host rules");
+  const hostMinimumParticipants = boundedInteger(
+    hostRules.minimumParticipants,
+    "Frozen host minimum",
+    2,
+    maximumParticipants
+  );
+  const documentEvaluator = requireRecord(
+    document.evaluator,
+    "Frozen event policy evaluator"
+  );
+  let documentEvaluatorPublicKey;
+  try {
+    documentEvaluatorPublicKey = strictBase64UrlBytes(
+      normalizeEvaluatorPublicKey(documentEvaluator.publicKey),
+      EVALUATOR_PUBLIC_KEY_BYTES2,
+      "Frozen event policy evaluator public key"
+    );
+  } catch {
+    throw new PrivateResponseCryptoError(
+      "The frozen event policy evaluator key is malformed."
+    );
+  }
+  if (document.protocolVersion !== policy.protocolVersion || document.cipherSuite !== policy.cipherSuite || limits.paddedPlaintextBytes !== policy.paddedPlaintextBytes || documentEvaluator.keyId !== policy.evaluatorKeyId || documentEvaluator.measurement !== policy.evaluatorMeasurement || document.releaseId !== policy.releaseId || !sameBytes(documentEvaluatorPublicKey, evaluatorBytes)) {
+    throw new PrivateResponseCryptoError(
+      "The frozen event policy document does not match its trusted descriptor."
+    );
+  }
+  return {
+    evaluatorKeyId: policy.evaluatorKeyId,
+    evaluatorPublicKey: evaluatorBytes,
+    eventId,
+    inviteeIds,
+    hostMinimumParticipants,
+    maximumParticipants
+  };
+}
+function serializePaddedDraft(draft) {
+  const canonical = {
+    protocolVersion: draft.protocolVersion,
+    eventId: draft.eventId,
+    inviteeId: draft.inviteeId,
+    policyHash: draft.policyHash,
+    envelopeId: draft.envelopeId,
+    accountKeyEpochId: draft.accountKeyEpochId,
+    revision: draft.revision,
+    response: draft.response,
+    minimumParticipants: draft.minimumParticipants,
+    requiredGroups: draft.requiredGroups.map((group) => ({
+      id: group.id,
+      memberIDs: group.memberIDs
+    })),
+    nonce: draft.nonce
+  };
+  const encoded = textEncoder.encode(JSON.stringify(canonical));
+  if (encoded.length > PRIVATE_RESPONSE_PADDED_PLAINTEXT_BYTES - 2) {
+    throw new PrivateResponseCryptoError("The private response is too large.");
+  }
+  const framed = randomBytes(PRIVATE_RESPONSE_PADDED_PLAINTEXT_BYTES);
+  new DataView(framed.buffer).setUint16(0, encoded.length, false);
+  framed.set(encoded, 2);
+  return framed;
+}
+async function importAesKey(rawKey, usages) {
+  if (rawKey.length !== RESPONSE_KEY_BYTES) {
+    throw new PrivateResponseCryptoError("A private-response key has the wrong size.");
+  }
+  return cryptoApi2().subtle.importKey(
+    "raw",
+    toArrayBuffer(rawKey),
+    { name: "AES-GCM", length: 256 },
+    false,
+    usages
+  );
+}
+async function deriveHkdfAesKey(inputKey, salt, info, usages) {
+  const baseKey = await cryptoApi2().subtle.importKey(
+    "raw",
+    toArrayBuffer(inputKey),
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+  return cryptoApi2().subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: toArrayBuffer(salt),
+      info: toArrayBuffer(info)
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    usages
+  );
+}
+async function deriveHkdfBytes(inputKey, salt, info, length) {
+  const baseKey = await cryptoApi2().subtle.importKey(
+    "raw",
+    toArrayBuffer(inputKey),
+    "HKDF",
+    false,
+    ["deriveBits"]
+  );
+  return new Uint8Array(
+    await cryptoApi2().subtle.deriveBits(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: toArrayBuffer(salt),
+        info: toArrayBuffer(info)
+      },
+      baseKey,
+      length * 8
+    )
+  );
+}
+async function deriveResponseSigningKey(accountRootSecret, envelope) {
+  const seed = await deriveHkdfBytes(
+    accountRootSecret,
+    strictBase64UrlBytes(envelope.policyHash, POLICY_HASH_BYTES2, "policyHash"),
+    concatenateBytes(
+      textEncoder.encode(PRIVATE_RESPONSE_SIGNING_DERIVATION_LABEL),
+      new Uint8Array([0]),
+      uuidToBytes(envelope.eventId),
+      uuidToBytes(envelope.inviteeId)
+    ),
+    RESPONSE_KEY_BYTES
+  );
+  const pkcs8 = concatenateBytes(ED25519_PKCS8_SEED_PREFIX, seed);
+  try {
+    const temporaryPrivateKey = await cryptoApi2().subtle.importKey(
+      "pkcs8",
+      toArrayBuffer(pkcs8),
+      { name: "Ed25519" },
+      true,
+      ["sign"]
+    );
+    const jwk = await cryptoApi2().subtle.exportKey("jwk", temporaryPrivateKey);
+    if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string") {
+      throw new PrivateResponseCryptoError(
+        "The browser produced an invalid response-signing key."
+      );
+    }
+    const publicKey = strictBase64UrlBytes(
+      jwk.x,
+      PRIVATE_RESPONSE_SIGNING_PUBLIC_KEY_BYTES,
+      "responseSigningPublicKey"
+    );
+    const privateKey = await cryptoApi2().subtle.importKey(
+      "pkcs8",
+      toArrayBuffer(pkcs8),
+      { name: "Ed25519" },
+      false,
+      ["sign"]
+    );
+    return { privateKey, publicKey };
+  } catch (error) {
+    if (error instanceof PrivateResponseCryptoError) throw error;
+    throw new PrivateResponseCryptoError(
+      "This browser cannot create the required response-authentication signature."
+    );
+  } finally {
+    seed.fill(0);
+    pkcs8.fill(0);
+  }
+}
+async function aesGcmSeal(key, plaintext, additionalData) {
+  const iv = randomBytes(AES_GCM_NONCE_BYTES);
+  const ciphertextAndTag = new Uint8Array(
+    await cryptoApi2().subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: toArrayBuffer(iv),
+        additionalData: toArrayBuffer(additionalData),
+        tagLength: AES_GCM_TAG_BITS
+      },
+      key,
+      toArrayBuffer(plaintext)
+    )
+  );
+  return concatenateBytes(iv, ciphertextAndTag);
+}
+async function sealPrivateResponse(input, serverVerifiedTrust) {
+  if (input.accountRootSecret.length !== RESPONSE_KEY_BYTES) {
+    throw new PrivateResponseCryptoError("The account root secret has the wrong size.");
+  }
+  const trustedEvaluator = await assertTrustedPolicy(input.policy, serverVerifiedTrust);
+  const envelopeId = randomUuid();
+  const draft = normalizeDraft(
+    {
+      protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
+      eventId: input.eventId,
+      inviteeId: input.inviteeId,
+      policyHash: input.policy.policyHash,
+      envelopeId,
+      accountKeyEpochId: input.accountKeyEpochId,
+      revision: input.revision,
+      response: input.response,
+      minimumParticipants: input.minimumParticipants,
+      requiredGroups: input.requiredGroups,
+      nonce: bytesToBase64Url(randomBytes(DRAFT_NONCE_BYTES))
+    },
+    input.allowedInviteeIds,
+    trustedEvaluator
+  );
+  const envelopeBase = {
+    protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
+    cipherSuite: PRIVATE_RESPONSE_CIPHER_SUITE,
+    envelopeId: draft.envelopeId,
+    eventId: draft.eventId,
+    inviteeId: draft.inviteeId,
+    policyHash: draft.policyHash,
+    revision: draft.revision,
+    accountKeyEpochId: draft.accountKeyEpochId,
+    evaluatorKeyId: trustedEvaluator.evaluatorKeyId,
+    payloadCiphertext: "",
+    userKeyWrap: "",
+    evaluatorKeyWrap: ""
+  };
+  const responseKeyBytes = randomBytes(RESPONSE_KEY_BYTES);
+  let paddedPlaintext = null;
+  let sharedSecret = null;
+  try {
+    const responseKey = await importAesKey(responseKeyBytes, ["encrypt"]);
+    paddedPlaintext = serializePaddedDraft(draft);
+    const payloadFrame = await aesGcmSeal(
+      responseKey,
+      paddedPlaintext,
+      privateResponseAad("payload", envelopeBase)
+    );
+    const policyHash = strictBase64UrlBytes(
+      draft.policyHash,
+      POLICY_HASH_BYTES2,
+      "policyHash"
+    );
+    const userKek = await deriveHkdfAesKey(
+      input.accountRootSecret,
+      policyHash,
+      privateResponseAad("user-key-derivation", envelopeBase),
+      ["encrypt"]
+    );
+    const userWrapFrame = await aesGcmSeal(
+      userKek,
+      responseKeyBytes,
+      privateResponseAad("user-key-wrap", envelopeBase)
+    );
+    const subtle = cryptoApi2().subtle;
+    const evaluatorPublicKey2 = await subtle.importKey(
+      "raw",
+      toArrayBuffer(trustedEvaluator.evaluatorPublicKey),
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const ephemeralKeyPair = await subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"]
+    );
+    const ephemeralPublicKey = new Uint8Array(
+      await subtle.exportKey("raw", ephemeralKeyPair.publicKey)
+    );
+    if (ephemeralPublicKey.length !== EVALUATOR_PUBLIC_KEY_BYTES2 || ephemeralPublicKey[0] !== 4) {
+      throw new PrivateResponseCryptoError(
+        "The browser produced an invalid P-256 key."
+      );
+    }
+    sharedSecret = new Uint8Array(
+      await subtle.deriveBits(
+        { name: "ECDH", public: evaluatorPublicKey2 },
+        ephemeralKeyPair.privateKey,
+        256
+      )
+    );
+    const evaluatorSalt = randomBytes(EVALUATOR_SALT_BYTES);
+    const evaluatorKeyIdBytes = textEncoder.encode(
+      trustedEvaluator.evaluatorKeyId
+    );
+    const evaluatorKek = await deriveHkdfAesKey(
+      sharedSecret,
+      evaluatorSalt,
+      concatenateBytes(
+        privateResponseAad("evaluator-key-derivation", envelopeBase),
+        evaluatorKeyIdBytes
+      ),
+      ["encrypt"]
+    );
+    const evaluatorWrappedResponseKey = await aesGcmSeal(
+      evaluatorKek,
+      responseKeyBytes,
+      concatenateBytes(
+        privateResponseAad("evaluator-key-wrap", envelopeBase),
+        evaluatorKeyIdBytes,
+        ephemeralPublicKey,
+        evaluatorSalt
+      )
+    );
+    const evaluatorWrapFrame = concatenateBytes(
+      ephemeralPublicKey,
+      evaluatorSalt,
+      evaluatorWrappedResponseKey
+    );
+    if (payloadFrame.length !== PRIVATE_RESPONSE_PAYLOAD_FRAME_BYTES || userWrapFrame.length !== PRIVATE_RESPONSE_USER_WRAP_BYTES || evaluatorWrapFrame.length !== PRIVATE_RESPONSE_EVALUATOR_WRAP_BYTES) {
+      throw new PrivateResponseCryptoError(
+        "The browser produced an invalid envelope size."
+      );
+    }
+    const derivedSigningKey = await deriveResponseSigningKey(
+      input.accountRootSecret,
+      envelopeBase
+    );
+    const unsignedEnvelope = normalizePrivateResponseUnsignedEnvelope({
+      ...envelopeBase,
+      payloadCiphertext: bytesToBase64Url(payloadFrame),
+      userKeyWrap: bytesToBase64Url(userWrapFrame),
+      evaluatorKeyWrap: bytesToBase64Url(evaluatorWrapFrame),
+      responseSigningPublicKey: bytesToBase64Url(derivedSigningKey.publicKey)
+    });
+    const ciphertextHash = await privateResponseEnvelopeHash(unsignedEnvelope);
+    const signature = new Uint8Array(
+      await cryptoApi2().subtle.sign(
+        { name: "Ed25519" },
+        derivedSigningKey.privateKey,
+        toArrayBuffer(
+          privateResponseAuthorizationBytes(unsignedEnvelope, ciphertextHash)
+        )
+      )
+    );
+    const envelope = normalizePrivateResponseEnvelope({
+      ...unsignedEnvelope,
+      responseSignature: bytesToBase64Url(signature)
+    });
+    signature.fill(0);
+    return { envelope, draft };
+  } finally {
+    responseKeyBytes.fill(0);
+    paddedPlaintext?.fill(0);
+    sharedSecret?.fill(0);
+  }
+}
+async function privateResponseEnvelopeHash(envelope) {
+  const digest = await cryptoApi2().subtle.digest(
+    "SHA-256",
+    toArrayBuffer(textEncoder.encode(canonicalEnvelopeJson(envelope)))
+  );
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
 // invitee-web/lib/backend/http.ts
 var ApiError = class extends Error {
   constructor(status, code, message, details) {
@@ -233,6 +1099,14 @@ var ApiError = class extends Error {
 };
 
 // invitee-web/lib/backend/config.ts
+function boundedInteger2(value, fallback, minimum, maximum) {
+  if (value === void 0 || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new ApiError(500, "server_misconfigured", "Authentication timing is misconfigured.");
+  }
+  return parsed;
+}
 function required(value, name) {
   if (!value) {
     throw new ApiError(500, "server_misconfigured", `${name} is not configured.`);
@@ -324,6 +1198,33 @@ function getDeploymentProfile(bindings) {
     );
   }
   return "production";
+}
+function optionalBoolean(value, name) {
+  if (value === void 0 || value.trim() === "") return false;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  throw new ApiError(500, "server_misconfigured", `${name} must be true or false.`);
+}
+function testAccountAccessConfig(bindings) {
+  const enabled = optionalBoolean(
+    bindings.HERD_TEST_ACCOUNT_ACCESS_ENABLED,
+    "HERD_TEST_ACCOUNT_ACCESS_ENABLED"
+  );
+  if (!enabled) return { enabled: false, generation: null };
+  const generation = requiredBounded(
+    bindings.HERD_TEST_ACCOUNT_ACCESS_GENERATION,
+    "HERD_TEST_ACCOUNT_ACCESS_GENERATION",
+    120
+  );
+  if (generation.length < 16 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(generation)) {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "HERD_TEST_ACCOUNT_ACCESS_GENERATION must be a unique identifier of at least 16 safe characters."
+    );
+  }
+  return { enabled: true, generation };
 }
 function getEvaluatorServiceConfig(bindings) {
   const rawUrl = requiredBounded(bindings.HERD_EVALUATOR_URL, "HERD_EVALUATOR_URL", 2048);
@@ -568,6 +1469,141 @@ function getInvitationDeliveryConfig(bindings) {
     }
   };
 }
+function getAuthConfig(bindings) {
+  const pepper = required(bindings.HERD_AUTH_PEPPER, "HERD_AUTH_PEPPER");
+  if (pepper.length < 32) {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "HERD_AUTH_PEPPER must contain at least 32 characters."
+    );
+  }
+  const testAccountAccess = testAccountAccessConfig(bindings);
+  const twilioValues = [
+    bindings.TWILIO_API_KEY_SID,
+    bindings.TWILIO_API_KEY_SECRET,
+    bindings.TWILIO_VERIFY_SERVICE_SID
+  ];
+  const hasAnyTwilioValue = twilioValues.some((value) => Boolean(value?.trim()));
+  const hasAllTwilioValues = twilioValues.every((value) => Boolean(value?.trim()));
+  if (hasAnyTwilioValue && !hasAllTwilioValues) {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "Phone verification credentials are incomplete."
+    );
+  }
+  const twilio = hasAllTwilioValues ? {
+    apiKeySid: bindings.TWILIO_API_KEY_SID.trim(),
+    apiKeySecret: bindings.TWILIO_API_KEY_SECRET.trim(),
+    verifyServiceSid: bindings.TWILIO_VERIFY_SERVICE_SID.trim()
+  } : null;
+  const privateResponseValues = [
+    bindings.HERD_EVALUATOR_KEY_ID,
+    bindings.HERD_EVALUATOR_PUBLIC_KEY,
+    bindings.HERD_EVALUATOR_MEASUREMENT,
+    bindings.HERD_RELEASE_ID
+  ];
+  const hasAnyPrivateResponseValue = privateResponseValues.some((value) => Boolean(value?.trim()));
+  const hasAllPrivateResponseValues = privateResponseValues.every((value) => Boolean(value?.trim()));
+  if (hasAnyPrivateResponseValue && !hasAllPrivateResponseValues) {
+    throw new ApiError(
+      500,
+      "server_misconfigured",
+      "Private-response credentials are incomplete."
+    );
+  }
+  const privateResponse = hasAllPrivateResponseValues ? {
+    evaluatorKeyId: evaluatorKeyId(bindings.HERD_EVALUATOR_KEY_ID),
+    evaluatorPublicKey: evaluatorPublicKey(bindings.HERD_EVALUATOR_PUBLIC_KEY),
+    evaluatorMeasurement: requiredBounded(
+      bindings.HERD_EVALUATOR_MEASUREMENT,
+      "HERD_EVALUATOR_MEASUREMENT",
+      500
+    ),
+    releaseId: requiredBounded(bindings.HERD_RELEASE_ID, "HERD_RELEASE_ID", 200)
+  } : null;
+  return {
+    pepper,
+    testAccountAccessEnabled: testAccountAccess.enabled,
+    testAccountAccessGeneration: testAccountAccess.generation,
+    challengeTtlSeconds: boundedInteger2(
+      bindings.HERD_CHALLENGE_TTL_SECONDS,
+      600,
+      120,
+      1800
+    ),
+    resendSeconds: boundedInteger2(bindings.HERD_RESEND_SECONDS, 60, 30, 600),
+    maxCodeAttempts: boundedInteger2(bindings.HERD_MAX_CODE_ATTEMPTS, 5, 3, 10),
+    phoneRequestsPerHour: boundedInteger2(
+      bindings.HERD_PHONE_REQUESTS_PER_HOUR,
+      5,
+      2,
+      20
+    ),
+    ipRequestsPerHour: boundedInteger2(
+      bindings.HERD_IP_REQUESTS_PER_HOUR,
+      30,
+      5,
+      200
+    ),
+    sessionTtlSeconds: boundedInteger2(
+      bindings.HERD_SESSION_TTL_SECONDS,
+      2592e3,
+      3600,
+      7776e3
+    ),
+    privateResponse,
+    twilio
+  };
+}
+
+// invitee-web/lib/backend/crypto.ts
+var encoder = new TextEncoder();
+function bytesToBase64Url2(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function randomUuid2() {
+  return crypto.randomUUID();
+}
+async function pepperedHash(pepper, purpose, value) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(pepper),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    encoder.encode(`${purpose}\0${value}`)
+  );
+  return bytesToBase64Url2(new Uint8Array(signature));
+}
+
+// invitee-web/lib/backend/ballot-identifiers.ts
+function ballotKey(bindings) {
+  const configured = bindings.HERD_BALLOT_PSEUDONYM_KEY?.trim() ?? "";
+  if (configured.length >= 32) return configured;
+  if (bindings.HERD_DEPLOYMENT_PROFILE === "test") {
+    const testKey = bindings.HERD_AUTH_PEPPER?.trim() ?? "";
+    if (testKey.length >= 32) return testKey;
+  }
+  throw new ApiError(
+    500,
+    "server_misconfigured",
+    "The ballot pseudonym key is not configured."
+  );
+}
+async function deriveBallotId(bindings, eventId, inviteeId) {
+  return pepperedHash(ballotKey(bindings), "HERD-BALLOT-V2", `${eventId}:${inviteeId}`);
+}
+async function deriveBallotMemberId(bindings, eventId, inviteeId) {
+  return pepperedHash(ballotKey(bindings), "HERD-MEMBER-V2", `${eventId}:${inviteeId}`);
+}
 
 // invitee-web/lib/backend/evaluator-trust.ts
 var TransparencyLateMissingEntryError = class extends ApiError {
@@ -583,7 +1619,7 @@ var TransparencyLateMissingEntryError = class extends ApiError {
 };
 var MAXIMUM_SIGNER_RESPONSE_BYTES = 16 * 1024;
 var IDENTIFIER_PATTERN = /^[A-Za-z0-9._-]{1,120}$/u;
-function ownedArrayBuffer(value) {
+function ownedArrayBuffer2(value) {
   return Uint8Array.from(value).buffer;
 }
 function exactRecord(value, expected) {
@@ -684,7 +1720,7 @@ async function verifyP256Signature(publicKey, domain, canonicalPayload, signatur
   }
   const key = await crypto.subtle.importKey(
     "raw",
-    ownedArrayBuffer(publicKeyBytes),
+    ownedArrayBuffer2(publicKeyBytes),
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["verify"]
@@ -692,8 +1728,8 @@ async function verifyP256Signature(publicKey, domain, canonicalPayload, signatur
   return crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     key,
-    ownedArrayBuffer(signatureBytes),
-    ownedArrayBuffer(domainSeparatedUtf8(domain, canonicalPayload))
+    ownedArrayBuffer2(signatureBytes),
+    ownedArrayBuffer2(domainSeparatedUtf8(domain, canonicalPayload))
   );
 }
 function signerHeaders(config) {
@@ -1190,17 +2226,99 @@ async function recoverPendingResponseTransparency(db, bindings) {
   }
 }
 
-// invitee-web/lib/backend/crypto.ts
-var encoder = new TextEncoder();
-function randomUuid() {
-  return crypto.randomUUID();
+// invitee-web/lib/backend/invite-tokens.ts
+var encoder2 = new TextEncoder();
+var TOKEN_BYTES = 32;
+var TOKEN_STORAGE_VERSION = 1;
+var TOKEN_NONCE_BYTES = 12;
+var TOKEN_STORAGE_SALT = encoder2.encode("Herd invitation-token storage key v1");
+async function storageKey(pepper) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder2.encode(pepper),
+    "HKDF",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: TOKEN_STORAGE_SALT,
+      info: encoder2.encode("AES-256-GCM")
+    },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+function tokenAdditionalData(eventId, inviteeId) {
+  return new Uint8Array(
+    encoder2.encode(`herd-invite-token\0v1\0${eventId}\0${inviteeId}`)
+  );
+}
+function validateRawToken(value) {
+  try {
+    const bytes = base64UrlToBytes(value);
+    if (bytes.length !== TOKEN_BYTES || bytesToBase64Url(bytes) !== value) {
+      throw new TypeError("Unexpected token encoding.");
+    }
+    return value;
+  } catch {
+    throw new ApiError(
+      500,
+      "invite_token_unavailable",
+      "The private invitation link could not be prepared."
+    );
+  }
+}
+async function openSealedInviteToken(pepper, eventId, inviteeId, stored) {
+  if (stored.tokenStorageVersion !== TOKEN_STORAGE_VERSION || !stored.tokenCiphertext || !stored.tokenNonce) {
+    throw new ApiError(
+      500,
+      "invite_token_unavailable",
+      "The private invitation link could not be prepared."
+    );
+  }
+  try {
+    const nonce = new Uint8Array(base64UrlToBytes(stored.tokenNonce));
+    if (nonce.length !== TOKEN_NONCE_BYTES) throw new TypeError("Invalid nonce.");
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        additionalData: tokenAdditionalData(eventId, inviteeId),
+        tagLength: 128
+      },
+      await storageKey(pepper),
+      new Uint8Array(base64UrlToBytes(stored.tokenCiphertext))
+    );
+    return validateRawToken(new TextDecoder().decode(plaintext));
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      500,
+      "invite_token_unavailable",
+      "The private invitation link could not be prepared."
+    );
+  }
 }
 
 // invitee-web/lib/backend/resolution-notifications.ts
 var TWILIO_MESSAGES_ORIGIN = "https://api.twilio.com";
 var DISPATCH_TIMEOUT_MILLISECONDS = 1e4;
-function messageBody(title, status) {
-  return status === "confirmed" ? `Herd: ${title} is confirmed. Replies can still change; guest statuses stay private until the deadline.` : `Herd: ${title} is no longer confirmed. Replies can still change.`;
+function eventDateLabel(value) {
+  if (!value) return "a date to be announced";
+  return `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC"
+  }).format(new Date(value))} UTC`;
+}
+function resolutionMessageBody(event, status, eventUrl) {
+  const title = event.title || "Your event";
+  return status === "confirmed" ? `The event "${title}" is now confirmed and will happen on ${eventDateLabel(event.eventDate)}. View event information: ${eventUrl}` : `Herd: ${title} is no longer confirmed. Replies can still change.`;
 }
 async function sendResolutionTransitionNotifications(db, bindings, event, batchHash, status) {
   const previous = await db.prepare(
@@ -1212,12 +2330,20 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
   ).bind(event.id).first();
   if (previous?.status === status || !previous && status === "not_confirmed") return;
   const recipients = await db.prepare(
-    `SELECT users.phone_number AS phoneNumber
+    `SELECT users.phone_number AS phoneNumber,
+              NULL AS inviteeId,
+              NULL AS tokenCiphertext,
+              NULL AS tokenNonce,
+              NULL AS tokenStorageVersion
        FROM events
        JOIN users ON users.id = events.host_user_id
        WHERE events.id = ?
        UNION
-       SELECT invitees.phone_number AS phoneNumber
+       SELECT invitees.phone_number AS phoneNumber,
+              invitees.id AS inviteeId,
+              invitees.token_ciphertext AS tokenCiphertext,
+              invitees.token_nonce AS tokenNonce,
+              invitees.token_storage_version AS tokenStorageVersion
        FROM invitees
        WHERE invitees.event_id = ?
          AND EXISTS (
@@ -1229,7 +2355,7 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
   const config = getInvitationDeliveryConfig(bindings);
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   for (const recipient of recipients.results) {
-    const id = randomUuid();
+    const id = randomUuid2();
     const inserted = await db.prepare(
       `INSERT INTO resolution_notifications
           (id, event_id, batch_hash, status, phone_number, delivery_status,
@@ -1258,6 +2384,19 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DISPATCH_TIMEOUT_MILLISECONDS);
     try {
+      let eventUrl = config.publicAppUrl;
+      if (recipient.inviteeId) {
+        try {
+          const inviteToken = await openSealedInviteToken(
+            getAuthConfig(bindings).pepper,
+            event.id,
+            recipient.inviteeId,
+            recipient
+          );
+          eventUrl = `${config.publicAppUrl}/invite/${encodeURIComponent(inviteToken)}`;
+        } catch {
+        }
+      }
       const response = await fetch(
         `${TWILIO_MESSAGES_ORIGIN}/2010-04-01/Accounts/${encodeURIComponent(config.twilio.accountSid)}/Messages.json`,
         {
@@ -1269,7 +2408,7 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
           body: new URLSearchParams({
             To: recipient.phoneNumber,
             MessagingServiceSid: config.twilio.messagingServiceSid,
-            Body: messageBody(event.title || "Your event", status)
+            Body: resolutionMessageBody(event, status, eventUrl)
           }),
           signal: controller.signal
         }
@@ -1429,7 +2568,10 @@ function parseStoredResolution(row, eventId, policyHash) {
     };
   }
   if (row.status === "confirmed") {
-    if (!isCanonicalBase64UrlBytes(row.batchHash, 32) || !row.resolvedAt || !Number.isFinite(Date.parse(row.resolvedAt)) || row.evaluationLeaseId || row.evaluationLeaseExpiresAt || row.evaluationRequestHash !== null && !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32)) {
+    const revealMigrationActive = row.attendingMemberIds === null && Boolean(
+      row.evaluationLeaseId && row.evaluationLeaseExpiresAt && row.batchHash && row.evaluationRequestHash
+    );
+    if (!isCanonicalBase64UrlBytes(row.batchHash, 32) || !row.resolvedAt || !Number.isFinite(Date.parse(row.resolvedAt)) || !revealMigrationActive && (row.evaluationLeaseId || row.evaluationLeaseExpiresAt) || revealMigrationActive && (!isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32) || !row.evaluationLeaseExpiresAt || !Number.isFinite(Date.parse(row.evaluationLeaseExpiresAt))) || row.evaluationRequestHash !== null && !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32)) {
       throw new ApiError(
         500,
         "event_resolution_corrupt",
@@ -1472,10 +2614,8 @@ function parseStoredResolution(row, eventId, policyHash) {
     "The stored event result has an unsupported status."
   );
 }
-function requiresDeadlineReveal(row, event, nowIso) {
-  return Boolean(
-    event.rsvpDeadline && nowIso >= event.rsvpDeadline && (row.status === "confirmed" || row.status === "not_confirmed") && row.resolvedAt && row.resolvedAt < event.rsvpDeadline
-  );
+function requiresAttendanceReveal(row) {
+  return row.status === "confirmed" && row.attendingMemberIds === null;
 }
 async function withRevealedGuestStates(db, event, resolution) {
   if (resolution?.status !== "confirmed" || !resolution.attendanceRevealed || !resolution.attendingMemberIds || !event.rsvpDeadline) {
@@ -1500,25 +2640,6 @@ async function withRevealedGuestStates(db, event, resolution) {
       missedDeadline: !firstResponseAt || firstResponseAt > event.rsvpDeadline
     }))
   };
-}
-async function resetResolvedForReevaluation(db, eventId, policyHash, nowIso) {
-  await db.prepare(
-    `UPDATE event_resolutions
-       SET status = 'pending',
-           batch_hash = NULL,
-           attending_member_ids = NULL,
-           resolved_at = NULL,
-           evaluation_lease_id = NULL,
-           evaluation_lease_expires_at = NULL,
-           evaluation_request_hash = NULL,
-           result_attestation_protocol_version = NULL,
-           result_attestation_signing_key_id = NULL,
-           result_attestation_evaluated_at = NULL,
-           result_attestation_canonical_document = NULL,
-           result_attestation_signature = NULL,
-           updated_at = ?
-       WHERE event_id = ? AND policy_hash = ?`
-  ).bind(nowIso, eventId, policyHash).run();
 }
 async function loadResolutionRow(db, eventId) {
   return db.prepare(`${EVENT_RESOLUTION_SELECT} WHERE event_id = ?`).bind(eventId).first();
@@ -1617,6 +2738,113 @@ async function canonicalPolicyFacts(bindings, event, policy) {
     requiredGroups
   };
 }
+async function loadBallotEvaluatorSlots(db, bindings, event, policy, facts) {
+  const rows = await db.prepare(
+    `SELECT revisions.ballot_id AS ballotId,
+              revisions.revision,
+              revisions.response,
+              revisions.minimum_participants AS minimumParticipants,
+              revisions.required_groups AS requiredGroups
+       FROM ballot_revisions AS revisions
+       JOIN (
+         SELECT ballot_id, MAX(revision) AS revision
+         FROM ballot_revisions
+         WHERE event_id = ?
+         GROUP BY ballot_id
+       ) AS latest
+         ON latest.ballot_id = revisions.ballot_id
+        AND latest.revision = revisions.revision
+       WHERE revisions.event_id = ?`
+  ).bind(event.id, event.id).all();
+  if (rows.results.length === 0) return /* @__PURE__ */ new Map();
+  const identityEntries = await Promise.all(facts.inviteeIds.map(async (inviteeId) => [
+    await deriveBallotId(bindings, event.id, inviteeId),
+    inviteeId
+  ]));
+  const inviteeByBallot = new Map(identityEntries);
+  const memberEntries = await Promise.all(facts.inviteeIds.map(async (inviteeId) => [
+    await deriveBallotMemberId(bindings, event.id, inviteeId),
+    inviteeId
+  ]));
+  const inviteeByMember = new Map(memberEntries);
+  const result = /* @__PURE__ */ new Map();
+  for (const row of rows.results) {
+    const inviteeId = inviteeByBallot.get(row.ballotId);
+    if (!inviteeId) continue;
+    const cached = await db.prepare(
+      `SELECT envelope, envelope_hash AS envelopeHash
+         FROM ballot_evaluation_slots
+         WHERE ballot_id = ? AND revision = ?`
+    ).bind(row.ballotId, row.revision).first();
+    if (cached) {
+      try {
+        const envelope = JSON.parse(cached.envelope);
+        if (envelope.eventId === event.id && envelope.inviteeId === inviteeId && envelope.policyHash === policy.policyHash && await responseEnvelopeHash(envelope) === cached.envelopeHash) {
+          result.set(inviteeId, { ...envelope, ciphertextHash: cached.envelopeHash });
+          continue;
+        }
+      } catch {
+      }
+    }
+    let storedGroups;
+    try {
+      storedGroups = JSON.parse(row.requiredGroups);
+      if (!Array.isArray(storedGroups)) throw new Error("invalid groups");
+    } catch {
+      throw new ApiError(500, "ballot_corrupt", "A private ballot could not be evaluated.");
+    }
+    const requiredGroups = storedGroups.map((group) => ({
+      id: group.id,
+      memberIDs: group.memberIDs.map((memberId) => {
+        const resolved = inviteeByMember.get(memberId);
+        if (!resolved) {
+          throw new ApiError(500, "ballot_corrupt", "A private ballot could not be evaluated.");
+        }
+        return resolved;
+      })
+    }));
+    const rootSecret = crypto.getRandomValues(new Uint8Array(32));
+    const sealed = await sealPrivateResponse(
+      {
+        eventId: event.id,
+        inviteeId,
+        accountKeyEpochId: crypto.randomUUID(),
+        revision: row.revision,
+        response: row.response,
+        minimumParticipants: row.minimumParticipants,
+        requiredGroups,
+        allowedInviteeIds: facts.inviteeIds,
+        accountRootSecret: rootSecret,
+        policy
+      },
+      // canonicalPolicyFacts authenticated the stored signature and exact
+      // evaluator descriptor immediately before this bridge is constructed.
+      {
+        evaluatorKeyId: policy.evaluatorKeyId,
+        evaluatorPublicKey: policy.evaluatorPublicKey
+      }
+    ).finally(() => rootSecret.fill(0));
+    const envelopeHash = await responseEnvelopeHash(sealed.envelope);
+    await db.prepare(
+      `INSERT INTO ballot_evaluation_slots (
+           ballot_id, revision, event_id, envelope, envelope_hash, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(ballot_id, revision) DO UPDATE SET
+           envelope = excluded.envelope,
+           envelope_hash = excluded.envelope_hash,
+           created_at = excluded.created_at`
+    ).bind(
+      row.ballotId,
+      row.revision,
+      event.id,
+      JSON.stringify(sealed.envelope),
+      envelopeHash,
+      (/* @__PURE__ */ new Date()).toISOString()
+    ).run();
+    result.set(inviteeId, { ...sealed.envelope, ciphertextHash: envelopeHash });
+  }
+  return result;
+}
 async function buildEvaluatorBatch(db, bindings, event, policy, facts, nowIso) {
   const databaseMembers = await db.prepare("SELECT id FROM invitees WHERE event_id = ? ORDER BY id ASC").bind(event.id).all();
   if (databaseMembers.results.length !== facts.inviteeIds.length || databaseMembers.results.some((member, index) => member.id !== facts.inviteeIds[index])) {
@@ -1657,13 +2885,15 @@ async function buildEvaluatorBatch(db, bindings, event, policy, facts, nowIso) {
     if (ciphertextHash !== stored.ciphertextHash) continue;
     latest.set(row.inviteeId, { ...envelope, ciphertextHash });
   }
+  const ballotSlots = await loadBallotEvaluatorSlots(db, bindings, event, policy, facts);
+  for (const [inviteeId, envelope] of ballotSlots) latest.set(inviteeId, envelope);
   const slots = facts.inviteeIds.map((inviteeId) => {
     const response = latest.get(inviteeId);
     if (!response) return { inviteeId, envelopeHash: null, envelope: null };
     const { ciphertextHash, ...envelope } = response;
     return { inviteeId, envelopeHash: ciphertextHash, envelope };
   });
-  const revealAttendance = nowIso >= event.rsvpDeadline;
+  const revealAttendance = true;
   const batchDocument = JSON.stringify({
     protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
     eventId: event.id,
@@ -1674,8 +2904,31 @@ async function buildEvaluatorBatch(db, bindings, event, policy, facts, nowIso) {
       envelopeHash
     }))
   });
+  const batchHash = await sha256Base64Url2(batchDocument);
+  const ballotInputs = await db.prepare(
+    `SELECT ballot_id AS ballotId, MAX(revision) AS revision
+     FROM ballot_revisions
+     WHERE event_id = ?
+     GROUP BY ballot_id
+     ORDER BY ballot_id`
+  ).bind(event.id).all();
+  if (ballotInputs.results.length > 0) {
+    await db.prepare(
+      `INSERT INTO ballot_evaluation_runs (
+         id, event_id, input_digest, input_revisions, status,
+         attending_member_ids, error_code, source, reason, created_at
+       ) VALUES (?, ?, ?, ?, 'prepared', NULL, NULL, 'automatic', NULL, ?)
+       ON CONFLICT(event_id, input_digest) DO NOTHING`
+    ).bind(
+      crypto.randomUUID(),
+      event.id,
+      batchHash,
+      JSON.stringify(ballotInputs.results),
+      nowIso
+    ).run();
+  }
   return {
-    batchHash: await sha256Base64Url2(batchDocument),
+    batchHash,
     revealAttendance,
     slots
   };
@@ -1798,7 +3051,7 @@ async function callEvaluator(bindings, event, policy, facts, batchHash, revealAt
 function utf8(value) {
   return new TextEncoder().encode(value);
 }
-function ownedArrayBuffer2(value) {
+function ownedArrayBuffer3(value) {
   const copy = new Uint8Array(value.byteLength);
   copy.set(value);
   return copy.buffer;
@@ -1828,7 +3081,7 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
   try {
     evaluatorKey = await crypto.subtle.importKey(
       "raw",
-      ownedArrayBuffer2(base64UrlToBytes(evaluatorPublicKey2)),
+      ownedArrayBuffer3(base64UrlToBytes(evaluatorPublicKey2)),
       { name: "ECDH", namedCurve: "P-256" },
       false,
       []
@@ -1864,7 +3117,7 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
   );
   const hkdfMaterial = await crypto.subtle.importKey(
     "raw",
-    ownedArrayBuffer2(sharedSecret),
+    ownedArrayBuffer3(sharedSecret),
     "HKDF",
     false,
     ["deriveKey"]
@@ -1873,8 +3126,8 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: ownedArrayBuffer2(saltBytes),
-      info: ownedArrayBuffer2(
+      salt: ownedArrayBuffer3(saltBytes),
+      info: ownedArrayBuffer3(
         concatenateBytes(utf8(RELAY_KEY_INFO_LABEL), utf8(context))
       )
     },
@@ -1888,14 +3141,14 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
     await crypto.subtle.encrypt(
       {
         name: "AES-GCM",
-        iv: ownedArrayBuffer2(iv),
-        additionalData: ownedArrayBuffer2(
+        iv: ownedArrayBuffer3(iv),
+        additionalData: ownedArrayBuffer3(
           concatenateBytes(utf8(RELAY_AAD_LABEL), utf8(context))
         ),
         tagLength: 128
       },
       aesKey,
-      ownedArrayBuffer2(plaintext)
+      ownedArrayBuffer3(plaintext)
     )
   );
   const ciphertextBytes = concatenateBytes(iv, encrypted);
@@ -1916,7 +3169,7 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
   };
   const capabilityKey = await crypto.subtle.importKey(
     "raw",
-    ownedArrayBuffer2(utf8(capabilityToken)),
+    ownedArrayBuffer3(utf8(capabilityToken)),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
@@ -1926,7 +3179,7 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
       await crypto.subtle.sign(
         "HMAC",
         capabilityKey,
-        ownedArrayBuffer2(
+        ownedArrayBuffer3(
           concatenateBytes(
             utf8(RELAY_CAPABILITY_LABEL),
             utf8(JSON.stringify(unsignedRequest))
@@ -1944,7 +3197,7 @@ async function sealEvaluatorRelayRequest(evaluatorKeyId2, evaluatorPublicKey2, c
 async function acquireRelayEvaluationLease(db, eventId, policyHash, batchHash, requestHash, leaseId, leaseExpiresAt, nowIso) {
   const acquired = await db.prepare(
     `UPDATE event_resolutions
-       SET status = 'evaluating',
+       SET status = CASE WHEN status = 'confirmed' THEN 'confirmed' ELSE 'evaluating' END,
            batch_hash = ?,
            evaluation_request_hash = ?,
            evaluation_lease_id = ?,
@@ -1954,6 +3207,15 @@ async function acquireRelayEvaluationLease(db, eventId, policyHash, batchHash, r
          AND policy_hash = ?
          AND (
            status = 'pending'
+           OR (
+             status = 'confirmed'
+             AND attending_member_ids IS NULL
+             AND resolved_at IS NOT NULL
+             AND (
+               evaluation_lease_id IS NULL
+               OR evaluation_lease_expires_at <= ?
+             )
+           )
            OR (
              status = 'evaluating'
              AND evaluation_lease_expires_at <= ?
@@ -1967,6 +3229,7 @@ async function acquireRelayEvaluationLease(db, eventId, policyHash, batchHash, r
     nowIso,
     eventId,
     policyHash,
+    nowIso,
     nowIso
   ).run();
   return (acquired.meta.changes ?? 0) === 1;
@@ -2007,15 +3270,18 @@ async function resetEvaluationLease(db, eventId, policyHash, leaseId) {
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   const released = await db.prepare(
     `UPDATE event_resolutions
-       SET status = 'pending',
-           batch_hash = NULL,
-           evaluation_request_hash = NULL,
+       SET status = CASE WHEN status = 'confirmed' THEN 'confirmed' ELSE 'pending' END,
+           batch_hash = CASE WHEN status = 'confirmed' THEN batch_hash ELSE NULL END,
+           evaluation_request_hash = CASE
+             WHEN status = 'confirmed' THEN evaluation_request_hash
+             ELSE NULL
+           END,
            evaluation_lease_id = NULL,
            evaluation_lease_expires_at = NULL,
            updated_at = ?
        WHERE event_id = ?
          AND policy_hash = ?
-         AND status = 'evaluating'
+         AND status IN ('evaluating', 'confirmed')
          AND evaluation_lease_id = ?`
   ).bind(nowIso, eventId, policyHash, leaseId).run();
   return (released.meta.changes ?? 0) === 1;
@@ -2040,21 +3306,18 @@ async function startClientRelayEvaluation(db, bindings, event, nowIso = (/* @__P
       "The frozen event evaluator key is not available."
     );
   }
-  let row = await ensurePendingResolution(
+  const row = await ensurePendingResolution(
     db,
     event.id,
     policy.policyHash,
     nowIso
   );
-  if (requiresDeadlineReveal(row, event, nowIso)) {
-    await resetResolvedForReevaluation(db, event.id, policy.policyHash, nowIso);
-    row = await loadResolutionRow(db, event.id);
-  }
+  const needsAttendanceReveal = requiresAttendanceReveal(row);
   const existing = parseStoredResolution(row, event.id, policy.policyHash);
-  if (existing.status !== "pending") {
+  if (existing.status !== "pending" && !needsAttendanceReveal) {
     return { kind: "resolved", resolution: existing };
   }
-  if (row.status === "evaluating" && row.evaluationLeaseExpiresAt && row.evaluationLeaseExpiresAt > nowIso) {
+  if (row.evaluationLeaseExpiresAt && row.evaluationLeaseExpiresAt > nowIso) {
     return { kind: "pending" };
   }
   const facts = await canonicalPolicyFacts(bindings, event, policy);
@@ -2167,8 +3430,9 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     nowIso
   );
   const existing = parseStoredResolution(row, event.id, policy.policyHash);
-  if (existing.status !== "pending") return existing;
-  if (row.status !== "evaluating" || !row.batchHash || !row.evaluationRequestHash || !row.evaluationLeaseId || !row.evaluationLeaseExpiresAt || row.evaluationLeaseExpiresAt <= nowIso) {
+  const isAttendanceRevealMigration = row.status === "confirmed" && row.attendingMemberIds === null;
+  if (existing.status !== "pending" && !isAttendanceRevealMigration) return existing;
+  if (row.status !== "evaluating" && !isAttendanceRevealMigration || !row.batchHash || !row.evaluationRequestHash || !row.evaluationLeaseId || !row.evaluationLeaseExpiresAt || row.evaluationLeaseExpiresAt <= nowIso) {
     throw new ApiError(
       409,
       "evaluation_lease_stale",
@@ -2220,7 +3484,7 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     invalidRelayAttestation();
   }
   const evaluatedAt = canonicalIsoTimestamp(attestation.evaluatedAt);
-  if (evaluatorResult.revealAttendance !== evaluatedAt >= event.rsvpDeadline || evaluatedAt > row.evaluationLeaseExpiresAt || Date.parse(evaluatedAt) > Date.parse(nowIso) + 3e4) {
+  if (evaluatedAt > row.evaluationLeaseExpiresAt || Date.parse(evaluatedAt) > Date.parse(nowIso) + 3e4) {
     invalidRelayAttestation();
   }
   const canonicalDocument = JSON.stringify({
@@ -2239,7 +3503,7 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
   try {
     signingPublicKey = await crypto.subtle.importKey(
       "raw",
-      ownedArrayBuffer2(base64UrlToBytes(relay.resultSigningPublicKey)),
+      ownedArrayBuffer3(base64UrlToBytes(relay.resultSigningPublicKey)),
       { name: "ECDSA", namedCurve: "P-256" },
       false,
       ["verify"]
@@ -2256,8 +3520,8 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
     verified = await crypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },
       signingPublicKey,
-      ownedArrayBuffer2(base64UrlToBytes(attestation.signature)),
-      ownedArrayBuffer2(utf8(canonicalDocument))
+      ownedArrayBuffer3(base64UrlToBytes(attestation.signature)),
+      ownedArrayBuffer3(utf8(canonicalDocument))
     );
   } catch {
     invalidRelayAttestation();
@@ -2279,7 +3543,10 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
            updated_at = ?
        WHERE event_id = ?
          AND policy_hash = ?
-         AND status = 'evaluating'
+         AND (
+           status = 'evaluating'
+           OR (status = 'confirmed' AND attending_member_ids IS NULL)
+         )
          AND batch_hash = ?
          AND evaluation_request_hash = ?
          AND evaluation_lease_id = ?
@@ -2318,6 +3585,11 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
       "The private event result could not be saved."
     );
   }
+  await db.prepare(
+    `UPDATE ballot_evaluation_runs
+     SET status = ?, attending_member_ids = NULL, error_code = NULL
+     WHERE event_id = ? AND input_digest = ?`
+  ).bind(evaluatorResult.status, event.id, row.batchHash).run();
   try {
     await sendResolutionTransitionNotifications(
       db,
@@ -2340,21 +3612,12 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
       "A sent event is missing its reply deadline."
     );
   }
-  let row = await ensurePendingResolution(
+  const row = await ensurePendingResolution(
     db,
     event.id,
     event.privateResponsePolicy.policyHash,
     nowIso
   );
-  if (requiresDeadlineReveal(row, event, nowIso)) {
-    await resetResolvedForReevaluation(
-      db,
-      event.id,
-      event.privateResponsePolicy.policyHash,
-      nowIso
-    );
-    row = await loadResolutionRow(db, event.id);
-  }
   const resolution = parseStoredResolution(
     row,
     event.id,
@@ -2435,6 +3698,11 @@ async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PU
       event.privateResponsePolicy.policyHash,
       leaseId
     ).run();
+    await db.prepare(
+      `UPDATE ballot_evaluation_runs
+       SET status = ?, attending_member_ids = NULL, error_code = NULL
+       WHERE event_id = ? AND input_digest = ?`
+    ).bind(evaluatorResult.status, event.id, batchHash).run();
     const persisted = await loadResolutionRow(db, event.id);
     if (!persisted) {
       throw new ApiError(

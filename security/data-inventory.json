@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "databaseSnapshot": "invitee-web/drizzle/meta/0018_snapshot.json",
-  "reviewedAt": "2026-08-17",
+  "databaseSnapshot": "invitee-web/drizzle/meta/0019_snapshot.json",
+  "reviewedAt": "2026-08-18",
   "externalStores": {
     "transparencyAuthorityFirestore": {
       "purpose": "Independently administered monotonic authority for immutable event-policy commitments, authenticated latest-response state, response-log append order, one-time canonical evaluation consumption, and byte-identical certifications across evaluator replicas and restarts.",
@@ -141,6 +141,38 @@
       "sensitivePlaintext": ["phone_number"],
       "sealed": [],
       "retention": "Event lifetime; hosted-event deletion cascades to notification rows, and account deletion removes events hosted by the account."
+    },
+    "ballot_revisions": {
+      "purpose": "Append-only account-wide private ballot revisions keyed by event-specific pseudonyms without account, invitee, phone, token, session, or display-name fields.",
+      "ordinaryMetadata": ["protocol_version", "key_version", "event_id", "revision", "source", "correction_reason", "created_at"],
+      "pseudonymousOrHashed": ["ballot_id", "content_digest"],
+      "sensitivePlaintext": ["response", "minimum_participants", "required_groups"],
+      "sealed": [],
+      "retention": "Event lifetime plus the documented private-ballot support and audit period; revisions are append-only and exact retries do not create duplicates."
+    },
+    "ballot_evaluation_slots": {
+      "purpose": "Deterministic cached sealed evaluator bridge for one ballot revision, keyed only by ballot pseudonym and revision.",
+      "ordinaryMetadata": ["event_id", "revision", "created_at"],
+      "pseudonymousOrHashed": ["ballot_id", "envelope_hash"],
+      "sensitivePlaintext": [],
+      "sealed": ["envelope"],
+      "retention": "Event lifetime; event deletion cascades. A slot is immutable for a ballot revision except repair of a corrupt cache value from the authoritative append-only ballot."
+    },
+    "ballot_evaluation_runs": {
+      "purpose": "Replay and audit evidence for deterministic ballot evaluation inputs and aggregate outcomes.",
+      "ordinaryMetadata": ["id", "event_id", "status", "source", "reason", "error_code", "created_at"],
+      "pseudonymousOrHashed": ["input_digest", "input_revisions", "attending_member_ids"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime; event deletion cascades."
+    },
+    "ballot_operator_actions": {
+      "purpose": "Append-only audit trail for protected de-identified ballot troubleshooting and corrections.",
+      "ordinaryMetadata": ["id", "event_id", "action", "actor", "reason", "correlation_id", "created_at"],
+      "pseudonymousOrHashed": ["ballot_id", "previous_digest", "next_digest"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime plus the support audit period; never emitted to ordinary telemetry."
     },
     "response_envelopes": {
       "purpose": "Fixed-size, server-blind invitee reply revisions and their two key wraps.",

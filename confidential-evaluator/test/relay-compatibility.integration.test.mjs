@@ -262,12 +262,21 @@ class CompletionDatabase {
         return this;
       },
       async first() {
+        if (sql.includes("FROM resolution_notifications")) {
+          return { status: "not_confirmed" };
+        }
         assert.match(sql, /FROM event_resolutions/u);
         return structuredClone(database.row);
       },
       async run() {
         if (sql.includes("INSERT OR IGNORE INTO event_resolutions")) {
           return { meta: { changes: 0 } };
+        }
+        if (sql.includes("UPDATE ballot_evaluation_runs")) {
+          assert.equal(this.values[0], "not_confirmed");
+          assert.equal(this.values[1], database.row.eventId);
+          assert.equal(this.values[2], database.row.batchHash);
+          return { meta: { changes: 1 } };
         }
         assert.match(sql, /UPDATE event_resolutions/u);
         assert.equal(this.values[9], database.row.eventId);

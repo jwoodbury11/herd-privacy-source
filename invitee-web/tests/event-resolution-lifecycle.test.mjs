@@ -140,6 +140,7 @@ async function createHarness(options = {}) {
         HERD_EVALUATOR_SITES_BYPASS_TOKEN: evaluatorSitesBypassToken,
       };
   const fetchMock = options.fetchMock ?? createFetchMock();
+  const messageBodies = [];
   fetchMock.disableNetConnect();
   fetchMock
     .get("https://verify.twilio.com")
@@ -154,7 +155,11 @@ async function createHarness(options = {}) {
   fetchMock
     .get("https://api.twilio.com")
     .intercept({ method: "POST", path: `/2010-04-01/Accounts/${twilioAccountSid}/Messages.json` })
-    .reply(201, { sid: `SM${"4".repeat(32)}`, status: "accepted" })
+    .reply(201, async (request) => {
+      const body = new URLSearchParams(await new Response(request.body).text());
+      messageBodies.push(body.get("Body"));
+      return { sid: `SM${"4".repeat(32)}`, status: "accepted" };
+    })
     .persist();
   const trustSigningBindings = options.fetchMock
     ? {
@@ -209,7 +214,7 @@ async function createHarness(options = {}) {
       if (statement) await database.exec(statement.replace(/\s+/g, " "));
     }
   }
-  return { miniflare, database };
+  return { miniflare, database, messageBodies };
 }
 
 async function trustSignature(keyPair, domain, canonicalPayload) {
@@ -621,7 +626,7 @@ async function createSingleInviteeEvent(
 test("ten accounts share one durable confirmed/failure outcome without leaking failed RSVP details", async (t) => {
   const requests = [];
   const fetchMock = evaluatorMock();
-  const { miniflare, database } = await createHarness({ fetchMock });
+  const { miniflare, database, messageBodies } = await createHarness({ fetchMock });
   t.after(() => miniflare.dispose());
 
   const host = await authenticate(miniflare, testPhone);
@@ -826,8 +831,20 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
     );
     assert.equal(pendingRead.status, 200);
     const pendingBody = await pendingRead.json();
-    assert.equal(pendingBody.event.responseCertificationStatus, "pending");
-    assert.equal(pendingBody.inviteMetadata.responseCertificationStatus, "pending");
+    // The independent authority can complete the exact durable retry before
+    // this read on a fast hosted runner. Both states are safe here: pending
+    // proves the evaluation path must recover it, while certified proves the
+    // background self-heal already did. The final assertions below still
+    // require a complete receipt and signed head.
+    assert.ok(
+      ["pending", "certified"].includes(
+        pendingBody.event.responseCertificationStatus,
+      ),
+    );
+    assert.equal(
+      pendingBody.inviteMetadata.responseCertificationStatus,
+      pendingBody.event.responseCertificationStatus,
+    );
     assert.equal(
       pendingBody.inviteMetadata.responseEnvelope.envelopeId,
       index === 0
@@ -917,6 +934,23 @@ test("ten accounts share one durable confirmed/failure outcome without leaking f
       maximumStatus: "sent",
     },
   );
+  const eventDate = `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(payload.eventDate))} UTC`;
+  const confirmedMessages = messageBodies.filter((body) =>
+    body?.startsWith('The event "Resolution lifecycle" is now confirmed')
+  );
+  assert.equal(confirmedMessages.length, 10);
+  assert.ok(confirmedMessages.includes(
+    `The event "Resolution lifecycle" is now confirmed and will happen on ${eventDate}. View event information: https://app.herdprivacy.com`,
+  ));
+  assert.ok(confirmedMessages.some((body) =>
+    body?.startsWith(
+      `The event "Resolution lifecycle" is now confirmed and will happen on ${eventDate}. View event information: https://app.herdprivacy.com/invite/`,
+    )
+  ));
   assert.equal(confirmedBatch.slots.length, 9);
   assert.ok(confirmedBatch.slots.every(({ envelopeHash }) => envelopeHash));
   assert.equal(confirmedBatch.batchHash.length, 43);

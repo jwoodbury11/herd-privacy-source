@@ -1,25 +1,43 @@
 import type { HerdBindings } from "@/db";
 
-import { getInvitationDeliveryConfig } from "./config";
+import { getAuthConfig, getInvitationDeliveryConfig } from "./config";
 import { randomUuid } from "./crypto";
+import { openSealedInviteToken, type StoredInviteToken } from "./invite-tokens";
 
 const TWILIO_MESSAGES_ORIGIN = "https://api.twilio.com";
 const DISPATCH_TIMEOUT_MILLISECONDS = 10_000;
 
 type ResolutionStatus = "confirmed" | "not_confirmed";
 
-type RecipientRow = { phoneNumber: string };
+type RecipientRow = StoredInviteToken & {
+  phoneNumber: string;
+  inviteeId: string | null;
+};
 
-function messageBody(title: string, status: ResolutionStatus): string {
+function eventDateLabel(value: string | null | undefined): string {
+  if (!value) return "a date to be announced";
+  return `${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(new Date(value))} UTC`;
+}
+
+export function resolutionMessageBody(
+  event: { title?: string; eventDate?: string | null },
+  status: ResolutionStatus,
+  eventUrl: string,
+): string {
+  const title = event.title || "Your event";
   return status === "confirmed"
-    ? `Herd: ${title} is confirmed. Replies can still change; guest statuses stay private until the deadline.`
+    ? `The event "${title}" is now confirmed and will happen on ${eventDateLabel(event.eventDate)}. View event information: ${eventUrl}`
     : `Herd: ${title} is no longer confirmed. Replies can still change.`;
 }
 
 export async function sendResolutionTransitionNotifications(
   db: D1Database,
   bindings: HerdBindings,
-  event: { id: string; title?: string },
+  event: { id: string; title?: string; eventDate?: string | null },
   batchHash: string,
   status: ResolutionStatus,
 ): Promise<void> {
@@ -37,12 +55,20 @@ export async function sendResolutionTransitionNotifications(
 
   const recipients = await db
     .prepare(
-      `SELECT users.phone_number AS phoneNumber
+      `SELECT users.phone_number AS phoneNumber,
+              NULL AS inviteeId,
+              NULL AS tokenCiphertext,
+              NULL AS tokenNonce,
+              NULL AS tokenStorageVersion
        FROM events
        JOIN users ON users.id = events.host_user_id
        WHERE events.id = ?
        UNION
-       SELECT invitees.phone_number AS phoneNumber
+       SELECT invitees.phone_number AS phoneNumber,
+              invitees.id AS inviteeId,
+              invitees.token_ciphertext AS tokenCiphertext,
+              invitees.token_nonce AS tokenNonce,
+              invitees.token_storage_version AS tokenStorageVersion
        FROM invitees
        WHERE invitees.event_id = ?
          AND EXISTS (
@@ -92,6 +118,21 @@ export async function sendResolutionTransitionNotifications(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DISPATCH_TIMEOUT_MILLISECONDS);
     try {
+      let eventUrl = config.publicAppUrl;
+      if (recipient.inviteeId) {
+        try {
+          const inviteToken = await openSealedInviteToken(
+            getAuthConfig(bindings).pepper,
+            event.id,
+            recipient.inviteeId,
+            recipient,
+          );
+          eventUrl = `${config.publicAppUrl}/invite/${encodeURIComponent(inviteToken)}`;
+        } catch {
+          // The app home still provides the authenticated recipient access to
+          // this event if an older stored invitation token cannot be reopened.
+        }
+      }
       const response = await fetch(
         `${TWILIO_MESSAGES_ORIGIN}/2010-04-01/Accounts/${encodeURIComponent(config.twilio.accountSid)}/Messages.json`,
         {
@@ -103,7 +144,7 @@ export async function sendResolutionTransitionNotifications(
           body: new URLSearchParams({
             To: recipient.phoneNumber,
             MessagingServiceSid: config.twilio.messagingServiceSid,
-            Body: messageBody(event.title || "Your event", status),
+            Body: resolutionMessageBody(event, status, eventUrl),
           }),
           signal: controller.signal,
         },

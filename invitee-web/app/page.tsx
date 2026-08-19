@@ -6,42 +6,20 @@ import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties 
 import { herdExperience } from "@/lib/experience";
 import { relayHostEventEvaluation } from "@/lib/client/evaluation-relay";
 import {
-  PrivateVaultError,
-  accountRootSecretCommitment,
   forgetAllAccountRootSecrets,
-  getOrCreateAccountRootSecret,
-  loadAccountRootSecret,
 } from "@/lib/privacy/device-vault";
-import {
-  EvaluatorAuthenticationError,
-  attestEvaluatorForPolicy,
-} from "@/lib/privacy/evaluator-attestation";
 import {
   displayableEventResolution,
   type DisplayableEventResolution,
 } from "@/lib/privacy/event-resolution-proof";
-import {
-  PrivateResponseCryptoError,
-  newConditionGroupId,
-  openPrivateResponse,
-  privateResponseEnvelopeHash,
-  sealPrivateResponse,
-} from "@/lib/privacy/private-response-crypto";
 import type {
-  PrivateResponseEnvelopeV1,
   PrivateResponsePolicyV1,
-  PrivateResponseReceiptV1,
   StoredPrivateResponseEnvelopeV1,
 } from "@/lib/privacy/protocol";
-import {
-  configuredTransparencySigningPin,
-  verifyPrivateResponseReceiptPublication,
-} from "@/lib/privacy/trust-verification";
 import { reportClientSignal, trackedFetch } from "@/lib/client/telemetry";
 import { requiredAttendeeName } from "@/lib/client/display-names.mjs";
 
 const OTP_LENGTH = 4;
-const RECENT_PHONE_VERIFICATION_WINDOW_MS = 9 * 60 * 1000;
 const AUTH_EXPERIENCE = herdExperience.authentication;
 const HOME_EXPERIENCE = herdExperience.home;
 const PROFILE_EXPERIENCE = herdExperience.profile;
@@ -50,6 +28,24 @@ const ATTENDEES_EXPERIENCE = herdExperience.attendees;
 const REPLY_EXPERIENCE = herdExperience.reply;
 const PRIVACY_EXPERIENCE = herdExperience.privacy;
 const SUCCESS_EXPERIENCE = herdExperience.success;
+const UNIT_ADDRESS_SEPARATOR = ", Unit ";
+
+function splitUnitAddress(value: string): { base: string; unit: string } {
+  const trimmed = value.trim();
+  const separatorIndex = trimmed.lastIndexOf(UNIT_ADDRESS_SEPARATOR);
+  if (separatorIndex < 0) return { base: trimmed, unit: "" };
+  const base = trimmed.slice(0, separatorIndex).trim();
+  const unit = trimmed.slice(separatorIndex + UNIT_ADDRESS_SEPARATOR.length).trim();
+  return unit ? { base, unit } : { base: trimmed, unit: "" };
+}
+
+function combineUnitAddress(base: string, unit: string): string {
+  const trimmedBase = base.trim();
+  const trimmedUnit = unit.trim();
+  if (!trimmedUnit) return trimmedBase;
+  if (!trimmedBase) return `Unit ${trimmedUnit}`;
+  return `${trimmedBase}${UNIT_ADDRESS_SEPARATOR}${trimmedUnit}`;
+}
 
 const authLayoutStyle = {
   "--auth-horizontal-padding": `${AUTH_EXPERIENCE.layout.horizontalPadding}px`,
@@ -94,70 +90,11 @@ type Screen =
 type Reply = "yes" | "no" | null;
 type PrivateResponseState = "idle" | "loading" | "ready" | "unreadable";
 type AccountStatusState = "healthy" | "attention" | "not-configured";
-type DeviceSwitchStage = "confirm" | "requesting" | "verify" | "switching";
 type ReplySubmissionResult = {
   saved: boolean;
-  deviceSwitchCompleted: boolean;
-  recoveryCompleted: boolean;
   errorMessage: string | null;
   errorCode: string | null;
 };
-
-type PendingReplySubmission = {
-  eventId: string;
-  inviteToken: string;
-  draftFingerprint: string;
-  accountKeyEpochId: string;
-  revision: number;
-  policyHash: string;
-  envelope: PrivateResponseEnvelopeV1;
-};
-
-type PrivateResponseSubmissionBody = {
-  responseEnvelope: StoredPrivateResponseEnvelopeV1;
-  receipt: PrivateResponseReceiptV1;
-};
-
-function submissionEnvelope(
-  stored: StoredPrivateResponseEnvelopeV1,
-): PrivateResponseEnvelopeV1 {
-  const { ciphertextHash, createdAt, updatedAt, ...envelope } = stored;
-  void ciphertextHash;
-  void createdAt;
-  void updatedAt;
-  return envelope;
-}
-
-async function verifyPrivateResponseSubmission(
-  envelope: PrivateResponseEnvelopeV1,
-  body: PrivateResponseSubmissionBody,
-): Promise<void> {
-  const expectedHash = await privateResponseEnvelopeHash(envelope);
-  const transparencySigningPin = configuredTransparencySigningPin();
-  if (
-    body.receipt?.ciphertextHash !== expectedHash ||
-    body.responseEnvelope?.ciphertextHash !== expectedHash ||
-    body.responseEnvelope?.envelopeId !== envelope.envelopeId ||
-    body.responseEnvelope?.responseSigningPublicKey !== envelope.responseSigningPublicKey ||
-    body.responseEnvelope?.responseSignature !== envelope.responseSignature ||
-    body.receipt?.envelopeId !== envelope.envelopeId ||
-    body.receipt?.eventId !== envelope.eventId ||
-    body.receipt?.inviteeId !== envelope.inviteeId ||
-    body.receipt?.policyHash !== envelope.policyHash ||
-    body.receipt?.accountKeyEpochId !== envelope.accountKeyEpochId ||
-    body.receipt?.revision !== envelope.revision ||
-    body.receipt?.responseSigningPublicKey !== envelope.responseSigningPublicKey ||
-    body.receipt?.responseSignature !== envelope.responseSignature ||
-    !transparencySigningPin
-  ) {
-    throw new Error("Herd returned an invalid encrypted-response receipt.");
-  }
-  try {
-    await verifyPrivateResponseReceiptPublication(body.receipt, transparencySigningPin);
-  } catch {
-    throw new Error("Herd returned an invalid encrypted-response receipt.");
-  }
-}
 
 class HerdResponseError extends Error {
   readonly status: number;
@@ -170,12 +107,6 @@ class HerdResponseError extends Error {
     this.code = code ?? null;
   }
 }
-
-type AccountKeyStatusSummary = {
-  available: number;
-  missing: number;
-  total: number;
-};
 
 function replyDraftFingerprint(
   reply: Reply,
@@ -204,6 +135,7 @@ type ApiInvitee = {
   displayName: string;
   phoneNumber?: string;
   isCurrentUser?: boolean;
+  hasResponded?: boolean;
   responseHistory?: {
     missedConfirmedEvents: number;
     totalConfirmedEvents: number;
@@ -262,6 +194,7 @@ export type ApiEvent = {
   accountKeyEpochId?: string;
   accountKeyCommitment?: string | null;
   hasResponse?: boolean;
+  hasBallot?: boolean;
   responseRevision?: number | null;
   responseCertificationStatus?: "certified" | "pending" | null;
   resolution?: DisplayableEventResolution | null;
@@ -331,9 +264,20 @@ type InviteMetadata = {
   accountKeyEpochId: string;
   accountKeyCommitment: string | null;
   hasResponse: boolean;
+  hasBallot?: boolean;
   responseRevision: number | null;
   responseEnvelope: StoredPrivateResponseEnvelopeV1 | null;
   responseCertificationStatus: "certified" | "pending" | null;
+};
+
+type SimplifiedBallot = {
+  protocolVersion: 2;
+  ballotId: string;
+  revision: number;
+  response: "going" | "cant_commit";
+  minimumParticipants: number | null;
+  requiredGroups: Array<{ id: string; memberIDs: string[] }>;
+  createdAt: string;
 };
 
 type AuthenticatedInviteResponse = {
@@ -419,15 +363,17 @@ function personInitials(name: string) {
 function ReplyVisibilityPreview({
   displayName,
   status,
+  isConfirmed = false,
   confirmedBody,
 }: {
   displayName: string;
   status: string;
+  isConfirmed?: boolean;
   confirmedBody?: string;
 }) {
   return (
     <div className="reply-visibility-preview">
-      <p className="reply-preview-label">{REPLY_EXPERIENCE.confirmedPreviewLabel}</p>
+      {!isConfirmed ? <p className="reply-preview-label">{REPLY_EXPERIENCE.confirmedPreviewLabel}</p> : null}
       <div className="people-list reply-preview-person">
         <div className="person-row">
           <span className="avatar avatar-tone-1">{personInitials(displayName)}</span>
@@ -438,12 +384,16 @@ function ReplyVisibilityPreview({
         </div>
       </div>
       <p className="reply-preview-note">{confirmedBody ?? REPLY_EXPERIENCE.confirmedPreviewBody}</p>
-      <p className="reply-preview-label">{REPLY_EXPERIENCE.notConfirmedPreviewLabel}</p>
-      <div className="reply-preview-hidden">
-        <EyeOff size={18} aria-hidden="true" />
-        <strong>{REPLY_EXPERIENCE.notConfirmedPreviewTitle}</strong>
-      </div>
-      <p className="reply-preview-note">{REPLY_EXPERIENCE.notConfirmedPreviewBody}</p>
+      {!isConfirmed ? (
+        <>
+          <p className="reply-preview-label">{REPLY_EXPERIENCE.notConfirmedPreviewLabel}</p>
+          <div className="reply-preview-hidden">
+            <EyeOff size={18} aria-hidden="true" />
+            <strong>{REPLY_EXPERIENCE.notConfirmedPreviewTitle}</strong>
+          </div>
+          <p className="reply-preview-note">{REPLY_EXPERIENCE.notConfirmedPreviewBody}</p>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -661,12 +611,20 @@ function eventThirdMetric(
   now = Date.now(),
 ) {
   if (event.resolution?.status === "confirmed") {
-    if (!event.resolution.attendanceRevealed) {
-      return { value: "Yes", label: "confirmed" };
-    }
     return {
-      value: String(event.resolution.attendingMemberIds?.length ?? 0),
+      value: event.resolution.attendanceRevealed
+        ? String(event.resolution.attendingMemberIds?.length ?? 0)
+        : "—",
       label: INVITATION_EXPERIENCE.metrics.attending,
+    };
+  }
+  if (
+    event.resolution?.status !== "not_confirmed"
+    && (event.role === "host" || event.hasResponse || event.hasBallot)
+  ) {
+    return {
+      value: String(event.invitees.filter(({ hasResponded }) => hasResponded).length),
+      label: "responded",
     };
   }
   if (event.resolution?.status === "not_confirmed") {
@@ -677,15 +635,28 @@ function eventThirdMetric(
   return fallback;
 }
 
+function needsResolutionRelay(event: ApiEvent) {
+  return event.resolution?.status === "pending" || (
+    event.resolution?.status === "confirmed" &&
+    !event.resolution.attendanceRevealed
+  );
+}
+
 function attendeeStatusLabel(
   event: ApiEvent | null,
-  person: { id: string },
+  person: ApiInvitee,
 ) {
   if (!event) return null;
   if (
+    event.resolution?.status !== "confirmed"
+    && (event.role === "host" || event.hasResponse || event.hasBallot)
+  ) {
+    return person.hasResponded ? "Responded" : "Not responded";
+  }
+  if (
     event.resolution?.status === "confirmed"
     && event.resolution.attendanceRevealed
-    && (event.role === "host" || event.hasResponse)
+    && (event.role === "host" || event.hasResponse || event.hasBallot)
   ) {
     const state = event.resolution.guestStates?.find(({ memberId }) => memberId === person.id);
     if (!state) return null;
@@ -870,6 +841,43 @@ function peopleCountLabel(count: number) {
   return `${count} ${count === 1 ? "person" : "people"}`;
 }
 
+function eventLocationClipboardText(event: ApiEvent) {
+  const address = event.locationAddress.trim();
+  if (address) return address;
+  return event.locationName.trim();
+}
+
+function eventLocationDisplay(event: ApiEvent) {
+  const name = event.locationName.trim();
+  const address = event.locationAddress.trim();
+  const foldedName = name.toLocaleLowerCase();
+  const foldedAddress = address.toLocaleLowerCase();
+  const nameIsRedundant = Boolean(name && address) && (
+    foldedAddress === foldedName || foldedAddress.startsWith(`${foldedName}, unit `)
+  );
+  return {
+    primary: nameIsRedundant ? address : name || address,
+    secondary: name && address && !nameIsRedundant ? address : "",
+  };
+}
+
+async function writeClipboardText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const field = document.createElement("textarea");
+  field.value = value;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.opacity = "0";
+  document.body.appendChild(field);
+  field.select();
+  const copied = document.execCommand("copy");
+  field.remove();
+  if (!copied) throw new Error("Clipboard access is unavailable.");
+}
+
 function PlusMark() {
   return <span className="host-create-plus" aria-hidden="true">+</span>;
 }
@@ -899,10 +907,10 @@ function EventCard({
         </span>
       </div>
       <p className="card-date">{formatCardDate(event.eventDate)}</p>
-      {event.locationName ? (
+      {eventLocationDisplay(event).primary ? (
         <p className="location-line">
           <MapPin className="location-icon" size={16} strokeWidth={1.8} aria-hidden="true" />
-          {event.locationName}
+          {eventLocationDisplay(event).primary}
         </p>
       ) : null}
       <div className="metric-row">
@@ -927,7 +935,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [eventsRefreshPending, setEventsRefreshPending] = useState(false);
   const [statusCheckPending, setStatusCheckPending] = useState(false);
   const [statusCheckedAt, setStatusCheckedAt] = useState<number | null>(null);
-  const [accountKeyStatus, setAccountKeyStatus] = useState<AccountKeyStatusSummary | null>(null);
   const [homeRefreshError, setHomeRefreshError] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<ApiEvent | null>(null);
   const [invitationPreview, setInvitationPreview] = useState<InvitationPreview | null>(null);
@@ -937,7 +944,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [inviteAccountMismatch, setInviteAccountMismatch] = useState(false);
   const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
   const [authPending, setAuthPending] = useState(false);
-  const [lastPhoneVerificationAt, setLastPhoneVerificationAt] = useState<number | null>(null);
   const [authError, setAuthError] = useState("");
   const [profileNotice, setProfileNotice] = useState("");
   const [profilePending, setProfilePending] = useState(false);
@@ -948,6 +954,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [profileName, setProfileName] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [address, setAddress] = useState("");
+  const [addressUnit, setAddressUnit] = useState("");
   const [releaseStatusOpen, setReleaseStatusOpen] = useState(false);
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
@@ -964,12 +971,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [guestDrafts, setGuestDrafts] = useState<GuestDraft[]>([]);
   const [guestAdditionError, setGuestAdditionError] = useState("");
   const [guestAdditionPending, setGuestAdditionPending] = useState(false);
-  const [deviceSwitchOpen, setDeviceSwitchOpen] = useState(false);
-  const [deviceSwitchStage, setDeviceSwitchStage] = useState<DeviceSwitchStage>("confirm");
-  const [deviceSwitchChallenge, setDeviceSwitchChallenge] = useState<AuthChallenge | null>(null);
-  const [deviceSwitchCode, setDeviceSwitchCode] = useState("");
-  const [deviceSwitchError, setDeviceSwitchError] = useState("");
-  const [deviceSwitchPending, setDeviceSwitchPending] = useState(false);
   const [minimum, setMinimum] = useState(4);
   const [conditionGroups, setConditionGroups] = useState<string[][]>([]);
   const [conditionTargetGroup, setConditionTargetGroup] = useState<number | null>(null);
@@ -977,15 +978,17 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [sheetDragY, setSheetDragY] = useState(0);
   const [replyPreviewOpen, setReplyPreviewOpen] = useState(false);
   const [replyPreviewDragY, setReplyPreviewDragY] = useState(0);
+  const [confirmedReplyNotice, setConfirmedReplyNotice] = useState(false);
+  const [addressCopiedNotice, setAddressCopiedNotice] = useState(false);
   const [expandedPrivacySection, setExpandedPrivacySection] = useState<string | null>(
     PRIVACY_EXPERIENCE.sections[0]?.title ?? null,
   );
   const otpInputRef = useRef<HTMLInputElement | null>(null);
   const profileNameInputRef = useRef<HTMLInputElement | null>(null);
   const profileAddressInputRef = useRef<HTMLInputElement | null>(null);
+  const profileAddressUnitInputRef = useRef<HTMLInputElement | null>(null);
   const verificationInFlightRef = useRef(false);
   const replySubmissionInFlightRef = useRef(false);
-  const pendingReplySubmissionRef = useRef<PendingReplySubmission | null>(null);
   const eventActionsRef = useRef<HTMLDetailsElement | null>(null);
   const hostDownloadTriggerRef = useRef<HTMLButtonElement | null>(null);
   const hostDownloadHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -1002,6 +1005,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const replyPreviewSheetRef = useRef<HTMLElement | null>(null);
   const replyPreviewDragStartRef = useRef<number | null>(null);
   const replyPreviewDragLatestRef = useRef(0);
+  const confirmedReplyNoticeTimerRef = useRef<number | null>(null);
+  const addressCopiedNoticeTimerRef = useRef<number | null>(null);
   const lastResolutionRefreshRef = useRef(0);
   const resolutionRefreshInFlightRef = useRef(false);
   const homeRefreshInFlightRef = useRef(false);
@@ -1019,11 +1024,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setGuestDrafts([]);
     setGuestAdditionError("");
     setGuestAdditionPending(false);
-    setDeviceSwitchOpen(false);
-    setDeviceSwitchStage("confirm");
-    setDeviceSwitchChallenge(null);
-    setDeviceSwitchCode("");
-    setDeviceSwitchError("");
     setAccountDeletionChallenge(null);
     setAccountDeletionCode("");
     setAccountDeletionError("");
@@ -1033,10 +1033,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setEvents([]);
     setSelectedEvent(null);
     setCurrentUser(null);
-    setLastPhoneVerificationAt(null);
     setInviteMetadata(null);
     setPrivateResponseState("idle");
-    pendingReplySubmissionRef.current = null;
     setInvitationPreview(null);
     setInvitePreviewPending(Boolean(inviteToken));
     setInvitePreviewError("");
@@ -1045,6 +1043,17 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setProfileName("");
     setPhoneNumber("");
     setAddress("");
+    setAddressUnit("");
+    setConfirmedReplyNotice(false);
+    setAddressCopiedNotice(false);
+    if (confirmedReplyNoticeTimerRef.current !== null) {
+      window.clearTimeout(confirmedReplyNoticeTimerRef.current);
+      confirmedReplyNoticeTimerRef.current = null;
+    }
+    if (addressCopiedNoticeTimerRef.current !== null) {
+      window.clearTimeout(addressCopiedNoticeTimerRef.current);
+      addressCopiedNoticeTimerRef.current = null;
+    }
     setScreen("welcome");
   }, [inviteToken]);
   const recoverExpiredSession = useCallback(() => {
@@ -1086,39 +1095,28 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     }
   }, [markEventsUpdated, recoverExpiredSession]);
   const activeEvent = selectedEvent ?? events[0] ?? null;
-  const hasPendingResponseCertification =
-    inviteMetadata?.responseCertificationStatus === "pending" &&
-    Boolean(inviteMetadata.responseEnvelope);
   const currentReplyFingerprint = replyDraftFingerprint(reply, minimum, conditionGroups);
-  const hasPendingReplySubmission = Boolean(
-    activeEvent &&
-    currentReplyFingerprint &&
-    pendingReplySubmissionRef.current?.eventId === activeEvent.id &&
-    pendingReplySubmissionRef.current?.draftFingerprint === currentReplyFingerprint,
-  );
   const replyHasUnsavedChanges = Boolean(currentReplyFingerprint) && (
-    !activeEvent?.hasResponse ||
-    currentReplyFingerprint !== savedReplyFingerprint ||
-    hasPendingReplySubmission
+    !(activeEvent?.hasResponse || activeEvent?.hasBallot) ||
+    currentReplyFingerprint !== savedReplyFingerprint
   );
   const invitedEvents = events.filter((event) => homeEventSection(event, now) === "invites");
   const hostedEvents = events.filter((event) => homeEventSection(event, now) === "hosted");
   const unconfirmedEvents = events.filter((event) => homeEventSection(event, now) === "unconfirmed");
   const pastEvents = events.filter((event) => homeEventSection(event, now) === "past");
   const activeInvitationCount = events.filter((event) => event.role === "invitee" && event.inviteToken).length;
-  const protectedEventCount = events.filter((event) => event.privateResponsePolicy !== null).length;
   const verificationIssueCount = events.filter((event) => event.resolution?.status === "verification_unavailable").length;
   const accountStatusNeedsAttention = Boolean(homeRefreshError)
-    || Boolean(accountKeyStatus?.missing)
     || verificationIssueCount > 0;
   const displayProfileName = profileName.trim();
   const profileHasChanges = currentUser !== null && (
     profileName.trim() !== currentUser.name.trim() ||
-    address.trim() !== currentUser.address.trim()
+    combineUnitAddress(address, addressUnit) !== currentUser.address.trim()
   );
   const invitedPeople = activeEvent?.invitees ?? [];
   const canAddAttendees = Boolean(
     activeEvent &&
+    activeEvent.resolution?.status !== "confirmed" &&
     activeEvent.invitees.length < 19 &&
     (activeEvent.role === "host" || activeEvent.allowsAttendeesToAddGuests),
   );
@@ -1135,9 +1133,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     ? activeEvent
     : screen === "home"
       ? events.find((event) =>
-          event.resolution?.status === "pending" &&
-          Boolean(event.rsvpDeadline) &&
-          Date.parse(event.rsvpDeadline!) <= now
+          needsResolutionRelay(event)
         ) ?? null
       : null;
 
@@ -1196,8 +1192,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   useEffect(() => {
     if (
       !resolutionRefreshTarget?.rsvpDeadline ||
-      resolutionRefreshTarget.resolution?.status !== "pending" ||
-      Date.parse(resolutionRefreshTarget.rsvpDeadline) > now ||
+      !needsResolutionRelay(resolutionRefreshTarget) ||
       resolutionRefreshInFlightRef.current ||
       now - lastResolutionRefreshRef.current < 5_000
     ) {
@@ -1207,41 +1202,15 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     resolutionRefreshInFlightRef.current = true;
     void (async () => {
       try {
-        const token = resolutionRefreshTarget.inviteToken ?? inviteToken;
-        if (screen === "event" && resolutionRefreshTarget.role !== "host" && token) {
-          const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}`, {
-            credentials: "include",
-          });
-          if (response.status === 401) {
-            recoverExpiredSession();
-            return;
-          }
-          if (!response.ok) {
-            throw new Error(await responseError(response, "Couldn’t finalize this event."));
-          }
-          const body = await response.json() as AuthenticatedInviteResponse;
-          const rawRefreshedEvent = body.event ?? body.invitation;
-          if (!rawRefreshedEvent) throw new Error("Couldn’t finalize this event.");
-          const refreshedEvent = await verifiedApiEvent(rawRefreshedEvent);
-          setSelectedEvent(refreshedEvent);
-          setInviteMetadata(body.inviteMetadata ?? null);
-          setEvents((current) => upsertHomeEvent(current, refreshedEvent));
-          markEventsUpdated();
-          return;
-        }
-
-        const dueHostEvents = (screen === "event"
+        const relayEvents = (screen === "event"
           ? [resolutionRefreshTarget]
           : events
         ).filter((event) =>
-          event.role === "host" &&
           event.invitationsSent &&
-          event.resolution?.status === "pending" &&
-          Boolean(event.rsvpDeadline) &&
-          Date.parse(event.rsvpDeadline!) <= now
+          needsResolutionRelay(event)
         );
         await Promise.allSettled(
-          dueHostEvents.map((event) => relayHostEventEvaluation(event.id)),
+          relayEvents.map((event) => relayHostEventEvaluation(event.id)),
         );
 
         const response = await trackedFetch("/api/events", { credentials: "include" });
@@ -1365,107 +1334,31 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     let cancelled = false;
     void (async () => {
       setReplyError("");
-      if (!inviteMetadata.hasResponse) {
-        setSavedReplyFingerprint(null);
-        setReply(null);
-        setMinimum(selectedEvent.minimumParticipants);
-        setConditionGroups([]);
-        if (!inviteMetadata.accountKeyCommitment) {
-          setPrivateResponseState("ready");
-          return;
-        }
-        setPrivateResponseState("loading");
-        try {
-          const activeAccountRootSecret = await loadAccountRootSecret(
-            currentUser.id,
-            inviteMetadata.accountKeyEpochId,
-            inviteMetadata.accountKeyCommitment,
-          );
-          if (cancelled) {
-            activeAccountRootSecret?.bytes.fill(0);
-            return;
-          }
-          if (!activeAccountRootSecret) {
-            setPrivateResponseState("unreadable");
-            return;
-          }
-          activeAccountRootSecret.bytes.fill(0);
-          setPrivateResponseState("ready");
-        } catch (error) {
-          if (cancelled) return;
-          setPrivateResponseState(
-            error instanceof PrivateVaultError && error.canSwitchDevice
-              ? "unreadable"
-              : "idle",
-          );
-          setReplyError(
-            error instanceof Error
-              ? error.message
-              : "This device could not verify its private account key.",
-          );
-        }
-        return;
-      }
-      if (!inviteMetadata.responseEnvelope) {
-        setPrivateResponseState("idle");
-        setReplyError("Your encrypted response could not be loaded. Refresh and try again.");
-        void reportClientSignal({
-          signal: "client_decode",
-          operation: "reply.saved.open",
-          outcome: "failure",
-          errorCode: "saved_reply_missing_envelope",
-        });
-        return;
-      }
       setPrivateResponseState("loading");
-      const savedReplyOpenStartedAt = performance.now();
       try {
-        const envelopeUsesActiveEpoch =
-          inviteMetadata.responseEnvelope.accountKeyEpochId ===
-          inviteMetadata.accountKeyEpochId;
-        if (envelopeUsesActiveEpoch && !inviteMetadata.accountKeyCommitment) {
-          throw new Error("The active account-key commitment is missing.");
-        }
-        const accountRootSecret = await loadAccountRootSecret(
-          currentUser.id,
-          inviteMetadata.responseEnvelope.accountKeyEpochId,
-          envelopeUsesActiveEpoch
-            ? inviteMetadata.accountKeyCommitment ?? undefined
-            : undefined,
-        );
-        if (cancelled) {
-          accountRootSecret?.bytes.fill(0);
+        const token = selectedEvent.inviteToken ?? inviteToken;
+        if (!token) throw new Error("This invitation does not have an active reply link yet.");
+        const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/ballot`, {
+          credentials: "include",
+        });
+        if (response.status === 401) {
+          recoverExpiredSession();
           return;
         }
-        if (!accountRootSecret) {
-          void reportClientSignal({
-            signal: "client_decode",
-            operation: "reply.saved.open",
-            outcome: "failure",
-            errorCode: "saved_reply_missing_key",
-            durationMs: performance.now() - savedReplyOpenStartedAt,
-          });
-          setPrivateResponseState("unreadable");
+        if (!response.ok) {
+          throw new Error(await responseError(response, "Your private reply could not be loaded."));
+        }
+        const body = await response.json() as { ballot: SimplifiedBallot | null };
+        if (cancelled) return;
+        const draft = body.ballot;
+        if (!draft) {
           setSavedReplyFingerprint(null);
           setReply(null);
           setMinimum(selectedEvent.minimumParticipants);
           setConditionGroups([]);
+          setPrivateResponseState("ready");
           return;
         }
-        if (!selectedEvent.privateResponsePolicy) {
-          throw new Error("This event does not have a frozen private-response policy.");
-        }
-        const draft = await openPrivateResponse({
-          envelope: inviteMetadata.responseEnvelope,
-          eventId: selectedEvent.id,
-          inviteeId: inviteMetadata.id,
-          allowedInviteeIds: selectedEvent.invitees.map((person) => person.id),
-          accountRootSecret: accountRootSecret.bytes,
-          policy: selectedEvent.privateResponsePolicy,
-        }).finally(() => {
-          accountRootSecret.bytes.fill(0);
-        });
-        if (cancelled) return;
         const savedReply = draft.response === "going" ? "yes" : "no";
         const savedMinimum =
           draft.response === "going" && draft.minimumParticipants !== null
@@ -1481,60 +1374,30 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         setMinimum(savedMinimum);
         setConditionGroups(savedConditionGroups);
         setSavedReplyFingerprint(fingerprint);
-        if (
-          fingerprint &&
-          inviteMetadata.responseCertificationStatus === "pending" &&
-          selectedEvent.privateResponsePolicy
-        ) {
-          const token = selectedEvent.inviteToken ?? inviteToken;
-          if (token) {
-            pendingReplySubmissionRef.current = {
-              eventId: selectedEvent.id,
-              inviteToken: token,
-              draftFingerprint: fingerprint,
-              accountKeyEpochId: inviteMetadata.responseEnvelope.accountKeyEpochId,
-              revision: inviteMetadata.responseEnvelope.revision,
-              policyHash: selectedEvent.privateResponsePolicy.policyHash,
-              envelope: submissionEnvelope(inviteMetadata.responseEnvelope),
-            };
-          }
-        }
         setPrivateResponseState("ready");
-        void reportClientSignal({
-          signal: "client_decode",
-          operation: "reply.saved.open",
-          outcome: "success",
-          errorCode: "none",
-          durationMs: performance.now() - savedReplyOpenStartedAt,
-        });
       } catch (error) {
         if (cancelled) return;
-        void reportClientSignal({
-          signal: "client_decode",
-          operation: "reply.saved.open",
-          outcome: "failure",
-          errorCode: error instanceof PrivateVaultError
-            ? error.canSwitchDevice ? "saved_reply_local_key_unavailable" : "saved_reply_local_key_error"
-            : error instanceof PrivateResponseCryptoError
-              ? error.canSwitchDevice ? "saved_reply_crypto_unreadable" : "saved_reply_crypto_rejected"
-              : "saved_reply_open_failed",
-          durationMs: performance.now() - savedReplyOpenStartedAt,
-        });
-        setPrivateResponseState(
-          (error instanceof PrivateVaultError && error.canSwitchDevice) ||
-            (error instanceof PrivateResponseCryptoError && error.canSwitchDevice)
-            ? "unreadable"
-            : "idle",
-        );
+        setPrivateResponseState("idle");
         setReplyError(
           error instanceof Error
             ? error.message
-            : "This device could not open your encrypted response.",
+            : "Your private reply could not be loaded.",
         );
       }
     })();
     return () => { cancelled = true; };
-  }, [currentUser, inviteMetadata, inviteToken, selectedEvent]);
+  // Session recovery intentionally clears the entire authenticated view and is
+  // invoked only from a failed request; making it an effect dependency would
+  // restart this ballot read on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentUser,
+    inviteMetadata?.canRespond,
+    inviteToken,
+    selectedEvent?.id,
+    selectedEvent?.inviteToken,
+    selectedEvent?.minimumParticipants,
+  ]);
 
   useEffect(() => {
     if (screen !== "verify" || resendSeconds <= 0) return;
@@ -1665,10 +1528,12 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   }
 
   function applyUser(nextUser: ApiUser) {
+    const parsedAddress = splitUnitAddress(nextUser.address || "");
     setCurrentUser(nextUser);
     setProfileName(nextUser.name || "");
     setPhoneNumber(nextUser.phoneNumber || "");
-    setAddress(nextUser.address || "");
+    setAddress(parsedAddress.base);
+    setAddressUnit(parsedAddress.unit);
   }
 
   async function runAccountStatusChecks() {
@@ -1676,34 +1541,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setStatusCheckPending(true);
     try {
       await refreshHomeEvents();
-      if (!currentUser) {
-        setAccountKeyStatus({ available: 0, missing: 0, total: 0 });
-        return;
-      }
-
-      const epochs = new Map<string, string | undefined>();
-      for (const event of events) {
-        if (event.accountKeyEpochId) {
-          epochs.set(event.accountKeyEpochId, event.accountKeyCommitment ?? undefined);
-        }
-      }
-
-      let available = 0;
-      let missing = 0;
-      for (const [epochID, commitment] of epochs) {
-        try {
-          const secret = await loadAccountRootSecret(currentUser.id, epochID, commitment);
-          if (secret) {
-            available += 1;
-            secret.bytes.fill(0);
-          } else if (commitment) {
-            missing += 1;
-          }
-        } catch {
-          missing += 1;
-        }
-      }
-      setAccountKeyStatus({ available, missing, total: epochs.size });
     } finally {
       setStatusCheckedAt(Date.now());
       setStatusCheckPending(false);
@@ -2022,6 +1859,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     if (!profileHasChanges || profilePending) return false;
     profileNameInputRef.current?.blur();
     profileAddressInputRef.current?.blur();
+    profileAddressUnitInputRef.current?.blur();
     setProfileNotice("");
     setProfilePending(true);
     try {
@@ -2029,7 +1867,10 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: profileName.trim(), address: address.trim() }),
+        body: JSON.stringify({
+          name: profileName.trim(),
+          address: combineUnitAddress(address, addressUnit),
+        }),
       });
       if (response.status === 401) {
         recoverExpiredSession();
@@ -2219,7 +2060,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       const body = await response.json() as AuthChallenge | AuthSession;
       if ("user" in body) {
         applyUser(body.user);
-        setLastPhoneVerificationAt(Date.now());
         setChallenge(null);
         const openedInvitation = await loadAuthenticatedData();
         setScreen(openedInvitation ? "event" : "home");
@@ -2262,7 +2102,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       if (!response.ok) throw new Error(await responseError(response, "That code could not be verified."));
       const body = await response.json() as { user: ApiUser };
       applyUser(body.user);
-      setLastPhoneVerificationAt(Date.now());
       const openedInvitation = await loadAuthenticatedData();
       setScreen(openedInvitation ? "event" : "home");
     } catch (error) {
@@ -2334,6 +2173,45 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     window.requestAnimationFrame(() => replyPreviewTriggerRef.current?.focus());
   }
 
+  function showConfirmedReplyNotice() {
+    setAddressCopiedNotice(false);
+    if (addressCopiedNoticeTimerRef.current !== null) {
+      window.clearTimeout(addressCopiedNoticeTimerRef.current);
+      addressCopiedNoticeTimerRef.current = null;
+    }
+    setConfirmedReplyNotice(true);
+    if (confirmedReplyNoticeTimerRef.current !== null) {
+      window.clearTimeout(confirmedReplyNoticeTimerRef.current);
+    }
+    confirmedReplyNoticeTimerRef.current = window.setTimeout(() => {
+      setConfirmedReplyNotice(false);
+      confirmedReplyNoticeTimerRef.current = null;
+    }, 2500);
+  }
+
+  async function copyEventLocation(event: ApiEvent) {
+    const copyText = eventLocationClipboardText(event);
+    if (!copyText) return;
+    try {
+      await writeClipboardText(copyText);
+      setConfirmedReplyNotice(false);
+      if (confirmedReplyNoticeTimerRef.current !== null) {
+        window.clearTimeout(confirmedReplyNoticeTimerRef.current);
+        confirmedReplyNoticeTimerRef.current = null;
+      }
+      setAddressCopiedNotice(true);
+      if (addressCopiedNoticeTimerRef.current !== null) {
+        window.clearTimeout(addressCopiedNoticeTimerRef.current);
+      }
+      addressCopiedNoticeTimerRef.current = window.setTimeout(() => {
+        setAddressCopiedNotice(false);
+        addressCopiedNoticeTimerRef.current = null;
+      }, 2500);
+    } catch {
+      setReplyError("Couldn’t copy the address. Try again.");
+    }
+  }
+
   function handleReplyPreviewPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
     replyPreviewDragStartRef.current = event.clientY;
     replyPreviewDragLatestRef.current = 0;
@@ -2380,137 +2258,11 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     else setSheetDragY(0);
   }
 
-  function closeDeviceSwitch() {
-    if (deviceSwitchPending || authPending) return;
-    setDeviceSwitchOpen(false);
-    setDeviceSwitchStage("confirm");
-    setDeviceSwitchChallenge(null);
-    setDeviceSwitchCode("");
-    setDeviceSwitchError("");
-  }
-
-  async function finishDeviceSwitchAfterVerification() {
-    setDeviceSwitchStage("switching");
-    const result = await submitReply(true);
-    if (result.saved || result.deviceSwitchCompleted || result.recoveryCompleted) {
-      setDeviceSwitchOpen(false);
-      setDeviceSwitchStage("confirm");
-      setDeviceSwitchChallenge(null);
-      setDeviceSwitchCode("");
-      setDeviceSwitchError("");
-    } else {
-      setDeviceSwitchStage("confirm");
-      if (result.errorCode === "fresh_phone_verification_required") {
-        setLastPhoneVerificationAt(null);
-      }
-      setDeviceSwitchError(
-        result.errorMessage ?? REPLY_EXPERIENCE.deviceSwitch.failure,
-      );
-    }
-  }
-
-  async function beginDeviceSwitchVerification() {
-    if (!currentUser || deviceSwitchPending) return;
-    if (
-      lastPhoneVerificationAt !== null &&
-      Date.now() - lastPhoneVerificationAt < RECENT_PHONE_VERIFICATION_WINDOW_MS
-    ) {
-      setDeviceSwitchPending(true);
-      setDeviceSwitchError("");
-      try {
-        await finishDeviceSwitchAfterVerification();
-      } finally {
-        setDeviceSwitchPending(false);
-      }
-      return;
-    }
-    setDeviceSwitchPending(true);
-    setDeviceSwitchStage("requesting");
-    setDeviceSwitchError("");
-    try {
-      const response = await trackedFetch("/api/auth/request-code", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ phoneNumber: currentUser.phoneNumber }),
-      });
-      if (!response.ok) {
-        throw new Error(await responseError(response, "Couldn’t send a verification code."));
-      }
-      const body = await response.json() as AuthChallenge | AuthSession;
-      if ("user" in body) {
-        applyUser(body.user);
-        setLastPhoneVerificationAt(Date.now());
-        setDeviceSwitchPending(false);
-        await finishDeviceSwitchAfterVerification();
-        return;
-      }
-      if (!body.challengeId || !body.phoneNumber || !body.expiresAt || !body.resendAt) {
-        throw new Error("The verification request could not be started.");
-      }
-      setDeviceSwitchChallenge(body);
-      setDeviceSwitchCode("");
-      setDeviceSwitchStage("verify");
-    } catch (error) {
-      setDeviceSwitchStage("confirm");
-      setDeviceSwitchError(
-        error instanceof Error ? error.message : REPLY_EXPERIENCE.deviceSwitch.requestFailed,
-      );
-    } finally {
-      setDeviceSwitchPending(false);
-    }
-  }
-
-  async function verifyDeviceSwitchCode() {
-    if (
-      !deviceSwitchChallenge ||
-      deviceSwitchCode.length !== OTP_LENGTH ||
-      deviceSwitchPending
-    ) return;
-    setDeviceSwitchPending(true);
-    setDeviceSwitchError("");
-    try {
-      const response = await trackedFetch("/api/auth/verify-code", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          challengeId: deviceSwitchChallenge.challengeId,
-          code: deviceSwitchCode,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(await responseError(response, "That code could not be verified."));
-      }
-      const body = await response.json() as { user: ApiUser };
-      applyUser(body.user);
-      setLastPhoneVerificationAt(Date.now());
-      setDeviceSwitchPending(false);
-      await finishDeviceSwitchAfterVerification();
-    } catch (error) {
-      setDeviceSwitchStage("verify");
-      setDeviceSwitchError(
-        error instanceof Error ? error.message : "That code could not be verified.",
-      );
-    } finally {
-      setDeviceSwitchPending(false);
-    }
-  }
-
-  async function submitReply(
-    deviceSwitchConfirmed = false,
-  ): Promise<ReplySubmissionResult> {
-    const notSaved = (
-      errorMessage: string | null = null,
-      deviceSwitchCompleted = false,
-      errorCode: string | null = null,
-      recoveryCompleted = false,
-    ): ReplySubmissionResult => ({
+  async function submitReply(): Promise<ReplySubmissionResult> {
+    const notSaved = (errorMessage: string | null = null): ReplySubmissionResult => ({
       saved: false,
-      deviceSwitchCompleted,
-      recoveryCompleted,
       errorMessage,
-      errorCode,
+      errorCode: null,
     });
     if (
       !reply ||
@@ -2526,11 +2278,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       setReplyError(message);
       return notSaved(message);
     }
-    if (!activeEvent.privateResponsePolicy) {
-      const message = "This event is not ready to accept encrypted responses.";
-      setReplyError(message);
-      return notSaved(message);
-    }
     const submittedReply = reply;
     const submittedMinimum = minimum;
     const submittedConditionGroups = conditionGroups.map((group) => [...group]);
@@ -2543,198 +2290,52 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     replySubmissionInFlightRef.current = true;
     setAuthPending(true);
     setReplyError("");
-    let accountRootSecret: Uint8Array | null = null;
-    let deviceSwitchCompleted = false;
     try {
-      let accountKeyEpochId = inviteMetadata.accountKeyEpochId;
-      let accountKeyCommitment = inviteMetadata.accountKeyCommitment;
-      let localAccountKey = null;
-      if (accountKeyCommitment) {
-        try {
-          localAccountKey = await loadAccountRootSecret(
-            currentUser.id,
-            accountKeyEpochId,
-            accountKeyCommitment,
-          );
-        } catch (error) {
-          if (!(error instanceof PrivateVaultError) || !error.canSwitchDevice) {
-            throw error;
-          }
-        }
-      }
-      accountRootSecret = localAccountKey?.bytes ?? null;
-      const savedResponseUsesActiveEpoch =
-        inviteMetadata.responseEnvelope?.accountKeyEpochId === accountKeyEpochId;
-      const mustSwitchAccountKey =
-        Boolean(accountKeyCommitment && !localAccountKey) ||
-        (privateResponseState === "unreadable" && savedResponseUsesActiveEpoch);
-      if (mustSwitchAccountKey && !deviceSwitchConfirmed) {
-        setDeviceSwitchStage("confirm");
-        setDeviceSwitchChallenge(null);
-        setDeviceSwitchCode("");
-        setDeviceSwitchError("");
-        setDeviceSwitchOpen(true);
-        return notSaved();
-      }
-      if (mustSwitchAccountKey) {
-        const switchResponse = await trackedFetch("/api/account/key-epoch/reset", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            expectedAccountKeyEpochId: inviteMetadata.accountKeyEpochId,
-          }),
-        });
-        if (!switchResponse.ok) {
-          const error = await responseErrorDetails(
-            switchResponse,
-            "This device couldn’t prepare a new encrypted reply.",
-          );
-          throw new HerdResponseError(error.message, switchResponse.status, error.code);
-        }
-        const switchedEpoch = await switchResponse.json() as { accountKeyEpochId: string };
-        accountRootSecret?.fill(0);
-        accountRootSecret = null;
-        accountKeyEpochId = switchedEpoch.accountKeyEpochId;
-        accountKeyCommitment = null;
-        localAccountKey = null;
-        setInviteMetadata((current) => current ? {
-          ...current,
-          accountKeyEpochId,
-          accountKeyCommitment: null,
-        } : current);
-      }
-
-      if (!accountKeyCommitment) {
-        localAccountKey = await getOrCreateAccountRootSecret(
-          currentUser.id,
-          accountKeyEpochId,
-        );
-        accountRootSecret = localAccountKey.bytes;
-        accountKeyCommitment = await accountRootSecretCommitment(
-          localAccountKey.bytes,
-        );
-        const initializeResponse = await trackedFetch("/api/account/key-epoch/initialize", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            expectedAccountKeyEpochId: accountKeyEpochId,
-            keyCommitment: accountKeyCommitment,
-          }),
-        });
-        if (!initializeResponse.ok) {
-          const error = await responseErrorDetails(
-            initializeResponse,
-            "The account encryption key could not be initialized.",
-          );
-          throw new HerdResponseError(error.message, initializeResponse.status, error.code);
-        }
-        const initialized = await initializeResponse.json() as {
-          accountKeyEpochId: string;
-          keyCommitment: string;
-        };
-        if (
-          initialized.accountKeyEpochId !== accountKeyEpochId ||
-          initialized.keyCommitment !== accountKeyCommitment
-        ) {
-          throw new Error("Herd returned an invalid account-key commitment.");
-        }
-        setInviteMetadata((current) => current ? {
-          ...current,
-          accountKeyEpochId,
-          accountKeyCommitment,
-        } : current);
-        if (mustSwitchAccountKey) deviceSwitchCompleted = true;
-      }
-      if (!localAccountKey) {
-        throw new Error("The active account key is not available on this device.");
-      }
-      accountRootSecret = localAccountKey.bytes;
-      const revision = (inviteMetadata.responseRevision ?? 0) + 1;
-      const pendingSubmission = pendingReplySubmissionRef.current;
-      const storedResponseIsPendingSubmission = Boolean(
-        pendingSubmission &&
-        inviteMetadata.responseEnvelope?.envelopeId === pendingSubmission.envelope.envelopeId &&
-        inviteMetadata.responseEnvelope?.responseSignature === pendingSubmission.envelope.responseSignature,
-      );
-      let envelope: PrivateResponseEnvelopeV1;
-      if (
-        pendingSubmission &&
-        pendingSubmission.eventId === activeEvent.id &&
-        pendingSubmission.inviteToken === token &&
-        pendingSubmission.draftFingerprint === submittedFingerprint &&
-        pendingSubmission.accountKeyEpochId === accountKeyEpochId &&
-        (pendingSubmission.revision === revision || storedResponseIsPendingSubmission) &&
-        pendingSubmission.policyHash === activeEvent.privateResponsePolicy.policyHash
-      ) {
-        envelope = pendingSubmission.envelope;
-      } else {
-        await attestEvaluatorForPolicy(activeEvent.privateResponsePolicy);
-        const sealed = await sealPrivateResponse({
-          eventId: activeEvent.id,
-          inviteeId: inviteMetadata.id,
-          accountKeyEpochId,
-          revision,
+      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/ballot`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
           response: submittedReply === "yes" ? "going" : "cant_commit",
           minimumParticipants: submittedReply === "yes" ? submittedMinimum : null,
           requiredGroups: submittedReply === "yes"
             ? submittedConditionGroups.map((memberIDs) => ({
-                id: newConditionGroupId(),
+                id: crypto.randomUUID(),
                 memberIDs: [...memberIDs].sort(),
               }))
             : [],
-          allowedInviteeIds: activeEvent.invitees.map((person) => person.id),
-          accountRootSecret,
-          policy: activeEvent.privateResponsePolicy,
-        });
-        envelope = sealed.envelope;
-        pendingReplySubmissionRef.current = {
-          eventId: activeEvent.id,
-          inviteToken: token,
-          draftFingerprint: submittedFingerprint,
-          accountKeyEpochId,
-          revision,
-          policyHash: activeEvent.privateResponsePolicy.policyHash,
-          envelope,
-        };
-      }
-      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ envelope }),
+        }),
       });
       if (!response.ok) {
         const error = await responseErrorDetails(response, "Couldn’t save your reply.");
         throw new HerdResponseError(error.message, response.status, error.code);
       }
-      const body = await response.json() as PrivateResponseSubmissionBody;
-      await verifyPrivateResponseSubmission(envelope, body);
+      const body = await response.json() as { ballot: SimplifiedBallot };
       setInviteMetadata((current) => current ? {
         ...current,
-        accountKeyEpochId,
-        accountKeyCommitment,
-        hasResponse: true,
-        responseRevision: revision,
-        responseEnvelope: body.responseEnvelope,
-        responseCertificationStatus: "certified",
+        hasBallot: true,
+        responseRevision: body.ballot.revision,
       } : current);
       setSelectedEvent((current) => current ? {
         ...current,
-        accountKeyEpochId,
-        accountKeyCommitment,
-        hasResponse: true,
-        responseRevision: revision,
+        hasBallot: true,
+        responseRevision: body.ballot.revision,
+        invitees: current.invitees.map((invitee) =>
+          invitee.isCurrentUser ? { ...invitee, hasResponded: true } : invitee
+        ),
       } : current);
       setEvents((current) => current.map((event) =>
         event.id === activeEvent.id
-          ? { ...event, accountKeyEpochId, accountKeyCommitment, hasResponse: true, responseRevision: revision }
+          ? {
+              ...event,
+              hasBallot: true,
+              responseRevision: body.ballot.revision,
+              invitees: event.invitees.map((invitee) =>
+                invitee.isCurrentUser ? { ...invitee, hasResponded: true } : invitee
+              ),
+            }
           : event
       ));
-      // Initializing the local account key updates invite metadata and causes
-      // the saved-response loader to clear its draft. Keep the answer that was
-      // actually sealed authoritative for the immediate success projection.
       setReply(submittedReply);
       setSavedReplyFingerprint(
         replyDraftFingerprint(
@@ -2744,125 +2345,22 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         ),
       );
       setPrivateResponseState("ready");
-      pendingReplySubmissionRef.current = null;
       setScreen("success");
       return {
         saved: true,
-        deviceSwitchCompleted,
-        recoveryCompleted: false,
         errorMessage: null,
         errorCode: null,
       };
     } catch (error) {
-      if (
-        error instanceof EvaluatorAuthenticationError ||
-        (error instanceof HerdResponseError && error.status === 401)
-      ) {
+      if (error instanceof HerdResponseError && error.status === 401) {
         const message = "Your session expired. Sign in again to continue.";
         resetAuthenticatedExperience();
         setAuthError(message);
-        return notSaved(message, deviceSwitchCompleted, "authentication_required");
-      }
-      if (
-        error instanceof HerdResponseError &&
-        error.code === "account_key_epoch_changed"
-      ) {
-        pendingReplySubmissionRef.current = null;
-        try {
-          const openedInvitation = await loadAuthenticatedData();
-          setScreen(openedInvitation ? "event" : "home");
-          const message = "Private-reply security changed on another device. Herd refreshed it; choose your reply and try again.";
-          setReplyError(message);
-          return notSaved(message, false, "account_key_epoch_refreshed", true);
-        } catch (refreshError) {
-          if (refreshError instanceof Error) {
-            setReplyError(refreshError.message);
-            return notSaved(refreshError.message, false, error.code);
-          }
-        }
+        return notSaved(message);
       }
       const message = error instanceof Error ? error.message : "Couldn’t save your reply.";
       setReplyError(message);
-      return notSaved(
-        message,
-        deviceSwitchCompleted,
-        error instanceof HerdResponseError ? error.code : null,
-      );
-    } finally {
-      accountRootSecret?.fill(0);
-      replySubmissionInFlightRef.current = false;
-      setAuthPending(false);
-    }
-  }
-
-  async function retryStoredReplyCertification(): Promise<void> {
-    if (
-      authPending ||
-      !activeEvent ||
-      !inviteMetadata?.canRespond ||
-      inviteMetadata.responseCertificationStatus !== "pending" ||
-      !inviteMetadata.responseEnvelope
-    ) return;
-    const token = activeEvent.inviteToken ?? inviteToken;
-    if (!token) {
-      setReplyError("This invitation does not have an active reply link yet.");
-      return;
-    }
-    const envelope = submissionEnvelope(inviteMetadata.responseEnvelope);
-    replySubmissionInFlightRef.current = true;
-    setAuthPending(true);
-    setReplyError("");
-    try {
-      const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/rsvp`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ envelope }),
-      });
-      if (response.status === 401) {
-        recoverExpiredSession();
-        return;
-      }
-      if (!response.ok) {
-        const error = await responseErrorDetails(
-          response,
-          "Your encrypted reply is saved, but its certification could not be finished yet.",
-        );
-        throw new HerdResponseError(error.message, response.status, error.code);
-      }
-      const body = await response.json() as PrivateResponseSubmissionBody;
-      await verifyPrivateResponseSubmission(envelope, body);
-      setInviteMetadata((current) => current ? {
-        ...current,
-        hasResponse: true,
-        responseRevision: envelope.revision,
-        responseEnvelope: body.responseEnvelope,
-        responseCertificationStatus: "certified",
-      } : current);
-      setSelectedEvent((current) => current ? {
-        ...current,
-        hasResponse: true,
-        responseRevision: envelope.revision,
-        responseCertificationStatus: "certified",
-      } : current);
-      setEvents((current) => current.map((event) =>
-        event.id === activeEvent.id
-          ? {
-              ...event,
-              hasResponse: true,
-              responseRevision: envelope.revision,
-              responseCertificationStatus: "certified",
-            }
-          : event
-      ));
-      pendingReplySubmissionRef.current = null;
-      setScreen("success");
-    } catch (error) {
-      setReplyError(
-        error instanceof Error
-          ? error.message
-          : "Your encrypted reply is saved, but its certification could not be finished yet.",
-      );
+      return notSaved(message);
     } finally {
       replySubmissionInFlightRef.current = false;
       setAuthPending(false);
@@ -3239,37 +2737,27 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <h3>Private reply security</h3>
                 <div className="account-status-card">
                   <AccountStatusRow
-                    state={accountKeyStatus?.missing ? "attention" : accountKeyStatus?.available ? "healthy" : "not-configured"}
+                    state={currentUser ? "healthy" : "not-configured"}
                     icon={<KeyRound />}
-                    title={accountKeyStatus?.missing ? "Private replies unavailable on this device" : accountKeyStatus?.available ? "Private replies available" : "Private replies not set up yet"}
-                    detail={accountKeyStatus?.missing
-                      ? `This device can’t open private replies protected by ${accountKeyStatus.missing} existing ${accountKeyStatus.missing === 1 ? "key" : "keys"}. When you send a new reply, Herd can verify your phone number and switch private replies to this device.`
-                      : accountKeyStatus?.available
-                        ? `This device can open private replies protected by ${accountKeyStatus.available} account ${accountKeyStatus.available === 1 ? "key" : "keys"}`
-                        : "Herd will set up this device when you send the first private reply"}
+                    title={currentUser ? "Private replies available" : "Sign in to view private replies"}
+                    detail={currentUser
+                      ? "Your private replies are available anywhere you sign in to this account."
+                      : "Private replies are connected to your account."}
                   />
                 </div>
               </div>
 
               <div className="account-status-section">
-                <h3>Trust and verification</h3>
+                <h3>Event results</h3>
                 <div className="account-status-card">
-                  <AccountStatusRow
-                    state={protectedEventCount ? "healthy" : "not-configured"}
-                    icon={<ShieldCheck />}
-                    title="Herd evaluator trust"
-                    detail={protectedEventCount ? `${protectedEventCount} signed event ${protectedEventCount === 1 ? "policy" : "policies"} loaded` : "No encrypted-reply policies are active"}
-                  />
                   <AccountStatusRow
                     state={verificationIssueCount ? "attention" : "healthy"}
                     icon={<CheckCircle2 />}
-                    title="Result verification"
-                    detail={verificationIssueCount ? `${verificationIssueCount} event ${verificationIssueCount === 1 ? "has" : "have"} an unverifiable result` : "No event verification failures detected"}
+                    title="Result checks"
+                    detail={verificationIssueCount ? `${verificationIssueCount} event ${verificationIssueCount === 1 ? "needs" : "need"} attention` : "No event result issues detected"}
                   />
                 </div>
               </div>
-
-              <p className="account-status-footnote">Private keys never leave this browser and are not shown here. Only availability checks are displayed.</p>
             </div>
           </section>
         ) : null}
@@ -3427,6 +2915,37 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                     ) : null}
                   </div>
                 </div>
+                <div className="profile-divider" />
+                <div className="profile-field">
+                  <label htmlFor="profile-address-unit">Unit number</label>
+                  <div className="profile-field-control">
+                    <input
+                      ref={profileAddressUnitInputRef}
+                      id="profile-address-unit"
+                      value={addressUnit}
+                      onChange={(event) => {
+                        setAddressUnit(event.target.value);
+                        setProfileNotice("");
+                      }}
+                      placeholder="Optional"
+                      autoComplete="address-line2"
+                    />
+                    {addressUnit ? (
+                      <button
+                        type="button"
+                        className="profile-field-clear"
+                        aria-label="Clear unit number"
+                        onClick={() => {
+                          setAddressUnit("");
+                          setProfileNotice("");
+                          profileAddressUnitInputRef.current?.focus();
+                        }}
+                      >
+                        <X size={17} strokeWidth={2.2} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <div className="profile-account-actions" aria-label="Account actions">
                 <button type="button" className="profile-inline-action" onClick={() => setLogoutConfirmationOpen(true)}>
@@ -3490,9 +3009,25 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <EventInfoNotices event={activeEvent} />
                 <div className="event-meta-list">
                   <div><span aria-hidden="true"><Clock size={17} strokeWidth={1.8} /></span><p><strong>{activeEvent.eventDate ? formatEventDate(activeEvent.eventDate) : INVITATION_EXPERIENCE.dateNotSet}</strong></p></div>
-                  <div><span aria-hidden="true"><MapPin size={16} strokeWidth={1.8} /></span><p><strong>{activeEvent.locationName || INVITATION_EXPERIENCE.locationNotSet}</strong><small>{activeEvent.locationAddress}</small></p></div>
+                  <button
+                    type="button"
+                    className="event-location-copy"
+                    disabled={!eventLocationClipboardText(activeEvent)}
+                    onClick={() => void copyEventLocation(activeEvent)}
+                    aria-label={eventLocationClipboardText(activeEvent)
+                      ? "Copy location address"
+                      : INVITATION_EXPERIENCE.locationNotSet}
+                  >
+                    <span aria-hidden="true"><MapPin size={16} strokeWidth={1.8} /></span>
+                    <p>
+                      <strong>{eventLocationDisplay(activeEvent).primary || INVITATION_EXPERIENCE.locationNotSet}</strong>
+                      {eventLocationDisplay(activeEvent).secondary
+                        ? <small>{eventLocationDisplay(activeEvent).secondary}</small>
+                        : null}
+                    </p>
+                  </button>
                   <div><span aria-hidden="true"><Crown size={17} strokeWidth={1.8} /></span><p><strong>{INVITATION_EXPERIENCE.hostPrefix} {activeEvent.hostName.split(" ")[0] || activeEvent.hostName}</strong></p></div>
-                  <div><span aria-hidden="true"><Hourglass size={17} strokeWidth={1.8} /></span><p><strong>{activeEvent.rsvpDeadline ? INVITATION_EXPERIENCE.replyByPrefix : INVITATION_EXPERIENCE.noReplyDeadline}</strong>{activeEvent.rsvpDeadline ? <small>{formatReplyDeadline(activeEvent.rsvpDeadline)}</small> : null}</p></div>
+                  {activeEvent.resolution?.status !== "confirmed" ? <div><span aria-hidden="true"><Hourglass size={17} strokeWidth={1.8} /></span><p><strong>{activeEvent.rsvpDeadline ? INVITATION_EXPERIENCE.replyByPrefix : INVITATION_EXPERIENCE.noReplyDeadline}</strong>{activeEvent.rsvpDeadline ? <small>{formatReplyDeadline(activeEvent.rsvpDeadline)}</small> : null}</p></div> : null}
                 </div>
                 <div className="metric-row hero-metrics">
                   <Metric value={String(participantCount(activeEvent))} label={INVITATION_EXPERIENCE.metrics.invited} />
@@ -3554,29 +3089,16 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 {privateResponseState === "loading" ? (
                   <p className="edit-note" role="status">{REPLY_EXPERIENCE.openingSaved}</p>
                 ) : null}
-                {privateResponseState === "unreadable" && inviteMetadata?.hasResponse ? (
-                  <p className="inline-error" role="status">
-                    {REPLY_EXPERIENCE.unreadable}
-                  </p>
-                ) : null}
-                {hasPendingResponseCertification ? (
-                  <p className="edit-note" role="status">
-                    Your encrypted reply is saved. Finish certification so every device can verify it.
-                  </p>
-                ) : null}
-
-                {hasPendingResponseCertification && privateResponseState === "unreadable" ? (
-                  <button
-                    type="button"
-                    className="primary-button"
-                    disabled={authPending}
-                    onClick={() => void retryStoredReplyCertification()}
-                  >
-                    {authPending ? "Finishing certification…" : "Finish saved reply certification"}
-                  </button>
-                ) : null}
-
-                <div className="reply-choice-group" role="radiogroup" aria-labelledby="reply-choice-label">
+                <div className={`confirmed-reply-editor ${activeEvent.resolution?.status === "confirmed" ? "is-locked" : ""}`}>
+                <div
+                  className="reply-choice-group"
+                  role="radiogroup"
+                  aria-labelledby="reply-choice-label"
+                  aria-busy={privateResponseState === "loading"}
+                  inert={activeEvent.resolution?.status === "confirmed" || privateResponseState === "loading"
+                    ? true
+                    : undefined}
+                >
                   <div
                     className={`reply-option reply-option-yes ${reply === "yes" ? "selected" : ""}`}
                     onClick={() => toggleReply("yes")}
@@ -3702,6 +3224,15 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                   </span>
                 </button>
                 </div>
+                {activeEvent.resolution?.status === "confirmed" ? (
+                  <button
+                    type="button"
+                    className="confirmed-reply-edit-guard"
+                    aria-label={REPLY_EXPERIENCE.confirmedLockedMessage}
+                    onClick={showConfirmedReplyNotice}
+                  />
+                ) : null}
+                </div>
 
                 <div className="response-submit">
                   {replyError ? <p className="inline-error" role="alert">{replyError}</p> : null}
@@ -3709,20 +3240,14 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                     className="primary-button"
                     disabled={!replyHasUnsavedChanges || authPending || privateResponseState === "loading"}
                     onClick={() => void (
-                      hasPendingResponseCertification &&
-                      currentReplyFingerprint === savedReplyFingerprint
-                        ? retryStoredReplyCertification()
-                        : submitReply()
+                      submitReply()
                     )}
                   >
                     {authPending
                       ? REPLY_EXPERIENCE.submittingButton
                       : !reply
                         ? REPLY_EXPERIENCE.chooseButton
-                        : hasPendingResponseCertification &&
-                            currentReplyFingerprint === savedReplyFingerprint
-                          ? "Finish saved reply certification"
-                        : activeEvent.hasResponse
+                        : activeEvent.hasResponse || activeEvent.hasBallot
                           ? replyHasUnsavedChanges
                             ? REPLY_EXPERIENCE.updateButton
                             : REPLY_EXPERIENCE.sentButton
@@ -3748,7 +3273,15 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
             <div className="screen-scroll attendees-screen">
               <div className="screen-page-heading">
                 <h2 id="attendees-heading">{ATTENDEES_EXPERIENCE.title}</h2>
-                <p className="attendees-disclosure">{ATTENDEES_EXPERIENCE.statusDisclosure}</p>
+                <p className="attendees-disclosure">
+                  {activeEvent?.resolution?.status === "confirmed"
+                    ? ATTENDEES_EXPERIENCE.statusDisclosure
+                    : activeEvent?.role === "host"
+                      ? "You can see who has responded. What each person chose stays private until the event is confirmed."
+                      : activeEvent?.hasResponse || activeEvent?.hasBallot
+                        ? "You can see who has responded because your private reply has been sent. What each person chose stays private until the event is confirmed."
+                        : "Send your private reply to see who has responded. What each person chose stays private until the event is confirmed."}
+                </p>
               </div>
               <p className="section-label">{peopleCountLabel(invitedPeople.length + 1)}</p>
               <div className="people-list">
@@ -4137,6 +3670,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               </div>
               <ReplyVisibilityPreview
                 displayName={replyPreviewName}
+                isConfirmed={activeEvent?.resolution?.status === "confirmed"}
                 status={reply === "yes"
                   ? "Going"
                   : reply === "no"
@@ -4154,87 +3688,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               >
                 {REPLY_EXPERIENCE.previewDismissButton}
               </button>
-            </section>
-          </div>
-        ) : null}
-
-        {deviceSwitchOpen ? (
-          <div className="dialog-backdrop" onClick={closeDeviceSwitch}>
-            <section
-              className="device-switch-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="device-switch-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h2 id="device-switch-title">{REPLY_EXPERIENCE.deviceSwitch.title}</h2>
-              {deviceSwitchStage === "verify" ? (
-                <>
-                  <p>
-                    {REPLY_EXPERIENCE.deviceSwitch.verificationPrefix}{" "}
-                    {maskedPhoneNumber(deviceSwitchChallenge?.phoneNumber || currentUser?.phoneNumber || "")}{" "}
-                    {REPLY_EXPERIENCE.deviceSwitch.verificationSuffix}
-                  </p>
-                  <label className="device-switch-code-field">
-                    <span>Verification code</span>
-                    <input
-                      value={deviceSwitchCode}
-                      onChange={(event) => {
-                        setDeviceSwitchCode(event.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH));
-                        setDeviceSwitchError("");
-                      }}
-                      placeholder="0000"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      aria-invalid={Boolean(deviceSwitchError)}
-                      autoFocus
-                    />
-                  </label>
-                </>
-              ) : (
-                <p>
-                  {deviceSwitchStage === "requesting"
-                    ? REPLY_EXPERIENCE.deviceSwitch.requestingCode
-                    : deviceSwitchStage === "switching"
-                      ? REPLY_EXPERIENCE.deviceSwitch.verifiedBody
-                      : inviteMetadata?.hasResponse
-                        ? REPLY_EXPERIENCE.deviceSwitch.replaceBody
-                        : REPLY_EXPERIENCE.deviceSwitch.newReplyBody}
-                </p>
-              )}
-              {deviceSwitchError ? <p className="inline-error" role="alert">{deviceSwitchError}</p> : null}
-              <div className="dialog-actions">
-                <button
-                  className="secondary-button"
-                  disabled={deviceSwitchPending || authPending}
-                  onClick={closeDeviceSwitch}
-                >
-                  {REPLY_EXPERIENCE.deviceSwitch.cancelButton}
-                </button>
-                <button
-                  className="danger-button"
-                  disabled={
-                    deviceSwitchPending ||
-                    authPending ||
-                    deviceSwitchStage === "requesting" ||
-                    deviceSwitchStage === "switching" ||
-                    (deviceSwitchStage === "verify" && deviceSwitchCode.length !== OTP_LENGTH)
-                  }
-                  onClick={() => void (
-                    deviceSwitchStage === "verify"
-                      ? verifyDeviceSwitchCode()
-                      : beginDeviceSwitchVerification()
-                  )}
-                >
-                  {deviceSwitchStage === "verify"
-                    ? deviceSwitchPending
-                      ? REPLY_EXPERIENCE.deviceSwitch.verifyingButton
-                      : REPLY_EXPERIENCE.deviceSwitch.verifyButton
-                    : deviceSwitchStage === "switching" || authPending
-                      ? REPLY_EXPERIENCE.deviceSwitch.switchingButton
-                      : REPLY_EXPERIENCE.deviceSwitch.confirmButton}
-                </button>
-              </div>
             </section>
           </div>
         ) : null}
@@ -4314,6 +3767,16 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 </>
               )}
             </section>
+          </div>
+        ) : null}
+        {confirmedReplyNotice ? (
+          <div className="bottom-toast" role="status">
+            {REPLY_EXPERIENCE.confirmedLockedMessage}
+          </div>
+        ) : null}
+        {addressCopiedNotice ? (
+          <div className="bottom-toast" role="status" data-testid="address-copied-toast">
+            Address copied to clipboard
           </div>
         ) : null}
       </div>
