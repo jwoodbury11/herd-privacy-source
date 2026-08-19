@@ -114,6 +114,7 @@ test("verifies the independently pinned release, deployment, and deployed resour
   });
   assert.equal(result.ok, true);
   assert.equal(result.releaseId, fixture.releaseId);
+  assert.equal(result.evaluatorKeyEpoch.identityBasis, "policy-measurement-v1");
   assert.equal(result.evaluatorAttestation.origin, "https://evaluator.herd.example");
   assert.equal(
     result.evaluatorKeyEpoch.workloadImageDigest,

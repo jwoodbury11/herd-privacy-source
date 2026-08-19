@@ -249,6 +249,7 @@ function environment(fixture) {
 
 function epochWitness(overrides = {}) {
   return {
+    identityBasis: "policy-measurement-v1",
     evaluatorKeyEpochId: "herd-evaluator-epoch-2026.08",
     sha256: "10".repeat(32),
     workloadImageDigest: `sha256:${"11".repeat(32)}`,
@@ -289,6 +290,29 @@ test("release witness rejects predecessor, epoch tuple, and global transparency 
     evaluatorKeyEpoch: epochWitness(),
   };
   assert.doesNotThrow(() => assertReleaseContinuity(previous, next));
+
+  const legacyPrevious = structuredClone(previous);
+  delete legacyPrevious.evaluatorKeyEpoch.identityBasis;
+  legacyPrevious.evaluatorKeyEpoch.sha256 = "16".repeat(32);
+  legacyPrevious.evaluatorKeyEpoch.workloadImageDigest =
+    `sha256:${"17".repeat(32)}`;
+  assert.doesNotThrow(() => assertReleaseContinuity(legacyPrevious, next));
+
+  const legacyKeyDrift = structuredClone(next);
+  legacyKeyDrift.evaluatorKeyEpoch.responseDecryption.publicKeySha256 =
+    "18".repeat(32);
+  assert.throws(
+    () => assertReleaseContinuity(legacyPrevious, legacyKeyDrift),
+    /existing evaluator epoch changed/u,
+  );
+
+  const sameManifestMigration = structuredClone(next);
+  sameManifestMigration.manifestSha256 = legacyPrevious.manifestSha256;
+  sameManifestMigration.releaseId = legacyPrevious.releaseId;
+  assert.throws(
+    () => assertReleaseContinuity(legacyPrevious, sameManifestMigration),
+    /existing evaluator epoch changed/u,
+  );
 
   const wrongPredecessor = structuredClone(next);
   wrongPredecessor.previousRelease.manifestSha256 = "22".repeat(32);
