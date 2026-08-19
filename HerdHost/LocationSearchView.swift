@@ -223,7 +223,7 @@ struct LocationSearchView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Done") {
                         let manualQuery = searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
                         let trimmedUnit = unitNumber.trimmingCharacters(in: .whitespacesAndNewlines)
                         if selectedName.isEmpty && selectedAddress.isEmpty && trimmedUnit.isEmpty {
@@ -376,7 +376,7 @@ struct AddressSearchView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Done") {
                         address = LocationUnitAddress.combine(
                             base: selectedAddress ?? trimmedQuery,
                             unit: unitNumber

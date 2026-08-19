@@ -108,6 +108,7 @@ enum APIError: LocalizedError, Sendable {
     case invalidResponse
     case unauthorized
     case inviteForDifferentAccount
+    case codeRequestThrottled(message: String, retryAt: Date)
     case server(statusCode: Int, message: String)
 
     var errorDescription: String? {
@@ -120,6 +121,8 @@ enum APIError: LocalizedError, Sendable {
             "Your session has expired. Please confirm your phone number again."
         case .inviteForDifferentAccount:
             "This invitation belongs to a different phone number."
+        case let .codeRequestThrottled(message, _):
+            message
         case let .server(_, message):
             message
         }
@@ -811,6 +814,9 @@ actor APIClient {
             {
                 throw APIError.inviteForDifferentAccount
             }
+            if let throttle = codeRequestThrottle(from: data) {
+                throw throttle
+            }
             throw APIError.server(
                 statusCode: httpResponse.statusCode,
                 message: errorMessage(from: data, statusCode: httpResponse.statusCode)
@@ -1009,6 +1015,9 @@ actor APIClient {
             {
                 throw APIError.inviteForDifferentAccount
             }
+            if let throttle = codeRequestThrottle(from: data) {
+                throw throttle
+            }
             throw APIError.server(
                 statusCode: response.statusCode,
                 message: errorMessage(from: data, statusCode: response.statusCode)
@@ -1049,14 +1058,6 @@ actor APIClient {
             let message = error["message"] as? String,
             !message.isEmpty
         {
-            if
-                error["code"] as? String == "code_request_throttled",
-                let details = error["details"] as? [String: Any],
-                let retryAtValue = details["retryAt"] as? String,
-                let retryAt = Self.iso8601Date(retryAtValue)
-            {
-                return "\(message) Try again at \(retryAt.formatted(date: .omitted, time: .shortened))."
-            }
             return message
         }
         return "Herd couldn’t complete that request (error \(statusCode))."
@@ -1066,6 +1067,19 @@ actor APIClient {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: value)
+    }
+
+    private func codeRequestThrottle(from data: Data) -> APIError? {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let error = object["error"] as? [String: Any],
+            error["code"] as? String == "code_request_throttled",
+            let message = error["message"] as? String,
+            let details = error["details"] as? [String: Any],
+            let retryAtValue = details["retryAt"] as? String,
+            let retryAt = Self.iso8601Date(retryAtValue)
+        else { return nil }
+        return .codeRequestThrottled(message: message, retryAt: retryAt)
     }
 
     private func errorCode(from data: Data) -> String? {

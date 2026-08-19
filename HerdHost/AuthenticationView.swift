@@ -10,6 +10,7 @@ struct AuthenticationView: View {
     @State private var automaticallySubmittedPhoneNumber: String?
     @State private var automaticallySubmittedCode: String?
     @State private var showsReleaseStatus = false
+    @State private var currentTime = Date.now
     @FocusState private var focusedField: Field?
 
     private let experience = HerdExperience.shared.authentication
@@ -45,6 +46,14 @@ struct AuthenticationView: View {
             automaticallySubmittedCode = nil
             focusedField = challengeID == nil ? .phone : .code
         }
+        .task(id: authStore.codeRequestRetryAt) {
+            currentTime = .now
+            guard let retryAt = authStore.codeRequestRetryAt else { return }
+            while !Task.isCancelled && currentTime < retryAt {
+                try? await Task.sleep(for: .seconds(1))
+                currentTime = .now
+            }
+        }
     }
 
     private var welcomeScreen: some View {
@@ -71,7 +80,7 @@ struct AuthenticationView: View {
 
                     phoneEntry
 
-                    if authStore.errorMessage != nil {
+                    if authenticationErrorMessage != nil {
                         errorMessage
                             .padding(.top, 12)
                             .padding(.horizontal, 4)
@@ -97,11 +106,7 @@ struct AuthenticationView: View {
 
     private var brand: some View {
         HStack(spacing: 10) {
-            Image("HerdBrandIcon")
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 36, height: 36)
-                .clipShape(.rect(cornerRadius: 9))
+            HerdBrandMark()
 
             Text(experience.brandName)
                 .font(.system(size: 18, weight: .bold))
@@ -203,10 +208,12 @@ struct AuthenticationView: View {
             .accessibilityIdentifier("authentication-request-code")
             .disabled(
                 authStore.isBusy ||
+                codeRequestRetrySeconds > 0 ||
                 !AuthStore.canRequestCode(phoneNumber: phoneNumber)
             )
             .opacity(
                 authStore.isBusy ||
+                codeRequestRetrySeconds > 0 ||
                 !AuthStore.canRequestCode(phoneNumber: phoneNumber)
                     ? 0.42
                     : 1
@@ -269,13 +276,13 @@ struct AuthenticationView: View {
                     verificationCodeEntry
                         .padding(.top, 32)
 
-                    if authStore.errorMessage != nil {
+                    if authenticationErrorMessage != nil {
                         errorMessage
                             .padding(.top, 18)
                     }
 
                     resendButton(challenge)
-                        .padding(.top, authStore.errorMessage == nil ? 18 : 0)
+                        .padding(.top, authenticationErrorMessage == nil ? 18 : 0)
 
                     Spacer(minLength: 30)
                 }
@@ -399,21 +406,27 @@ struct AuthenticationView: View {
                 0,
                 Int(challenge.resendAt.timeIntervalSince(context.date).rounded(.up))
             )
+            let retryRemaining = max(
+                0,
+                Int((authStore.codeRequestRetryAt ?? context.date)
+                    .timeIntervalSince(context.date).rounded(.up))
+            )
+            let displayedRemaining = max(remaining, retryRemaining)
             Button {
                 Task {
                     _ = await authStore.resendCode()
                 }
             } label: {
                 Text(
-                    remaining > 0
-                        ? "\(experience.verification.resendPendingPrefix) 0:\(String(format: "%02d", remaining))"
+                    displayedRemaining > 0
+                        ? "\(experience.verification.resendPendingPrefix) \(Self.retryCountdown(displayedRemaining))"
                         : experience.verification.resendButton
                 )
             }
             .buttonStyle(.plain)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(remaining > 0 ? .tertiary : .primary)
-            .disabled(remaining > 0 || authStore.isBusy)
+            .foregroundStyle(displayedRemaining > 0 ? .tertiary : .primary)
+            .disabled(displayedRemaining > 0 || authStore.isBusy)
         }
     }
 
@@ -460,12 +473,31 @@ struct AuthenticationView: View {
 
     @ViewBuilder
     private var errorMessage: some View {
-        if let errorMessage = authStore.errorMessage {
+        if let errorMessage = authenticationErrorMessage {
             Label(errorMessage, systemImage: "exclamationmark.circle.fill")
                 .font(.footnote)
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var authenticationErrorMessage: String? {
+        if codeRequestRetrySeconds > 0 {
+            return "Please wait before requesting another code. Try again in \(Self.retryCountdown(codeRequestRetrySeconds))."
+        }
+        return authStore.errorMessage
+    }
+
+    private var codeRequestRetrySeconds: Int {
+        guard let retryAt = authStore.codeRequestRetryAt else { return 0 }
+        return max(0, Int(ceil(retryAt.timeIntervalSince(currentTime))))
+    }
+
+    private static func retryCountdown(_ seconds: Int) -> String {
+        guard seconds >= 60 else {
+            return "\(seconds) \(seconds == 1 ? "second" : "seconds")"
+        }
+        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
     }
 
     private static func formattedPhoneNumber(_ value: String) -> String {
@@ -528,5 +560,36 @@ struct AuthenticationView: View {
         let digits = value.filter(\.isWholeNumber)
         let suffix = String(digits.suffix(4))
         return "••• ••• \(String(repeating: "•", count: max(0, 4 - suffix.count)))\(suffix)"
+    }
+}
+
+private struct HerdBrandMark: View {
+    private let ivory = Color(red: 0.98, green: 0.97, blue: 0.93)
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.black)
+
+            Capsule()
+                .fill(ivory)
+                .frame(width: 17, height: 4)
+
+            ForEach([-1.0, 1.0], id: \.self) { column in
+                Capsule()
+                    .fill(ivory)
+                    .frame(width: 5, height: 11)
+                    .offset(x: column * 6.5)
+
+                ForEach([-1.0, 1.0], id: \.self) { row in
+                    Circle()
+                        .fill(ivory)
+                        .frame(width: 5.5, height: 5.5)
+                        .offset(x: column * 6.5, y: row * 9)
+                }
+            }
+        }
+        .frame(width: 36, height: 36)
+        .accessibilityHidden(true)
     }
 }

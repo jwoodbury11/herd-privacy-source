@@ -36,6 +36,15 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(page, /profileAddressUnitInputRef\.current\?\.blur\(\)/u);
   assert.doesNotMatch(page, /setProfileNotice\(PROFILE_EXPERIENCE\.savedNotice\)/u);
   assert.doesNotMatch(page, /profileNotice === PROFILE_EXPERIENCE\.savedNotice/u);
+  assert.deepEqual(experience.profile.unsavedChanges, {
+    title: "Discard changes?",
+    body: "Your changes haven’t been saved. If you leave now, they’ll be lost.",
+    cancelButton: "Keep editing",
+    confirmButton: "Discard",
+  });
+  assert.match(page, /screen === "profile" && profileHasChanges[\s\S]*setProfileDiscardConfirmationOpen\(true\)/u);
+  assert.match(page, /role="alertdialog"[\s\S]*PROFILE_EXPERIENCE\.unsavedChanges\.title/u);
+  assert.match(page, /className="danger-button" onClick=\{discardProfileChanges\}/u);
   assert.match(css, /\.profile-inline-action \{[^}]*min-height: 44px/u);
   assert.match(css, /\.profile-save-action \.primary-button:disabled/u);
   assert.match(page, /className="profile-field-clear"[\s\S]*Clear \$\{PROFILE_EXPERIENCE\.nameLabel\}/u);
@@ -55,6 +64,9 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.doesNotMatch(swiftHome, /Label\(savedNotice, systemImage: "checkmark\.circle\.fill"\)/u);
   assert.match(swiftHome, /private var profileAccountActions: some View/u);
   assert.match(swiftHome, /\.navigationTitle\(""\)/u);
+  assert.match(swiftHome, /\.navigationBarBackButtonHidden\(true\)/u);
+  assert.match(swiftHome, /if profileHasChanges \{[\s\S]*showsUnsavedChangesConfirmation = true/u);
+  assert.match(swiftHome, /experience\.unsavedChanges\.title[\s\S]*role: \.destructive/u);
   assert.match(swiftHome, /profile-more-actions/u);
   assert.match(swiftHome, /rectangle\.portrait\.and\.arrow\.right/u);
   assert.match(swiftHome, /if isFocused\.wrappedValue && !text\.isEmpty[\s\S]*xmark\.circle\.fill/u);
@@ -64,6 +76,8 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(swiftHome, /accessibilityIdentifier\("profile-address"\)/u);
   assert.doesNotMatch(profileAddressPicker, /chevron\.right|profile-address-clear|xmark\.circle\.fill/u);
   assert.match(swiftLocationSearch, /LocationSearchModel\(initialQuery: parsedAddress\.base\)/u);
+  assert.equal((swiftLocationSearch.match(/Button\("Done"\)/gu) ?? []).length, 2);
+  assert.doesNotMatch(swiftLocationSearch, /Button\("Save"\)/u);
   assert.match(swiftLocationSearch, /_unitNumber = State\(initialValue: parsedAddress\.unit\)/u);
   assert.match(swiftLocationSearch, /accessibilityIdentifier: "profile-address-search"/u);
   assert.match(swiftLocationSearch, /if isFocused\.wrappedValue && !query\.isEmpty[\s\S]*xmark\.circle\.fill/u);

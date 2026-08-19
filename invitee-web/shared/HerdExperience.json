@@ -99,6 +99,12 @@
     "syncNote": "Your phone number and address are never shown to other guests.",
     "saveButton": "Save changes",
     "savedNotice": "Profile saved.",
+    "unsavedChanges": {
+      "title": "Discard changes?",
+      "body": "Your changes haven’t been saved. If you leave now, they’ll be lost.",
+      "cancelButton": "Keep editing",
+      "confirmButton": "Discard"
+    },
     "logoutButton": "Log out",
     "deleteAccountButton": "Delete account",
     "logout": {

@@ -47,6 +47,11 @@ function combineUnitAddress(base: string, unit: string): string {
   return `${trimmedBase}${UNIT_ADDRESS_SEPARATOR}${trimmedUnit}`;
 }
 
+function retryCountdown(seconds: number): string {
+  if (seconds < 60) return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 const authLayoutStyle = {
   "--auth-horizontal-padding": `${AUTH_EXPERIENCE.layout.horizontalPadding}px`,
   "--auth-top-padding": `${AUTH_EXPERIENCE.layout.topPadding}px`,
@@ -693,7 +698,7 @@ async function responseError(response: Response, fallback: string) {
 async function responseErrorDetails(response: Response, fallback: string) {
   try {
     const body = await response.json() as {
-      error?: string | { code?: string; message?: string };
+      error?: string | { code?: string; message?: string; details?: { retryAt?: string } };
       message?: string;
     };
     if (typeof body.error === "string") {
@@ -702,6 +707,7 @@ async function responseErrorDetails(response: Response, fallback: string) {
     return {
       code: body.error?.code,
       message: body.error?.message || body.message || fallback,
+      details: body.error?.details,
     };
   } catch {
     return { message: fallback };
@@ -945,6 +951,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [codeRequestRetryAt, setCodeRequestRetryAt] = useState<number | null>(null);
   const [profileNotice, setProfileNotice] = useState("");
   const [profilePending, setProfilePending] = useState(false);
   const [replyError, setReplyError] = useState("");
@@ -957,6 +964,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [addressUnit, setAddressUnit] = useState("");
   const [releaseStatusOpen, setReleaseStatusOpen] = useState(false);
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
+  const [profileDiscardConfirmationOpen, setProfileDiscardConfirmationOpen] = useState(false);
   const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
   const [accountDeletionStage, setAccountDeletionStage] = useState<"confirm" | "verify">("confirm");
   const [accountDeletionChallenge, setAccountDeletionChallenge] = useState<AuthChallenge | null>(null);
@@ -1044,6 +1052,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setPhoneNumber("");
     setAddress("");
     setAddressUnit("");
+    setCodeRequestRetryAt(null);
     setConfirmedReplyNotice(false);
     setAddressCopiedNotice(false);
     if (confirmedReplyNoticeTimerRef.current !== null) {
@@ -1113,6 +1122,12 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     profileName.trim() !== currentUser.name.trim() ||
     combineUnitAddress(address, addressUnit) !== currentUser.address.trim()
   );
+  const codeRequestRetrySeconds = codeRequestRetryAt === null
+    ? 0
+    : Math.max(0, Math.ceil((codeRequestRetryAt - now) / 1000));
+  const codeRequestError = codeRequestRetrySeconds > 0
+    ? `Please wait before requesting another code. Try again in ${retryCountdown(codeRequestRetrySeconds)}.`
+    : authError;
   const invitedPeople = activeEvent?.invitees ?? [];
   const canAddAttendees = Boolean(
     activeEvent &&
@@ -1523,8 +1538,19 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       privacy: "event",
       success: "event",
     };
+    if (screen === "profile" && profileHasChanges) {
+      setProfileDiscardConfirmationOpen(true);
+      return;
+    }
     if (screen === "privacy") restorePrivacyTriggerFocusRef.current = true;
     setScreen(previous[screen]);
+  }
+
+  function discardProfileChanges() {
+    if (currentUser) applyUser(currentUser);
+    setProfileNotice("");
+    setProfileDiscardConfirmationOpen(false);
+    setScreen("home");
   }
 
   function applyUser(nextUser: ApiUser) {
@@ -2038,6 +2064,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   async function requestCode(): Promise<boolean> {
     if (authPending) return false;
+    if (codeRequestRetrySeconds > 0) return false;
     if (inviteToken && !invitationPreview && !selectedEvent) {
       setAuthError(invitePreviewPending ? "Your invitation is still loading." : invitePreviewError || "This invitation could not be loaded.");
       return false;
@@ -2056,8 +2083,18 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         credentials: "include",
         body: JSON.stringify({ phoneNumber, inviteToken }),
       });
-      if (!response.ok) throw new Error(await responseError(response, "Couldn’t send a code."));
+      if (!response.ok) {
+        const error = await responseErrorDetails(response, "Couldn’t send a code.");
+        const retryAt = error.details?.retryAt ? Date.parse(error.details.retryAt) : Number.NaN;
+        if (error.code === "code_request_throttled" && Number.isFinite(retryAt)) {
+          setCodeRequestRetryAt(retryAt);
+          setAuthError("");
+          return false;
+        }
+        throw new Error(error.message);
+      }
       const body = await response.json() as AuthChallenge | AuthSession;
+      setCodeRequestRetryAt(null);
       if ("user" in body) {
         applyUser(body.user);
         setChallenge(null);
@@ -2450,13 +2487,13 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               />
             </label> : null}
             {!inviteAccountMismatch && invitePreviewError ? <p className="inline-error welcome-error" role="alert">{invitePreviewError}</p> : null}
-            {!inviteAccountMismatch && authError ? <p className="inline-error welcome-error" role="alert">{authError}</p> : null}
+            {!inviteAccountMismatch && codeRequestError ? <p className="inline-error welcome-error" role="alert">{codeRequestError}</p> : null}
             <div className="bottom-action onboarding-action">
               <button
                 className="primary-button"
                 disabled={inviteAccountMismatch
                   ? authPending
-                  : authPending || invitePreviewPending || Boolean(inviteToken && !invitationPreview && !selectedEvent) || !phoneNumberIsReady(phoneNumber)}
+                  : authPending || codeRequestRetrySeconds > 0 || invitePreviewPending || Boolean(inviteToken && !invitationPreview && !selectedEvent) || !phoneNumberIsReady(phoneNumber)}
                 onClick={() => inviteAccountMismatch
                   ? void switchInviteAccount()
                   : void requestCode()}
@@ -3700,6 +3737,30 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               <div>
                 <button className="secondary-button" onClick={() => setLogoutConfirmationOpen(false)}>{PROFILE_EXPERIENCE.logout.cancelButton}</button>
                 <button className="primary-button" onClick={logOut}>{PROFILE_EXPERIENCE.logout.confirmButton}</button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {profileDiscardConfirmationOpen ? (
+          <div className="dialog-backdrop" onClick={() => setProfileDiscardConfirmationOpen(false)}>
+            <section
+              className="profile-discard-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="profile-discard-title"
+              aria-describedby="profile-discard-body"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h2 id="profile-discard-title">{PROFILE_EXPERIENCE.unsavedChanges.title}</h2>
+              <p id="profile-discard-body">{PROFILE_EXPERIENCE.unsavedChanges.body}</p>
+              <div className="dialog-actions">
+                <button className="secondary-button" onClick={() => setProfileDiscardConfirmationOpen(false)}>
+                  {PROFILE_EXPERIENCE.unsavedChanges.cancelButton}
+                </button>
+                <button className="danger-button" onClick={discardProfileChanges}>
+                  {PROFILE_EXPERIENCE.unsavedChanges.confirmButton}
+                </button>
               </div>
             </section>
           </div>

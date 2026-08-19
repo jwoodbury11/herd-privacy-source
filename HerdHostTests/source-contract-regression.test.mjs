@@ -46,6 +46,20 @@ test("auth completions are generation guarded and logout cannot overlap profile 
   );
 });
 
+test("verification-code throttling uses a live retry countdown", async () => {
+  const [api, store, auth] = await Promise.all([
+    source("APIClient.swift"),
+    source("AuthStore.swift"),
+    source("AuthenticationView.swift"),
+  ]);
+  assert.match(api, /case codeRequestThrottled\(message: String, retryAt: Date\)/u);
+  assert.doesNotMatch(api, /Try again at/u);
+  assert.match(store, /private\(set\) var codeRequestRetryAt: Date\?/u);
+  assert.match(store, /catch let APIError\.codeRequestThrottled\(_, retryAt\)/u);
+  assert.match(auth, /Try again in \\\(Self\.retryCountdown\(codeRequestRetrySeconds\)\)/u);
+  assert.match(auth, /codeRequestRetrySeconds > 0/u);
+});
+
 test("profile editing stays private and saves only after a real change", async () => {
   const home = await source("HomeView.swift");
   assert.match(home, /Text\(experience\.syncNote\)[\s\S]*?ProfileField/u);
@@ -76,6 +90,10 @@ test("contact groups use static list labels instead of floating section headers"
   assert.doesNotMatch(
     attendeeFlow,
     /Section \{\s*candidateRows\(visibleUnselectedCandidates\)[\s\S]*?\} header:/u,
+  );
+  assert.match(
+    attendeeFlow,
+    /accessibilityIdentifier\("contact-candidate-\\\(candidate\.id\)"\)[\s\S]*?\.listRowBackground\(HerdTheme\.canvas\)/u,
   );
 });
 
@@ -321,6 +339,8 @@ test("location pickers attach autocomplete results and support optional units", 
   assert.match(locationSearch, /profile-unit-number/u);
   assert.match(locationSearch, /Text\("Unit number"\)/u);
   assert.match(locationSearch, /LocationUnitAddress\.combine/u);
+  assert.equal((locationSearch.match(/Button\("Done"\)/gu) ?? []).length, 2);
+  assert.doesNotMatch(locationSearch, /Button\("Save"\)/u);
   assert.doesNotMatch(locationSearch, /Image\(systemName: "chevron\.right"\)/u);
   assert.match(
     locationSearch,

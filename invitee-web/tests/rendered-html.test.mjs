@@ -188,6 +188,15 @@ test("root is the normal Herd phone sign-in", async () => {
   assert.match(html, /href="\/site\.webmanifest"/);
 });
 
+test("verification-code throttling counts down to an automatic retry", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /function retryCountdown\(seconds: number\)/u);
+  assert.match(page, /error\.code === "code_request_throttled"[\s\S]*setCodeRequestRetryAt\(retryAt\)/u);
+  assert.match(page, /Try again in \$\{retryCountdown\(codeRequestRetrySeconds\)\}/u);
+  assert.match(page, /authPending \|\| codeRequestRetrySeconds > 0/u);
+  assert.doesNotMatch(page, /Try again at/u);
+});
+
 test("reply submission metadata updates cannot reset an in-flight answer or error", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /const replySubmissionInFlightRef = useRef\(false\)/u);
@@ -401,6 +410,10 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /nextOtp\.length === OTP_LENGTH[\s\S]*?verifyCode\(nextOtp\)/);
   assert.match(page, /verificationInFlightRef\.current/);
   assert.match(swiftAuth, /HerdExperience\.shared\.authentication/);
+  assert.match(swiftAuth, /HerdBrandMark\(\)/u);
+  assert.match(swiftAuth, /private struct HerdBrandMark: View/u);
+  assert.doesNotMatch(swiftAuth, /Image\("HerdBrandIcon"\)/u);
+  assert.match(page, /function BrandMark\(\)[\s\S]*src="\/herd-icon\.png"/u);
   assert.match(swiftAuth, /experience\.welcome\.title/);
   assert.match(swiftAuth, /experience\.verification\.title/);
   assert.match(swiftAuth, /Label\(experience\.releaseStatus\.label, systemImage: "hammer\.fill"\)/);
@@ -421,6 +434,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(css, /\.privacy-flow-step[\s\S]*grid-template-columns: 42px minmax\(0, 1fr\)/u);
   assert.match(css, /\.privacy-flow-boundary[\s\S]*grid-template-columns: 42px minmax\(0, 1fr\)/u);
   assert.match(css, /\.privacy-flow-boundary \{[^}]*border: 1px solid var\(--border\)[^}]*background: var\(--surface\)/u);
+  assert.match(css, /\.screen-add-attendees \.screen-layout,[\s\S]*background: var\(--shell\)/u);
   assert.doesNotMatch(css, /\.privacy-flow-icon \{[^}]*(?:border-radius|background|border:)/u);
   assert.match(css, /\.privacy-flow-connector \{[\s\S]*top: calc\(50% \+ 29px\)/u);
   assert.match(css, /\.accordion-stack summary \{[^}]*text-align: left/u);
@@ -588,7 +602,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   );
   assert.match(
     swiftEditor,
-    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.tint\(Color\(uiColor: \.systemGray\)\)[\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
+    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.toggleStyle\(\.switch\)[\s\S]*?\.tint\(\.clear\)[\s\S]*?HerdMonochromeSwitchVisual\([\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
   );
   assert.match(
     page,
@@ -596,7 +610,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   );
   assert.match(
     css,
-    /\.herd-switch\[aria-checked="true"\][\s\S]*?border-color: rgba\(255, 255, 255, 0\.42\);[\s\S]*?background: #6b6b70;/u,
+    /\.herd-switch \{[\s\S]*?background: #5b5b63;[\s\S]*?\.herd-switch\[aria-checked="true"\] \{[\s\S]*?border-color: var\(--ivory\);[\s\S]*?background: var\(--ivory\);[\s\S]*?\.herd-switch\[aria-checked="true"\] \.herd-switch-thumb \{[\s\S]*?background: var\(--ink\);/u,
   );
 
   for (const section of ["profile", "invitation", "attendees", "reply", "privacy", "success"]) {

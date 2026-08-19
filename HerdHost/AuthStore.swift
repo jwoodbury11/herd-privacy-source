@@ -24,6 +24,7 @@ final class AuthStore {
     private(set) var isRestoring = true
     private(set) var isBusy = false
     private(set) var errorMessage: String?
+    private(set) var codeRequestRetryAt: Date?
 
     private let apiClient: APIClient
     private let sessionStore: any SessionStoring
@@ -99,6 +100,10 @@ final class AuthStore {
         phoneNumber: String,
         inviteToken: String? = nil
     ) async -> Bool {
+        if let codeRequestRetryAt, codeRequestRetryAt > .now {
+            return false
+        }
+        codeRequestRetryAt = nil
         guard let requestPhoneNumber = Self.requestPhoneNumber(phoneNumber) else {
             errorMessage = "Enter a complete phone number, including the country code if outside the U.S."
             return false
@@ -131,7 +136,13 @@ final class AuthStore {
                 challenge = nil
                 challengeInviteToken = nil
             }
+            codeRequestRetryAt = nil
             return true
+        } catch let APIError.codeRequestThrottled(_, retryAt) {
+            guard operationIsCurrent(generation) else { return false }
+            errorMessage = nil
+            codeRequestRetryAt = retryAt
+            return false
         } catch {
             guard operationIsCurrent(generation) else { return false }
             errorMessage = Self.message(for: error)
@@ -312,6 +323,7 @@ final class AuthStore {
         challengeInviteToken = nil
         isBusy = false
         errorMessage = nil
+        codeRequestRetryAt = nil
     }
 
     func clearError() {

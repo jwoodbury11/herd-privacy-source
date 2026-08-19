@@ -243,6 +243,7 @@ struct AttendeeFlowView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 30)
                 }
+                .listRowBackground(HerdTheme.canvas)
             } else if showsSelectionSections {
                 contactSectionLabel(
                     "Selected",
@@ -325,6 +326,7 @@ struct AttendeeFlowView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("contact-candidate-\(candidate.id)")
+            .listRowBackground(HerdTheme.canvas)
         }
     }
 

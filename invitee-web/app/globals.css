@@ -689,14 +689,17 @@ summary:focus-visible {
 
 .dialog-backdrop { position: absolute; z-index: 30; inset: 0; padding: 20px; display: grid; place-items: center; background: rgba(0,0,0,.58); animation: fade-in 160ms ease both; }
 .logout-dialog,
+.profile-discard-dialog,
 .account-deletion-dialog,
 .event-deletion-dialog,
 .release-status-dialog { width: min(100%, 330px); padding: 20px; border: 1px solid var(--border); border-radius: 22px; background: var(--surface-raised); box-shadow: 0 24px 70px rgba(0,0,0,.45); }
 .logout-dialog h2,
+.profile-discard-dialog h2,
 .account-deletion-dialog h2,
 .event-deletion-dialog h2,
 .release-status-dialog h2 { margin: 0; font-size: 20px; letter-spacing: -.35px; }
 .logout-dialog p,
+.profile-discard-dialog > p,
 .account-deletion-dialog > p,
 .event-deletion-dialog > p,
 .release-status-dialog p { margin: 8px 0 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
@@ -705,6 +708,8 @@ summary:focus-visible {
 .logout-dialog > div { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .logout-dialog .primary-button,
 .logout-dialog .secondary-button,
+.profile-discard-dialog .secondary-button,
+.profile-discard-dialog .danger-button,
 .account-deletion-dialog .secondary-button,
 .account-deletion-dialog .danger-button,
 .event-deletion-dialog .secondary-button,
@@ -1054,9 +1059,9 @@ summary:focus-visible {
   width: 54px;
   height: 32px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
-  background: var(--surface-raised);
+  background: #5b5b63;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
   cursor: pointer;
   transition: background 160ms ease, border-color 160ms ease, opacity 160ms ease;
@@ -1075,11 +1080,12 @@ summary:focus-visible {
 }
 
 .herd-switch[aria-checked="true"] {
-  border-color: rgba(255, 255, 255, 0.42);
-  background: #6b6b70;
+  border-color: var(--ivory);
+  background: var(--ivory);
 }
 
 .herd-switch[aria-checked="true"] .herd-switch-thumb {
+  background: var(--ink);
   transform: translateX(22px);
 }
 
@@ -1525,6 +1531,11 @@ summary:focus-visible {
 .add-attendees-screen,
 .privacy-screen {
   padding: 22px 18px 34px;
+}
+
+.screen-add-attendees .screen-layout,
+.screen-add-attendees .add-attendees-screen {
+  background: var(--shell);
 }
 
 .attendees-disclosure {

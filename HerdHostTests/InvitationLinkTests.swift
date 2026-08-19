@@ -137,7 +137,7 @@ final class InvitationLinkIntegrationTests: XCTestCase {
         await fulfillment(of: [requestExpectation], timeout: 1)
     }
 
-    func testAuthenticationThrottleShowsTheExactRetryTime() async {
+    func testAuthenticationThrottleParsesTheExactRetryTime() async {
         InvitationMockURLProtocol.install { request in
             XCTAssertEqual(request.url?.path, "/api/auth/request-code")
             return try Self.jsonResponse(
@@ -160,12 +160,11 @@ final class InvitationLinkIntegrationTests: XCTestCase {
         do {
             _ = try await client.requestCode(phoneNumber: "2")
             XCTFail("Expected the throttled request to fail.")
+        } catch let APIError.codeRequestThrottled(message, retryAt) {
+            XCTAssertEqual(message, "Please wait before requesting another code.")
+            XCTAssertEqual(retryAt.timeIntervalSince1970, 1_786_654_906.715, accuracy: 0.001)
         } catch {
-            XCTAssertTrue(
-                error.localizedDescription.hasPrefix(
-                    "Please wait before requesting another code. Try again at "
-                )
-            )
+            XCTFail("Expected codeRequestThrottled, got \(error)")
         }
     }
 
