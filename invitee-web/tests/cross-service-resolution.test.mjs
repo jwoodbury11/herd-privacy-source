@@ -2426,6 +2426,132 @@ test(
 );
 
 test(
+  "an early negative relay stays pending and a stored premature negative self-heals",
+  { timeout: 30_000 },
+  async (t) => {
+    const evaluator = await startEvaluatorService();
+    t.after(() => evaluator.stop());
+    const fetchMock = createFetchMock();
+    fetchMock.disableNetConnect();
+    const { miniflare, database } = await createBackendHarness(fetchMock, {
+      HERD_EVALUATOR_TRANSPORT: "client_relay",
+      HERD_EVALUATOR_URL: EVALUATOR_RELAY_URL,
+      HERD_EVALUATOR_RESULT_SIGNING_KEY_ID: EVALUATOR_SIGNING_KEY_ID,
+      HERD_EVALUATOR_RESULT_SIGNING_PUBLIC_KEY: evaluatorSigningPublicKey,
+    });
+    t.after(() => miniflare.dispose());
+
+    const host = await authenticate(miniflare, HOST_PHONE);
+    const eventId = "b2000000-0000-4000-8000-000000000002";
+    const deadline = new Date(Date.now() + 60_000).toISOString();
+    await createEvent(
+      miniflare,
+      host,
+      eventPayload({
+        id: eventId,
+        title: "Early negative remains pending",
+        invitees: invitees("b2").slice(0, 1),
+        deadline,
+        minimumParticipants: 2,
+        requiredGroups: [],
+        eventDateOffset: 120_000,
+      }),
+    );
+
+    const started = await api(
+      miniflare,
+      `/api/events/${eventId}/evaluation`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${host.accessToken}`,
+          origin: "https://herd.test",
+        },
+      },
+    );
+    assert.equal(started.status, 200, await started.clone().text());
+    const job = await started.json();
+    const evaluationResponse = await relayCourierJobWithoutOrigin(
+      job,
+      evaluator.url,
+    );
+    assert.equal(evaluationResponse.result.status, "not_confirmed");
+
+    const completed = await api(
+      miniflare,
+      `/api/events/${eventId}/evaluation`,
+      jsonRequest(
+        "PUT",
+        { evaluationResponse },
+        host.accessToken,
+      ),
+    );
+    assert.equal(completed.status, 200, await completed.clone().text());
+    assert.deepEqual((await completed.json()).resolution, {
+      status: "pending",
+    });
+
+    const pendingRow = await database
+      .prepare(
+        `SELECT status, batch_hash AS batchHash,
+                attending_member_ids AS attendingMemberIds,
+                resolved_at AS resolvedAt,
+                evaluation_request_hash AS requestHash,
+                evaluation_lease_id AS leaseId,
+                evaluation_lease_expires_at AS leaseExpiresAt,
+                result_attestation_canonical_document AS attestationDocument
+         FROM event_resolutions WHERE event_id = ?`,
+      )
+      .bind(eventId)
+      .first();
+    assert.deepEqual(pendingRow, {
+      status: "pending",
+      batchHash: null,
+      attendingMemberIds: null,
+      resolvedAt: null,
+      requestHash: null,
+      leaseId: null,
+      leaseExpiresAt: null,
+      attestationDocument: null,
+    });
+
+    const prematureResolvedAt = new Date(Date.now() - 1_000).toISOString();
+    await database
+      .prepare(
+        `UPDATE event_resolutions
+         SET status = 'not_confirmed', batch_hash = ?, resolved_at = ?
+         WHERE event_id = ?`,
+      )
+      .bind("A".repeat(43), prematureResolvedAt, eventId)
+      .run();
+
+    const listing = await api(
+      miniflare,
+      "/api/events",
+      authorizedRequest(host.accessToken),
+    );
+    assert.equal(listing.status, 200, await listing.clone().text());
+    const repaired = (await listing.json()).events.find(({ id }) => id === eventId);
+    assert.deepEqual(repaired.resolution, {
+      status: "pending",
+      relayNeeded: true,
+    });
+    const repairedRow = await database
+      .prepare(
+        `SELECT status, batch_hash AS batchHash, resolved_at AS resolvedAt
+         FROM event_resolutions WHERE event_id = ?`,
+      )
+      .bind(eventId)
+      .first();
+    assert.deepEqual(repairedRow, {
+      status: "pending",
+      batchHash: null,
+      resolvedAt: null,
+    });
+  },
+);
+
+test(
   "unattended scheduler confirms all nine varied private replies through the opaque relay",
   { timeout: 35_000 },
   async (t) => {

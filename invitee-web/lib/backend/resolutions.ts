@@ -1273,6 +1273,40 @@ async function resetEvaluationLease(
   return (released.meta.changes ?? 0) === 1;
 }
 
+async function resetPrematureNotConfirmedResolution(
+  db: D1Database,
+  event: ResolutionReadableEvent,
+  policyHash: string,
+  nowIso: string,
+): Promise<boolean> {
+  if (!event.rsvpDeadline) return false;
+  const reset = await db
+    .prepare(
+      `UPDATE event_resolutions
+       SET status = 'pending',
+           batch_hash = NULL,
+           attending_member_ids = NULL,
+           resolved_at = NULL,
+           evaluation_request_hash = NULL,
+           evaluation_lease_id = NULL,
+           evaluation_lease_expires_at = NULL,
+           result_attestation_protocol_version = NULL,
+           result_attestation_signing_key_id = NULL,
+           result_attestation_evaluated_at = NULL,
+           result_attestation_canonical_document = NULL,
+           result_attestation_signature = NULL,
+           updated_at = ?
+       WHERE event_id = ?
+         AND policy_hash = ?
+         AND status = 'not_confirmed'
+         AND resolved_at IS NOT NULL
+         AND resolved_at < ?`,
+    )
+    .bind(nowIso, event.id, policyHash, event.rsvpDeadline)
+    .run();
+  return (reset.meta.changes ?? 0) === 1;
+}
+
 /**
  * Releases only the still-active relay lease identified by all three frozen
  * identifiers. A stale scheduler or browser cannot clear a replacement lease.
@@ -1585,6 +1619,36 @@ export async function completeClientRelayEvaluation(
   }
   if (!verified) invalidRelayAttestation();
 
+  // A positive result can confirm early. A negative result is conclusive only
+  // once the response window closes because later ballots can still satisfy it.
+  if (
+    !isAttendanceRevealMigration &&
+    evaluatorResult.status === "not_confirmed" &&
+    evaluatedAt < event.rsvpDeadline
+  ) {
+    const released = await resetEvaluationLease(
+      db,
+      event.id,
+      policy.policyHash,
+      leaseId,
+    );
+    if (!released) {
+      const current = parseStoredResolution(
+        await loadResolutionRow(db, event.id),
+        event.id,
+        policy.policyHash,
+      );
+      if (current && current.status !== "pending") return current;
+      if (current?.status === "pending") return current;
+      throw new ApiError(
+        409,
+        "evaluation_lease_stale",
+        "The evaluation lease is no longer active.",
+      );
+    }
+    return { status: "pending" };
+  }
+
   const attendingMemberIds =
     evaluatorResult.status === "confirmed" && evaluatorResult.revealAttendance
       ? JSON.stringify(evaluatorResult.attendingMemberIds)
@@ -1693,6 +1757,26 @@ export async function getEventResolutionForRead(
     event.id,
     event.privateResponsePolicy.policyHash,
   )!;
+  if (
+    resolution.status === "not_confirmed" &&
+    resolution.resolvedAt < event.rsvpDeadline
+  ) {
+    const reset = await resetPrematureNotConfirmedResolution(
+      db,
+      event,
+      event.privateResponsePolicy.policyHash,
+      nowIso,
+    );
+    if (reset) return { status: "pending" };
+    const current = parseStoredResolution(
+      await loadResolutionRow(db, event.id),
+      event.id,
+      event.privateResponsePolicy.policyHash,
+    );
+    return current
+      ? withRevealedGuestStates(db, event, current)
+      : { status: "pending" };
+  }
   if (resolution.status !== "pending") {
     return withRevealedGuestStates(db, event, resolution);
   }
