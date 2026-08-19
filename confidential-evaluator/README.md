@@ -183,10 +183,12 @@ All responses use `Cache-Control: no-store`. Request-validation failures are
 generic. Decrypted RSVP values, private keys, ciphertext slot failures, and
 internal exceptions are never returned or logged.
 
-Policy signing first-writes an immutable policy hash, deadline, ordered opaque
+Policy signing first-writes a durable policy hash, deadline, ordered opaque
 member IDs, and evaluator commitments to the custodian Firestore database; no
-event or person display data is stored there. The transparency endpoint accepts
-one operation: atomically append a canonical, Ed25519-authorized response
+event or person display data is stored there. Before any reply exists, an
+atomic roster expansion may retain every existing member and add new opaque
+members. After the first reply, the policy is immutable. The transparency
+endpoint accepts one operation: atomically append a canonical, Ed25519-authorized response
 receipt to the durable tail. It pins the member's response key within an
 account-key epoch, permits only paired epoch/key rotation for a device switch,
 enforces exactly increasing revisions and the authority deadline, derives the matching

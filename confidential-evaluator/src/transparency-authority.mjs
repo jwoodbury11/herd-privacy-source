@@ -247,6 +247,24 @@ function sameCommitments(policy, commitments) {
   );
 }
 
+function isPendingRosterExpansion(policy, commitments) {
+  if (
+    policy.responseSequence !== 0 ||
+    policy.evaluationBatchHash !== "" ||
+    policy.evaluatedAt !== "" ||
+    policy.protocolVersion !== commitments.protocolVersion ||
+    policy.eventId !== commitments.eventId ||
+    policy.rsvpDeadline !== commitments.rsvpDeadline ||
+    policy.releaseId !== commitments.releaseId ||
+    policy.evaluatorKeyId !== commitments.evaluatorKeyId ||
+    commitments.memberIds.length <= policy.memberIds.length
+  ) {
+    return false;
+  }
+  const nextMembers = new Set(commitments.memberIds);
+  return policy.memberIds.every((memberId) => nextMembers.has(memberId));
+}
+
 function normalizeEvaluationClaim(value, keyStore) {
   const input = exactKeys(value, [
     "protocolVersion",
@@ -634,6 +652,7 @@ export class StatefulTransparencyAuthority {
       typeof store.readMember !== "function" ||
       typeof store.checkAvailable !== "function" ||
       typeof store.createPolicy !== "function" ||
+      typeof store.replacePendingPolicy !== "function" ||
       typeof store.commitResponseTransition !== "function" ||
       typeof store.commitEvaluation !== "function" ||
       !keyStore
@@ -681,7 +700,25 @@ export class StatefulTransparencyAuthority {
       const existing = await this.store.readPolicy(commitments.eventId);
       if (existing) {
         const policy = storedPolicy(existing);
-        if (!sameCommitments(policy, commitments)) conflict();
+        if (!sameCommitments(policy, commitments)) {
+          if (!isPendingRosterExpansion(policy, commitments)) conflict();
+          const replaced = await this.store.replacePendingPolicy({
+            expectedPolicyVersion: policy.versionToken,
+            policy: {
+              ...commitments,
+              responseSequence: 0,
+              evaluationBatchHash: "",
+              evaluatedAt: "",
+            },
+          });
+          if (!replaced) continue;
+          return {
+            protocolVersion: PROTOCOL_VERSION,
+            eventId: commitments.eventId,
+            policyHash: commitments.policyHash,
+            rsvpDeadline: commitments.rsvpDeadline,
+          };
+        }
         return {
           protocolVersion: PROTOCOL_VERSION,
           eventId: policy.eventId,

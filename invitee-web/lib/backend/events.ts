@@ -1276,9 +1276,16 @@ export async function addEventAttendees(
     )
     .bind(eventId)
     .all<{ inviteeId: string }>();
-  const replyResetInviteeIds = new Set(
+  const respondedInviteeIds = new Set(
     priorResponses.results.map(({ inviteeId }) => inviteeId),
   );
+  if (respondedInviteeIds.size > 0) {
+    throw new ApiError(
+      409,
+      "event_replies_started",
+      "Attendees can’t be added after replies have started.",
+    );
+  }
   assertInvitationDeliveryReady(bindings, { invitees: newInvitees });
 
   if (newInvitees.length > 0) {
@@ -1339,34 +1346,16 @@ export async function addEventAttendees(
     );
   }
   statements.push(
-    // A response is cryptographically bound to the exact frozen roster. When
-    // that roster expands, remove the stale ciphertext before replacing the
-    // policy. Public transparency commitments intentionally remain append-only.
+    // These are guaranteed empty above. Keep the cleanup in the atomic roster
+    // transition so a stale partial database state cannot survive expansion.
     db.prepare("DELETE FROM response_envelopes WHERE event_id = ?").bind(eventId),
     db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(eventId),
     db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(eventId),
     db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(nowIso, eventId),
-    ...(replyResetInviteeIds.size > 0
-      ? [db.prepare(
-          `UPDATE invitation_deliveries
-           SET status = 'pending',
-               provider_message_sid = NULL,
-               provider_status = NULL,
-               dispatch_started_at = NULL,
-               sent_at = NULL,
-               failed_at = NULL,
-               last_error_code = NULL,
-               last_error_message = NULL,
-               suppressed_reason = NULL,
-               updated_at = ?
-           WHERE event_id = ?
-             AND invitee_id IN (${[...replyResetInviteeIds].map(() => "?").join(", ")})`,
-        ).bind(nowIso, eventId, ...replyResetInviteeIds)]
-      : []),
     ...prepareInvitationDeliveryStatements(db, bindings, nextEvent, nowIso),
     prepareInsertPrivateResponsePolicy(db, eventId, nextPolicy, epochFence),
     prepareInsertPendingEventResolution(db, eventId, nextPolicy.policyHash, nowIso),
   );
   await db.batch(statements);
-  await dispatchEventInvitations(db, bindings, eventId, { replyResetInviteeIds });
+  await dispatchEventInvitations(db, bindings, eventId);
 }

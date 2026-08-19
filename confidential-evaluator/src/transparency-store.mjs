@@ -473,6 +473,16 @@ export class FirestoreTransparencyStore {
     ]);
   }
 
+  async replacePendingPolicy({ expectedPolicyVersion, policy }) {
+    const name = `${this.policiesRootName}/${policy.eventId}`;
+    return this.#commit([
+      {
+        update: policyDocument(name, policy),
+        currentDocument: { updateTime: expectedPolicyVersion },
+      },
+    ]);
+  }
+
   async commitTransition({ expectedStateVersion, entry, state }) {
     const id = this.#entryId(entry.logIndex);
     return this.#commit([

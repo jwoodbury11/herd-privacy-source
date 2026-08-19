@@ -1682,6 +1682,7 @@ private struct InvitationDetailView: View {
                                     invitationExperience.eventActions.deleteButton,
                                     systemImage: "trash"
                                 )
+                                .foregroundStyle(.red)
                             }
                             .accessibilityIdentifier("delete-hosted-event")
                         } label: {

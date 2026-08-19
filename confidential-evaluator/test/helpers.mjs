@@ -121,6 +121,18 @@ export class InMemoryTransparencyStore {
     });
   }
 
+  async replacePendingPolicy({ expectedPolicyVersion, policy }) {
+    return this.#exclusive(() => {
+      const existing = this.#policies.get(policy.eventId);
+      if (!existing || existing.versionToken !== expectedPolicyVersion) return false;
+      this.#policies.set(policy.eventId, {
+        ...structuredClone(policy),
+        versionToken: this.#versionToken(),
+      });
+      return true;
+    });
+  }
+
   async commitTransition({ expectedStateVersion, entry, state }) {
     return this.#exclusive(() => {
       const actualVersion = this.#state?.versionToken ?? null;

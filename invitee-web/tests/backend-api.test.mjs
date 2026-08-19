@@ -1031,8 +1031,8 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
   assert.equal(confirmedAttendeeAddition.status, 409);
   assert.equal((await confirmedAttendeeAddition.json()).error.code, "event_already_confirmed");
 
-  // The remaining assertions retain coverage for a still-pending roster
-  // expansion after private replies have begun.
+  // A roster can expand only before the first private reply. Once replies have
+  // begun, changing the frozen membership would invalidate those ballots.
   await database
     .prepare("UPDATE event_resolutions SET status = 'pending' WHERE event_id = ?")
     .bind(eventId)
@@ -1048,17 +1048,14 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
       }],
     }, sessions.get("1")),
   );
-  assert.equal(postReplyAddition.status, 200, await postReplyAddition.clone().text());
-  const expandedEvent = (await postReplyAddition.json()).event;
-  assert.equal(expandedEvent.invitees.length, 3);
-  assert.notEqual(expandedEvent.privateResponsePolicy.policyHash, firstPolicyHash);
-  assert.equal(expandedEvent.resolution.status, "pending");
+  assert.equal(postReplyAddition.status, 409);
+  assert.equal((await postReplyAddition.json()).error.code, "event_replies_started");
   assert.equal(
     await database
       .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE event_id = ?")
       .bind(eventId)
       .first("count"),
-    0,
+    1,
   );
   assert.equal(
     await database
@@ -1066,39 +1063,15 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
       .first("count"),
     1,
   );
-  assert.equal(
-    await database
-      .prepare(
-        `SELECT attempt_count AS attemptCount
-         FROM invitation_deliveries
-         WHERE event_id = ? AND invitee_id = ?`,
-      )
-      .bind(eventId, accountTwoInvitee.id)
-      .first("attemptCount"),
-    2,
-  );
   const refreshedAccountTwo = await api(miniflare, "/api/events", {
     headers: { authorization: `Bearer ${sessions.get("2")}` },
   });
   const refreshedAccountTwoEvent = (await refreshedAccountTwo.json()).events.find(
     (candidate) => candidate.id === eventId,
   );
-  assert.equal(refreshedAccountTwoEvent.hasResponse, false);
-  assert.equal(refreshedAccountTwoEvent.responseRevision, null);
-  const replacementResponse = await api(
-    miniflare,
-    `/api/invites/${refreshedAccountTwoEvent.inviteToken}/rsvp`,
-    authorizedJsonRequest("PUT", {
-      envelope: encryptedEnvelope({
-        event: refreshedAccountTwoEvent,
-        inviteeId: accountTwoInvitee.id,
-        accountKeyEpochId: refreshedAccountTwoEvent.accountKeyEpochId,
-        envelopeId: "74000000-0000-4000-8000-000000000202",
-      }),
-    }, sessions.get("2")),
-  );
-  assert.equal(replacementResponse.status, 200, await replacementResponse.clone().text());
-  assert.equal((await replacementResponse.json()).responseEnvelope.revision, 1);
+  assert.equal(refreshedAccountTwoEvent.hasResponse, true);
+  assert.equal(refreshedAccountTwoEvent.responseRevision, 1);
+  assert.equal(refreshedAccountTwoEvent.privateResponsePolicy.policyHash, firstPolicyHash);
   const disabledEventId = "74000000-0000-4000-8000-000000000011";
   const disabledEvent = {
     ...event,

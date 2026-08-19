@@ -1,6 +1,7 @@
 "use client";
 
 const API_PATH = /^\/api\//u;
+const API_REQUEST_TIMEOUT_MS = 15_000;
 
 function template(pathname: string): string {
   const segments = pathname.split("/").filter(Boolean);
@@ -47,8 +48,18 @@ export async function trackedFetch(input: RequestInfo | URL, init: RequestInit =
   }
   const method = (init.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   const startedAt = performance.now();
+  const requestController = new AbortController();
+  const upstreamSignal = init.signal ?? (input instanceof Request ? input.signal : undefined);
+  const forwardAbort = () => requestController.abort(upstreamSignal?.reason);
+  if (upstreamSignal?.aborted) forwardAbort();
+  else upstreamSignal?.addEventListener("abort", forwardAbort, { once: true });
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, API_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(input, { ...init, headers });
+    const response = await fetch(input, { ...init, headers, signal: requestController.signal });
     void reportClientSignal({
       signal: "client_api_request",
       operation: operation(input, method),
@@ -65,12 +76,16 @@ export async function trackedFetch(input: RequestInfo | URL, init: RequestInit =
     void reportClientSignal({
       signal: "client_api_request",
       operation: operation(input, method),
-      outcome: error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failure",
-      errorCode: error instanceof DOMException && error.name === "AbortError" ? "aborted" : "network_error",
+      outcome: timedOut ? "failure" : error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failure",
+      errorCode: timedOut ? "request_timeout" : error instanceof DOMException && error.name === "AbortError" ? "aborted" : "network_error",
       durationMs: performance.now() - startedAt,
       correlationId: requestId,
     });
+    if (timedOut) throw new Error("Herd took too long to respond. Try again.");
     throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    upstreamSignal?.removeEventListener("abort", forwardAbort);
   }
 }
 

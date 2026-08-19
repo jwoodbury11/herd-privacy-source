@@ -325,7 +325,7 @@ final class EventStore {
 
         do {
             var syncedEvents = try await apiClient.fetchEvents()
-            try requireCurrentOperation(context)
+            try publishRemoteSnapshot(syncedEvents, context: context)
             let didCompleteEvaluation = try await relayDueHostedEvaluations(
                 in: syncedEvents,
                 context: context
@@ -333,15 +333,13 @@ final class EventStore {
             try requireCurrentOperation(context)
             if didCompleteEvaluation {
                 syncedEvents = try await apiClient.fetchEvents()
-                try requireCurrentOperation(context)
+                try publishRemoteSnapshot(syncedEvents, context: context)
             }
             let migrationError = try await migrateLegacyHostedEvents(
                 into: &syncedEvents,
                 context: context
             )
-            try requireCurrentOperation(context)
-            events = mergeEvents(syncedEvents, with: pendingLegacyEvents)
-            sortEvents()
+            try publishRemoteSnapshot(syncedEvents, context: context)
             let pendingCertifications = events.filter {
                 $0.role == .invitee &&
                     $0.responseCertificationStatus == .pending &&
@@ -358,10 +356,6 @@ final class EventStore {
             }
             try requireCurrentOperation(context)
             persistCache()
-            let updatedAt = Date()
-            lastUpdatedAt = updatedAt
-            defaults.set(updatedAt, forKey: Self.lastUpdatedKey(for: context.userID))
-            isUsingCachedData = !pendingLegacyEvents.isEmpty
             if let migrationError {
                 let eventLabel = pendingLegacyEvents.count == 1 ? "event" : "events"
                 errorMessage = "Couldn’t sync \(pendingLegacyEvents.count) older \(eventLabel) yet. \(Self.message(for: migrationError))"
@@ -378,6 +372,20 @@ final class EventStore {
                 ? Self.message(for: error)
                 : "Couldn’t refresh right now. Showing your last synced events."
         }
+    }
+
+    private func publishRemoteSnapshot(
+        _ syncedEvents: [HerdEvent],
+        context: OperationContext
+    ) throws {
+        try requireCurrentOperation(context)
+        events = mergeEvents(syncedEvents, with: pendingLegacyEvents)
+        sortEvents()
+        persistCache()
+        let updatedAt = Date()
+        lastUpdatedAt = updatedAt
+        defaults.set(updatedAt, forKey: Self.lastUpdatedKey(for: context.userID))
+        isUsingCachedData = !pendingLegacyEvents.isEmpty
     }
 
     private static func lastUpdatedKey(for userID: String) -> String {

@@ -207,14 +207,7 @@ struct EventEditorView: View {
                                     Text("Allow attendees to add guests")
                                 }
                             }
-                            .toggleStyle(.switch)
-                            .tint(.clear)
-                            .overlay(alignment: .trailing) {
-                                HerdMonochromeSwitchVisual(
-                                    isOn: draft.allowsAttendeesToAddGuests
-                                )
-                                .allowsHitTesting(false)
-                            }
+                            .toggleStyle(HerdMonochromeToggleStyle())
                             .padding(.horizontal, 16)
                             .frame(minHeight: 66)
                             .accessibilityIdentifier("event-allow-attendee-guests")

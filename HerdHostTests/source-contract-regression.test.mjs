@@ -28,6 +28,19 @@ test("legacy events require an explicit account claim", async () => {
   assert.match(home, /Import into this account/u);
 });
 
+test("initial event loading publishes the server snapshot before evaluator maintenance", async () => {
+  const [api, store] = await Promise.all([
+    source("APIClient.swift"),
+    source("EventStore.swift"),
+  ]);
+  assert.match(api, /private static let mainRequestTimeout: TimeInterval = 15/u);
+  assert.match(api, /request\.timeoutInterval = Self\.mainRequestTimeout/u);
+  assert.match(
+    store,
+    /var syncedEvents = try await apiClient\.fetchEvents\(\)[\s\S]*?publishRemoteSnapshot\(syncedEvents, context: context\)[\s\S]*?relayDueHostedEvaluations/u,
+  );
+});
+
 test("auth completions are generation guarded and logout cannot overlap profile work", async () => {
   const [auth, home] = await Promise.all([
     source("AuthStore.swift"),
