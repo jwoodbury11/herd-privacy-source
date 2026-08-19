@@ -113,6 +113,14 @@ test("verifies the independently pinned release, deployment, and deployed resour
   assert.equal(result.ok, true);
   assert.equal(result.releaseId, fixture.releaseId);
   assert.equal(result.evaluatorAttestation.origin, "https://evaluator.herd.example");
+  assert.equal(
+    result.evaluatorKeyEpoch.workloadImageDigest,
+    `sha256:${fixture.manifest.trust.workload.policyMeasurement.value}`,
+  );
+  assert.notEqual(
+    result.evaluatorKeyEpoch.workloadImageDigest,
+    `sha256:${fixture.manifest.trust.workload.imageDigest.value}`,
+  );
   assert.deepEqual(result.resources.map(({ name }) => name), [
     "apple-app-site-association",
     "asset-manifest",
