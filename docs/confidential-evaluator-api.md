@@ -280,14 +280,17 @@ UTF8(canonicalDocument)
 The verifier must pin `signingKeyId` and use only the attested `policySigning`
 public key. A policy signature is not a transparency receipt.
 
-Before returning the signature, the evaluator first-writes an immutable
+Before returning the signature, the evaluator first-writes a durable
 Firestore policy authority document keyed by `eventId`. It contains exactly the
 protocol version, event ID, policy hash, RSVP deadline, ordered opaque member
 IDs, release ID, evaluator key ID, response sequence, and empty evaluation
-consumption fields. An exact policy retry is idempotent; any different policy
-for the same event is a conflict. New policy registration after its deadline is
-rejected. The authority never stores the canonical policy document, event
-title, names, phones, location, address, or description.
+consumption fields. An exact policy retry is idempotent. Before the first reply,
+the authority permits one or more atomic roster expansions that retain every
+existing opaque member ID and all other authority commitments; roster removal,
+non-roster policy changes, and every replacement after a reply are conflicts.
+New policy registration after its deadline is rejected. The authority never
+stores the canonical policy document, event title, names, phones, location,
+address, or description.
 
 This endpoint is backend-only and rejects browser `Origin` requests.
 

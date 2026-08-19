@@ -602,7 +602,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   );
   assert.match(
     swiftEditor,
-    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.toggleStyle\(\.switch\)[\s\S]*?\.tint\(\.clear\)[\s\S]*?HerdMonochromeSwitchVisual\([\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
+    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.toggleStyle\(HerdMonochromeToggleStyle\(\)\)[\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
   );
   assert.match(
     page,

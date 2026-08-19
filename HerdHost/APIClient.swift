@@ -130,6 +130,7 @@ enum APIError: LocalizedError, Sendable {
 }
 
 actor APIClient {
+    private static let mainRequestTimeout: TimeInterval = 15
     private static let mainEvaluationResponseLimit = 600 * 1_024
     private static let evaluatorRequestLimit = 600 * 1_024
     private static let evaluatorResponseLimit = 512 * 1_024
@@ -728,6 +729,7 @@ actor APIClient {
         }
 
         var request = URLRequest(url: url)
+        request.timeoutInterval = Self.mainRequestTimeout
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios", forHTTPHeaderField: "X-Herd-Client-Platform")

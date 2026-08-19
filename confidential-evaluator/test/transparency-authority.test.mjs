@@ -116,6 +116,7 @@ function policyStoreDelegates(store) {
     readPolicy: (...input) => store.readPolicy(...input),
     readMember: (...input) => store.readMember(...input),
     createPolicy: (...input) => store.createPolicy(...input),
+    replacePendingPolicy: (...input) => store.replacePendingPolicy(...input),
     commitResponseTransition: (...input) =>
       store.commitResponseTransition(...input),
     commitEvaluation: (...input) => store.commitEvaluation(...input),

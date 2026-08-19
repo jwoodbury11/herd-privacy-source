@@ -731,6 +731,44 @@ final class EventStoreRecoveryTests: XCTestCase {
         super.tearDown()
     }
 
+    func testInitialRefreshPublishesEventsBeforeSlowEvaluatorRelayFinishes() async throws {
+        let eventID = UUID()
+        let token = "Recovery_slow-relay-token-123"
+        let response = Self.privateInvitationResponse(eventID: eventID, token: token)
+        let remoteEvent = try XCTUnwrap(response["event"] as? [String: Any])
+        let relayStarted = expectation(description: "evaluator relay started")
+        InvitationMockURLProtocol.install { request in
+            if request.url?.path == "/api/events" {
+                return try Self.jsonResponse(
+                    request,
+                    object: ["events": [remoteEvent]]
+                )
+            }
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/events/\(eventID.uuidString.lowercased())/evaluation"
+            )
+            relayStarted.fulfill()
+            Thread.sleep(forTimeInterval: 0.25)
+            return try Self.jsonResponse(request, status: 202, object: [:])
+        }
+        let client = Self.client()
+        await client.setAccessToken("slow-relay-session")
+        let store = EventStore(
+            defaults: try Self.defaults("slow-relay"),
+            apiClient: client
+        )
+        store.activate(userID: "slow-relay-account")
+
+        let refresh = Task { await store.refresh() }
+        await fulfillment(of: [relayStarted], timeout: 1)
+
+        XCTAssertEqual(store.events.map(\.id), [eventID])
+        XCTAssertTrue(store.isRefreshing)
+        await refresh.value
+        XCTAssertFalse(store.isRefreshing)
+    }
+
 
     func testOpeningInvitationReconcilesPrivateReplyMetadataWhenEventProjectionIsStale() async throws {
         let eventID = UUID()

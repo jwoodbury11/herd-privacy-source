@@ -49,11 +49,12 @@ function receipt(
     committedAt = BEFORE_DEADLINE,
     responseSigningIdentity,
     accountKeyEpochId = "30000000-0000-4000-8000-000000000001",
+    policyHash: policyHashOverride,
   } = {},
 ) {
   const suffix = String(discriminator).padStart(12, "0");
   const envelopeId = `40000000-0000-4000-8000-${suffix}`;
-  const policyHash = sha256Base64Url(
+  const policyHash = policyHashOverride ?? sha256Base64Url(
     Buffer.from(`policy:${eventId}`, "utf8"),
   );
   const ciphertextHash = Buffer.alloc(32, discriminator).toString("base64url");
@@ -177,6 +178,7 @@ function delegateStore(durable, overrides = {}) {
     readPolicy: (...input) => durable.readPolicy(...input),
     readMember: (...input) => durable.readMember(...input),
     createPolicy: (...input) => durable.createPolicy(...input),
+    replacePendingPolicy: (...input) => durable.replacePendingPolicy(...input),
     commitResponseTransition: (...input) =>
       durable.commitResponseTransition(...input),
     commitEvaluation: (...input) => durable.commitEvaluation(...input),
@@ -291,7 +293,7 @@ async function assertLateMissingProof(error, keyStore, payload, expectedHead) {
   );
 }
 
-test("policy authority freezes only opaque commitments and rejects replacement", async () => {
+test("policy authority permits only a pending roster expansion", async () => {
   const keyStore = await makeKeyStore();
   const store = new InMemoryTransparencyStore();
   const now = { value: BEFORE_DEADLINE };
@@ -321,9 +323,32 @@ test("policy authority freezes only opaque commitments and rejects replacement",
   );
   assert.equal(JSON.stringify(snapshot.policies).includes("location"), false);
 
+  const expanded = {
+    ...commitments,
+    policyHash: Buffer.alloc(32, 8).toString("base64url"),
+    memberIds: [...commitments.memberIds, MEMBER_B].sort(),
+  };
+  await evaluator.freezePolicy(expanded);
+  const expandedPolicy = store.snapshot().policies[0];
+  assert.equal(expandedPolicy.policyHash, expanded.policyHash);
+  assert.deepEqual(expandedPolicy.memberIds, expanded.memberIds);
+
+  await evaluator.append(receipt(keyStore, { policyHash: expanded.policyHash }));
   await assert.rejects(
     evaluator.freezePolicy({
-      ...commitments,
+      ...expanded,
+      policyHash: Buffer.alloc(32, 7).toString("base64url"),
+      memberIds: [
+        ...expanded.memberIds,
+        "20000000-0000-4000-8000-000000000003",
+      ],
+    }),
+    (error) => error?.status === 409,
+  );
+
+  await assert.rejects(
+    evaluator.freezePolicy({
+      ...expanded,
       policyHash: Buffer.alloc(32, 9).toString("base64url"),
     }),
     (error) => error?.status === 409,
@@ -765,6 +790,7 @@ test("an evaluation commit response lost after durable consumption is an exact r
     readPolicy: (...input) => durable.readPolicy(...input),
     readMember: (...input) => durable.readMember(...input),
     createPolicy: (...input) => durable.createPolicy(...input),
+    replacePendingPolicy: (...input) => durable.replacePendingPolicy(...input),
     commitResponseTransition: (...input) =>
       durable.commitResponseTransition(...input),
     async commitEvaluation(input) {

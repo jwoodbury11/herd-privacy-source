@@ -33,6 +33,20 @@ struct HerdMonochromeSwitchVisual: View {
     }
 }
 
+struct HerdMonochromeToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 12) {
+            configuration.label
+            Spacer(minLength: 12)
+            HerdMonochromeSwitchVisual(isOn: configuration.isOn)
+        }
+        .contentShape(.rect)
+        .onTapGesture {
+            configuration.isOn.toggle()
+        }
+    }
+}
+
 struct WireframeCardModifier: ViewModifier {
     let padding: CGFloat
     let cornerRadius: CGFloat
