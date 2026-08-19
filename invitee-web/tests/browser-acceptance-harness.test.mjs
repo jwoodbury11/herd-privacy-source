@@ -135,7 +135,7 @@ test(
     t.after(() => harness.stop());
 
     assert.equal(harness.baseUrl.hostname, "127.0.0.1");
-    assert.equal(harness.migrationCount, 19);
+    assert.equal(harness.migrationCount, 20);
     assert.equal(harness.scenario.counts.testAccountCount, 9);
     assert.equal(harness.scenario.counts.inviteeCount, 8);
     assert.equal(harness.scenario.counts.sentCount, 8);
@@ -188,7 +188,72 @@ test(
     assert.equal(correctBody.event.id, harness.scenario.eventId);
     assert.equal(correctBody.inviteMetadata.canRespond, true);
     assert.equal(correctBody.inviteMetadata.hasResponse, false);
+    assert.ok(correctBody.event.invitees.every(
+      (invitee) => !Object.hasOwn(invitee, "hasResponded"),
+    ));
     assert.ok(correctBody.event.privateResponsePolicy.policySignature);
+
+    const ballotUrl = new URL(
+      `${harness.scenario.inviteApiPath}/ballot`,
+      harness.baseUrl,
+    );
+    const emptyBallot = await fetch(ballotUrl, {
+      headers: { authorization: `Bearer ${aliasOne.accessToken}` },
+    });
+    assert.equal(emptyBallot.status, 200);
+    assert.equal((await emptyBallot.json()).ballot, null);
+    const savedBallot = await fetch(ballotUrl, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${aliasOne.accessToken}`,
+        "content-type": "application/json",
+        origin: harness.baseUrl.origin,
+      },
+      body: JSON.stringify({
+        response: "going",
+        minimumParticipants: 2,
+        requiredGroups: [],
+      }),
+    });
+    assert.equal(savedBallot.status, 200);
+    const savedBallotBody = await savedBallot.json();
+    assert.equal(savedBallotBody.ballot.protocolVersion, 2);
+    assert.equal(savedBallotBody.ballot.revision, 1);
+    assert.equal(savedBallotBody.ballot.response, "going");
+    assert.ok(!JSON.stringify(savedBallotBody.ballot).includes(aliasOne.user.phoneNumber));
+    const ballotColumns = await harness.database
+      .prepare("PRAGMA table_info(ballot_revisions)")
+      .all();
+    assert.ok(ballotColumns.results.every(({ name }) => ![
+      "invitee_id",
+      "user_id",
+      "phone_number",
+      "phone_hash",
+      "session_id",
+      "invite_token",
+      "display_name",
+    ].includes(name)));
+
+    const rereadBallot = await fetch(ballotUrl, {
+      headers: { authorization: `Bearer ${aliasOne.accessToken}` },
+    });
+    assert.equal(rereadBallot.status, 200);
+    assert.equal((await rereadBallot.json()).ballot.revision, 1);
+    const retriedBallot = await fetch(ballotUrl, {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${aliasOne.accessToken}`,
+        "content-type": "application/json",
+        origin: harness.baseUrl.origin,
+      },
+      body: JSON.stringify({
+        response: "going",
+        minimumParticipants: 2,
+        requiredGroups: [],
+      }),
+    });
+    assert.equal(retriedBallot.status, 200);
+    assert.equal((await retriedBallot.json()).ballot.revision, 1);
 
     const restorePins = installClientTrustPins(harness.release);
     t.after(restorePins);
@@ -288,6 +353,14 @@ test(
     const submittedProjection = await submittedInvite.json();
     assert.equal(submittedProjection.inviteMetadata.hasResponse, true);
     assert.equal(submittedProjection.inviteMetadata.responseRevision, 1);
+    assert.equal(
+      submittedProjection.event.invitees.find(({ isCurrentUser }) => isCurrentUser)
+        ?.hasResponded,
+      true,
+    );
+    assert.ok(submittedProjection.event.invitees.every(
+      (invitee) => typeof invitee.hasResponded === "boolean",
+    ));
     const storedSubmission = await harness.database
       .prepare(
         `SELECT
@@ -315,5 +388,10 @@ test(
       (await wrong.json()).error.code,
       "invite_for_different_account",
     );
+    const wrongBallot = await fetch(ballotUrl, {
+      headers: { authorization: `Bearer ${aliasTwo.accessToken}` },
+    });
+    assert.equal(wrongBallot.status, 403);
+    assert.equal((await wrongBallot.json()).error.code, "invite_for_different_account");
   },
 );

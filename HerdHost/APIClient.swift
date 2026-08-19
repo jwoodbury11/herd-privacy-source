@@ -240,10 +240,10 @@ actor APIClient {
         return response.events.map { EventResolutionVerifier.failClosed($0.herdEvent) }
     }
 
-    /// Acquires a host-only evaluation lease, relays its opaque request without
+    /// Acquires an event-participant evaluation lease, relays its opaque request without
     /// app credentials, and returns the evaluator's opaque signed response to
-    /// Herd. `false` means another client owns the lease or the deadline has not
-    /// passed; callers should leave the event pending and retry later.
+    /// Herd. `false` means another client owns the lease; callers should leave
+    /// the event pending and retry later.
     func relayEvaluation(eventID: UUID) async throws -> Bool {
         let expectedEventID = eventID.uuidString.lowercased()
         let path = "/api/events/\(expectedEventID)/evaluation"
@@ -402,6 +402,7 @@ actor APIClient {
             let accountKeyCommitment: String?
             let responseEnvelope: StoredPrivateResponseEnvelopeV1?
             let hasResponse: Bool?
+            let hasBallot: Bool?
             let responseRevision: Int?
             let responseCertificationStatus: PrivateResponseCertificationStatus?
         }
@@ -458,6 +459,7 @@ actor APIClient {
             let accountKeyCommitment: String?
             let responseEnvelope: StoredPrivateResponseEnvelopeV1?
             let hasResponse: Bool?
+            let hasBallot: Bool?
             let responseRevision: Int?
             let responseCertificationStatus: PrivateResponseCertificationStatus?
         }
@@ -487,6 +489,7 @@ actor APIClient {
             event.hasResponse = metadata.hasResponse
                 ?? (metadata.responseEnvelope != nil)
                 || event.hasResponse
+            event.hasBallot = metadata.hasBallot ?? event.hasBallot
             event.responseRevision = metadata.responseRevision
                 ?? metadata.responseEnvelope?.revision
                 ?? event.responseRevision
@@ -523,6 +526,47 @@ actor APIClient {
             responseEnvelope: result.responseEnvelope,
             receipt: result.receipt
         )
+    }
+
+    func fetchSimplifiedBallot(inviteToken: String) async throws -> SimplifiedBallot? {
+        struct Response: Decodable { let ballot: SimplifiedBallot? }
+        guard let token = InvitationToken.normalize(inviteToken) else {
+            throw APIError.invalidResponse
+        }
+        let request = try makeRequest(
+            path: "/api/invites/\(token)/ballot",
+            method: "GET",
+            authenticated: true
+        )
+        return try await perform(request, as: Response.self).ballot
+    }
+
+    func submitSimplifiedBallot(
+        inviteToken: String,
+        draft: PrivateResponseDraft
+    ) async throws -> SimplifiedBallot {
+        struct Body: Encodable {
+            let response: RSVPResponse
+            let minimumParticipants: Int?
+            let requiredGroups: [RSVPConditionGroup]
+        }
+        struct Response: Decodable { let ballot: SimplifiedBallot }
+        guard let token = InvitationToken.normalize(inviteToken) else {
+            throw APIError.invalidResponse
+        }
+        var request = try makeRequest(
+            path: "/api/invites/\(token)/ballot",
+            method: "PUT",
+            authenticated: true
+        )
+        request.httpBody = try HerdJSON.makeEncoder().encode(
+            Body(
+                response: draft.response,
+                minimumParticipants: draft.minimumParticipants,
+                requiredGroups: draft.requiredGroups
+            )
+        )
+        return try await perform(request, as: Response.self).ballot
     }
 
     func fetchEvaluatorAttestation(nonce: String) async throws -> EvaluatorAttestationResponse {
@@ -1142,6 +1186,7 @@ private struct RemoteEvent: Decodable, Sendable {
     var accountKeyEpochId: UUID?
     var accountKeyCommitment: String?
     var hasResponse: Bool?
+    var hasBallot: Bool?
     var responseRevision: Int?
     var responseCertificationStatus: PrivateResponseCertificationStatus?
     var privateResponsePolicy: PrivateResponsePolicyV1?
@@ -1170,6 +1215,7 @@ private struct RemoteEvent: Decodable, Sendable {
             accountKeyEpochId: accountKeyEpochId,
             accountKeyCommitment: accountKeyCommitment,
             hasResponse: hasResponse ?? false,
+            hasBallot: hasBallot ?? false,
             responseRevision: responseRevision,
             responseCertificationStatus: responseCertificationStatus,
             privateResponsePolicy: privateResponsePolicy,

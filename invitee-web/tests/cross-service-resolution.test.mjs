@@ -2130,7 +2130,7 @@ test(
 );
 
 test(
-  "host relay seals a fixed-size batch and accepts only the current signed lease",
+  "participant relay upgrades a sealed confirmation and accepts only the current signed lease",
   { timeout: 30_000 },
   async (t) => {
     const evaluator = await startEvaluatorService();
@@ -2147,30 +2147,55 @@ test(
 
     const host = await authenticate(miniflare, HOST_PHONE);
     const eventId = "b2000000-0000-4000-8000-000000000001";
-    const deadline = new Date(Date.now() + 1_200).toISOString();
+    const eventInvitees = invitees("b1").slice(0, 1);
+    const deadline = new Date(Date.now() + 60_000).toISOString();
     await createEvent(
       miniflare,
       host,
       eventPayload({
         id: eventId,
         title: "Opaque host relay",
-        invitees: invitees("b1").slice(0, 1),
+        invitees: eventInvitees,
         deadline,
         minimumParticipants: 2,
         requiredGroups: [],
-        eventDateOffset: 60_000,
+        eventDateOffset: 120_000,
       }),
     );
-    await waitPast(deadline);
-
     const invitee = await authenticate(miniflare, "1");
+    const inviteeListing = await api(
+      miniflare,
+      "/api/events",
+      authorizedRequest(invitee.accessToken),
+    );
+    const inviteeEvent = (await inviteeListing.json()).events.find(({ id }) => id === eventId);
+    const ballotResponse = await api(
+      miniflare,
+      `/api/invites/${inviteeEvent.inviteToken}/ballot`,
+      jsonRequest("PUT", {
+        response: "going",
+        minimumParticipants: 2,
+        requiredGroups: [],
+      }, invitee.accessToken),
+    );
+    assert.equal(ballotResponse.status, 200, await ballotResponse.clone().text());
+    const legacyResolvedAt = new Date().toISOString();
+    await database
+      .prepare(
+        `UPDATE event_resolutions
+         SET status = 'confirmed', batch_hash = ?, resolved_at = ?
+         WHERE event_id = ?`,
+      )
+      .bind("A".repeat(43), legacyResolvedAt, eventId)
+      .run();
+    const outsider = await authenticate(miniflare, "2");
     const denied = await api(
       miniflare,
       `/api/events/${eventId}/evaluation`,
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${invitee.accessToken}`,
+          authorization: `Bearer ${outsider.accessToken}`,
           origin: "https://herd.test",
         },
       },
@@ -2220,14 +2245,15 @@ test(
     assert.equal(listing.status, 200);
     const pending = (await listing.json()).events.find(({ id }) => id === eventId);
     assert.deepEqual(pending.resolution, {
-      status: "pending",
-      relayNeeded: true,
+      status: "confirmed",
+      attendanceRevealed: false,
+      resolvedAt: legacyResolvedAt,
     });
 
     const startRequest = {
       method: "POST",
       headers: {
-        authorization: `Bearer ${host.accessToken}`,
+        authorization: `Bearer ${invitee.accessToken}`,
         origin: "https://herd.test",
       },
     };
@@ -2322,7 +2348,7 @@ test(
       jsonRequest(
         "PUT",
         { evaluationResponse: firstAttestation },
-        host.accessToken,
+        invitee.accessToken,
       ),
     );
     assert.equal(staleCompletion.status, 400);
@@ -2354,17 +2380,19 @@ test(
     const completed = await api(
       miniflare,
       `/api/events/${eventId}/evaluation`,
-      jsonRequest("PUT", completionBody, host.accessToken),
+      jsonRequest("PUT", completionBody, invitee.accessToken),
     );
     assert.equal(completed.status, 200, await completed.clone().text());
     const resolution = (await completed.json()).resolution;
-    assert.equal(resolution.status, "not_confirmed");
+    assert.equal(resolution.status, "confirmed");
+    assert.equal(resolution.attendanceRevealed, true);
+    assert.deepEqual(resolution.attendingMemberIds, ["host", eventInvitees[0].id]);
     assert.match(resolution.resolvedAt, /^\d{4}-\d{2}-\d{2}T/u);
 
     const repeated = await api(
       miniflare,
       `/api/events/${eventId}/evaluation`,
-      jsonRequest("PUT", completionBody, host.accessToken),
+      jsonRequest("PUT", completionBody, invitee.accessToken),
     );
     assert.equal(repeated.status, 200);
     assert.deepEqual((await repeated.json()).resolution, resolution);
@@ -2378,11 +2406,22 @@ test(
       )
       .bind(eventId)
       .first();
-    assert.equal(stored.status, "not_confirmed");
+    assert.equal(stored.status, "confirmed");
     assert.equal(stored.batchHash.length, 43);
     assert.equal(stored.requestHash.length, 43);
     assert.equal(stored.leaseId, null);
     assert.equal(stored.leaseExpiresAt, null);
+    const ballotRun = await database.prepare(
+      `SELECT input_digest AS inputDigest, input_revisions AS inputRevisions,
+              status, attending_member_ids AS attendingMemberIds
+       FROM ballot_evaluation_runs WHERE event_id = ?`,
+    ).bind(eventId).first();
+    assert.equal(ballotRun.inputDigest, stored.batchHash);
+    assert.equal(ballotRun.status, "confirmed");
+    assert.equal(ballotRun.attendingMemberIds, null);
+    const inputRevisions = JSON.parse(ballotRun.inputRevisions);
+    assert.equal(inputRevisions.length, 1);
+    assert.deepEqual(Object.keys(inputRevisions[0]).sort(), ["ballotId", "revision"]);
   },
 );
 

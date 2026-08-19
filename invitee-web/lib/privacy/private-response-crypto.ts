@@ -1,5 +1,3 @@
-"use client";
-
 import {
   PRIVATE_RESPONSE_CIPHER_SUITE,
   PRIVATE_RESPONSE_EVALUATOR_WRAP_BYTES,
@@ -361,6 +359,10 @@ function normalizeDraft(
 
 async function assertTrustedPolicy(
   policy: PrivateResponsePolicyV1,
+  serverVerifiedTrust?: {
+    evaluatorKeyId: string;
+    evaluatorPublicKey: string;
+  },
 ): Promise<TrustedFrozenPolicy> {
   if (
     policy.protocolVersion !== PRIVATE_RESPONSE_PROTOCOL_VERSION ||
@@ -369,7 +371,10 @@ async function assertTrustedPolicy(
   ) {
     throw new PrivateResponseCryptoError("This event uses an unsupported privacy policy.");
   }
-  if (!bakedEvaluatorKeyId || !bakedEvaluatorPublicKey) {
+  const trustedEvaluatorKeyId = serverVerifiedTrust?.evaluatorKeyId ?? bakedEvaluatorKeyId;
+  const trustedEvaluatorPublicKey =
+    serverVerifiedTrust?.evaluatorPublicKey ?? bakedEvaluatorPublicKey;
+  if (!trustedEvaluatorKeyId || !trustedEvaluatorPublicKey) {
     throw new PrivateResponseCryptoError(
       "Private responses are unavailable because this Herd release has no trusted evaluator configured.",
     );
@@ -378,7 +383,7 @@ async function assertTrustedPolicy(
   let expectedPublicKey: string;
   try {
     evaluatorPublicKey = normalizeEvaluatorPublicKey(policy.evaluatorPublicKey);
-    expectedPublicKey = normalizeEvaluatorPublicKey(bakedEvaluatorPublicKey);
+    expectedPublicKey = normalizeEvaluatorPublicKey(trustedEvaluatorPublicKey);
   } catch {
     throw new PrivateResponseCryptoError("The trusted evaluator key is malformed.");
   }
@@ -393,7 +398,7 @@ async function assertTrustedPolicy(
     "trusted evaluator public key",
   );
   if (
-    policy.evaluatorKeyId !== bakedEvaluatorKeyId ||
+    policy.evaluatorKeyId !== trustedEvaluatorKeyId ||
     !sameBytes(evaluatorBytes, expectedBytes)
   ) {
     throw new PrivateResponseCryptoError(
@@ -422,18 +427,20 @@ async function assertTrustedPolicy(
   if (!sameBytes(policyHash, computedPolicyHash)) {
     throw new PrivateResponseCryptoError("The frozen event policy hash is invalid.");
   }
-  const policySigningPin = configuredPolicySigningPin();
-  if (!policySigningPin) {
-    throw new PrivateResponseCryptoError(
-      "Private responses are unavailable because this Herd release has no policy-signing trust pin.",
-    );
-  }
-  try {
-    await verifyEventPolicyCertification(policy, policySigningPin);
-  } catch {
-    throw new PrivateResponseCryptoError(
-      "The frozen event policy is not certified by this Herd release.",
-    );
+  if (!serverVerifiedTrust) {
+    const policySigningPin = configuredPolicySigningPin();
+    if (!policySigningPin) {
+      throw new PrivateResponseCryptoError(
+        "Private responses are unavailable because this Herd release has no policy-signing trust pin.",
+      );
+    }
+    try {
+      await verifyEventPolicyCertification(policy, policySigningPin);
+    } catch {
+      throw new PrivateResponseCryptoError(
+        "The frozen event policy is not certified by this Herd release.",
+      );
+    }
   }
 
   let document: Record<string, unknown>;
@@ -716,7 +723,7 @@ async function verifyResponseAuthorization(
   );
   if (!sameBytes(publicKey, derived.publicKey)) {
     throw new PrivateResponseCryptoError(
-      "The saved private response was not authorized by this device’s account key.",
+      "This older saved private response could not be verified.",
       { canSwitchDevice: true },
     );
   }
@@ -850,11 +857,15 @@ function normalizeEnvelopeCore(
 
 export async function sealPrivateResponse(
   input: SealPrivateResponseInput,
+  serverVerifiedTrust?: {
+    evaluatorKeyId: string;
+    evaluatorPublicKey: string;
+  },
 ): Promise<{ envelope: PrivateResponseEnvelopeV1; draft: PrivateResponseDraftV1 }> {
   if (input.accountRootSecret.length !== RESPONSE_KEY_BYTES) {
     throw new PrivateResponseCryptoError("The account root secret has the wrong size.");
   }
-  const trustedEvaluator = await assertTrustedPolicy(input.policy);
+  const trustedEvaluator = await assertTrustedPolicy(input.policy, serverVerifiedTrust);
   const envelopeId = randomUuid();
   const draft = normalizeDraft(
     {

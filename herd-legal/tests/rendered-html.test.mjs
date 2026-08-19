@@ -54,8 +54,12 @@ test("publishes complete public messaging policies", async () => {
   assert.match(privacy, /text messaging originator opt-in data and consent/i);
   assert.match(privacy, /won’t be shared[^<]*with any third parties/i);
   assert.match(privacy, /permanently delete your account from <strong>Your profile<\/strong>/i);
-  assert.match(privacy, /encrypted reply envelopes are removed 90 days after a final event result/i);
-  assert.match(privacy, /ordinary application database does not store readable reply, minimum, or required-person fields/i);
+  assert.match(privacy, /private reply revisions are removed 90 days after a final event result/i);
+  assert.match(
+    privacy,
+    /private, event-specific ballot ID—not your name, phone number, account, or other identifying information/i,
+  );
+  assert.match(privacy, /never shown to hosts, guests, or third parties/i);
   assert.match(privacy, /configured messaging provider handles STOP, START, and HELP replies/i);
   assert.doesNotMatch(privacy, /Herd (?:directly )?(?:processes|handles) STOP/iu);
   assert.match(proof, /Send one-time invitations\?/i);

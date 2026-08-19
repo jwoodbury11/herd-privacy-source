@@ -96,7 +96,7 @@ export async function resetAccountKeyEpoch(
     throw new ApiError(
       403,
       "fresh_phone_verification_required",
-      "Confirm your phone number again before switching private replies to this device.",
+      "Confirm your phone number again before continuing.",
     );
   }
   const active = await getActiveAccountKeyEpoch(db, session.user.id);
@@ -104,7 +104,7 @@ export async function resetAccountKeyEpoch(
     throw new ApiError(
       409,
       "account_key_epoch_changed",
-      "The private-reply key changed. Refresh before switching devices.",
+      "This older private reply changed. Refresh before continuing.",
       { accountKeyEpochId: active?.id ?? null },
     );
   }
@@ -143,7 +143,7 @@ export async function resetAccountKeyEpoch(
       throw new ApiError(
         409,
         "account_key_epoch_changed",
-        "The private-reply key changed. Refresh before switching devices.",
+        "This older private reply changed. Refresh before continuing.",
       );
     }
   } catch (error) {
@@ -151,7 +151,7 @@ export async function resetAccountKeyEpoch(
     throw new ApiError(
       409,
       "account_key_epoch_changed",
-      "The private-reply key changed. Refresh before switching devices.",
+      "This older private reply changed. Refresh before continuing.",
     );
   }
 

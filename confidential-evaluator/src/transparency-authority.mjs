@@ -895,12 +895,6 @@ export class StatefulTransparencyAuthority {
       const policy = storedPolicy(policyValue);
       if (!sameCommitments(policy, claim)) conflict();
       const evaluatedAt = clockInstant(this.clock);
-      if (
-        claim.revealAttendance !==
-        (evaluatedAt.getTime() >= Date.parse(policy.rsvpDeadline))
-      ) {
-        conflict();
-      }
 
       // These are deliberately exact per-member reads from the independently
       // administered authority. A backend-supplied subset is never sufficient.

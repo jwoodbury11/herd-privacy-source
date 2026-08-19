@@ -481,7 +481,7 @@ test("web client seals a fixed-size response that both the user and evaluator ca
     }),
     (error) => {
       assert.equal(error.canSwitchDevice, true);
-      assert.match(error.message, /not authorized by this device/u);
+      assert.match(error.message, /older saved private response could not be verified/u);
       return true;
     },
   );
@@ -503,20 +503,16 @@ test("account-root-secret commitment uses the protocol's exact domain separation
   );
 });
 
-test("browser flow persists only a non-exportable local key and sends only an envelope", async () => {
+test("browser flow uses an account-wide ballot without device-key ownership", async () => {
   const [page, vault] = await Promise.all([
     readFile(join(projectRoot, "app/page.tsx"), "utf8"),
     readFile(join(projectRoot, "lib/privacy/device-vault.ts"), "utf8"),
   ]);
-  assert.match(page, /body: JSON\.stringify\(\{ envelope \}\)/u);
-  assert.match(
-    page,
-    /pendingReplySubmissionRef\.current = \{[\s\S]*?envelope,[\s\S]*?\};/u,
-  );
-  assert.doesNotMatch(page, /body: JSON\.stringify\(\{\s*response:/u);
-  assert.match(page, /\/api\/account\/key-epoch\/initialize/u);
-  assert.match(page, /\/api\/account\/key-epoch\/reset/u);
-  assert.match(page, /accountKeyCommitment/u);
+  assert.match(page, /\/api\/invites\/\$\{encodeURIComponent\(token\)\}\/ballot/u);
+  assert.match(page, /body: JSON\.stringify\(\{[\s\S]*?response:/u);
+  assert.doesNotMatch(page, /pendingReplySubmissionRef/u);
+  assert.doesNotMatch(page, /\/api\/account\/key-epoch\/initialize/u);
+  assert.doesNotMatch(page, /\/api\/account\/key-epoch\/reset/u);
   assert.match(vault, /indexedDB\.open\(DATABASE_NAME/u);
   assert.match(vault, /false,\s*\["encrypt", "decrypt"\]/u);
   assert.match(vault, /HERD-ARS-COMMITMENT-V1/u);

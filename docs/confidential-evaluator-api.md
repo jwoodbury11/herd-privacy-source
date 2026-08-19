@@ -1,5 +1,7 @@
 # Confidential evaluator API v1
 
+> Legacy compatibility contract for installed protocol-v1 clients. It is not the current ballot API.
+
 This is the byte-level integration contract for `confidential-evaluator`.
 Objects reject missing and extra fields. Base64url values are unpadded and must
 round-trip canonically. Every response is JSON with `Cache-Control: no-store`.

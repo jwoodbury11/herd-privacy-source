@@ -107,19 +107,25 @@ private struct AppRootView: View {
     let startsInCreateFlow: Bool
 
     var body: some View {
-        Group {
-            if authStore.isRestoring {
-                HerdTheme.canvas
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(HerdTheme.canvas)
-                .accessibilityLabel("Loading Herd")
-            } else if authStore.isAuthenticated {
-                HomeView(
-                    startsInCreateFlow: startsInCreateFlow,
-                    initialCreateEvent: initialCreateEvent
-                )
-            } else {
-                AuthenticationView()
+        ZStack {
+            HerdTheme.canvas
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+
+            Group {
+                if authStore.isRestoring {
+                    HerdTheme.canvas
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(HerdTheme.canvas)
+                        .accessibilityLabel("Loading Herd")
+                } else if authStore.isAuthenticated {
+                    HomeView(
+                        startsInCreateFlow: startsInCreateFlow,
+                        initialCreateEvent: initialCreateEvent
+                    )
+                } else {
+                    AuthenticationView()
+                }
             }
         }
         .task {

@@ -259,24 +259,6 @@ struct HerdExperience: Decodable {
     }
 
     struct Reply: Decodable {
-        struct DeviceSwitch: Decodable {
-            let title: String
-            let replaceBody: String
-            let newReplyBody: String
-            let cancelButton: String
-            let confirmButton: String
-            let requestingCode: String
-            let requestFailed: String
-            let verificationPrefix: String
-            let verificationSuffix: String
-            let verifiedBody: String
-            let verifyButton: String
-            let verifyingButton: String
-            let switchingButton: String
-            let retryButton: String
-            let failure: String
-        }
-
         let title: String
         let privacyNote: String
         let openingSaved: String
@@ -305,6 +287,7 @@ struct HerdExperience: Decodable {
         let submittingButton: String
         let previewButton: String
         let previewTitle: String
+        let confirmedLockedMessage: String
         let confirmedPreviewLabel: String
         let confirmedPreviewBody: String
         let noReplyHistoryTemplate: String
@@ -318,7 +301,6 @@ struct HerdExperience: Decodable {
         let unlockButton: String
         let closedMessage: String
         let missingLinkMessage: String
-        let deviceSwitch: DeviceSwitch
     }
 
     struct Privacy: Decodable {

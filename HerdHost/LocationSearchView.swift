@@ -7,6 +7,49 @@ struct LocationSearchSuggestion: Equatable {
     let subtitle: String
 }
 
+enum LocationUnitAddress {
+    private static let separator = ", Unit "
+
+    static func split(_ address: String) -> (base: String, unit: String) {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            let separatorRange = trimmed.range(of: separator, options: .backwards),
+            separatorRange.upperBound < trimmed.endIndex
+        else {
+            return (trimmed, "")
+        }
+        let base = String(trimmed[..<separatorRange.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let unit = String(trimmed[separatorRange.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return unit.isEmpty ? (trimmed, "") : (base, unit)
+    }
+
+    static func combine(base: String, unit: String) -> String {
+        let trimmedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUnit = unit.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUnit.isEmpty else { return trimmedBase }
+        guard !trimmedBase.isEmpty else { return "Unit \(trimmedUnit)" }
+        return "\(trimmedBase)\(separator)\(trimmedUnit)"
+    }
+}
+
+enum EventLocationPresentation {
+    static func summary(name: String, address: String, separator: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty { return trimmedAddress }
+        if trimmedAddress.isEmpty { return trimmedName }
+
+        let foldedName = trimmedName.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let foldedAddress = trimmedAddress.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        if foldedAddress == foldedName || foldedAddress.hasPrefix("\(foldedName), unit ") {
+            return trimmedAddress
+        }
+        return "\(trimmedName)\(separator)\(trimmedAddress)"
+    }
+}
+
 final class LocationSearchModel: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
     @Published var query: String {
         didSet {
@@ -75,6 +118,9 @@ struct LocationSearchView: View {
     @StateObject private var searchModel: LocationSearchModel
     @State private var selectedName: String
     @State private var selectedAddress: String
+    @State private var unitNumber: String
+    @FocusState private var isSearchFocused: Bool
+    @FocusState private var isUnitFocused: Bool
 
     init(
         locationName: Binding<String>,
@@ -85,75 +131,85 @@ struct LocationSearchView: View {
         _locationAddress = locationAddress
         self.profileAddress = LocationSearchSuggestions.profileAddress(from: profileAddress)
 
-        let initialQuery = locationAddress.wrappedValue.isEmpty
+        let parsedAddress = LocationUnitAddress.split(locationAddress.wrappedValue)
+        let initialQuery = parsedAddress.base.isEmpty
             ? locationName.wrappedValue
-            : locationAddress.wrappedValue
+            : parsedAddress.base
         _searchModel = StateObject(wrappedValue: LocationSearchModel(initialQuery: initialQuery))
         _selectedName = State(initialValue: locationName.wrappedValue)
-        _selectedAddress = State(initialValue: locationAddress.wrappedValue)
+        _selectedAddress = State(initialValue: parsedAddress.base)
+        _unitNumber = State(initialValue: parsedAddress.unit)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Find a location")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
 
-                        LocationSearchField(
+                        LocationAutocompleteField(
                             placeholder: "Place name, address, or link",
-                            query: $searchModel.query
-                        )
-                    }
-
-                    if searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        if let profileAddress {
-                            LocationGroup(title: "Suggestions") {
+                            query: $searchModel.query,
+                            isFocused: $isSearchFocused,
+                            showsSuggestions: showsSuggestions,
+                            clearAccessibilityIdentifier: "clear-location-search"
+                        ) {
+                            if trimmedQuery.isEmpty, let profileAddress {
+                                let parsedProfileAddress = LocationUnitAddress.split(profileAddress)
                                 Button {
-                                    selectedName = profileAddress
-                                    selectedAddress = profileAddress
-                                    searchModel.query = profileAddress
+                                    selectedName = parsedProfileAddress.base
+                                    selectedAddress = parsedProfileAddress.base
+                                    unitNumber = parsedProfileAddress.unit
+                                    searchModel.query = parsedProfileAddress.base
+                                    isSearchFocused = false
                                 } label: {
                                     LocationResultRow(
                                         icon: "house",
-                                        title: profileAddress,
-                                        subtitle: "Your profile address",
-                                        isSelected: selectedAddress == profileAddress
+                                        title: parsedProfileAddress.base,
+                                        subtitle: "Your profile address"
                                     )
                                 }
                                 .buttonStyle(LocationRowButtonStyle())
                                 .accessibilityIdentifier("profile-address-suggestion")
-                            }
-                        }
-                    } else if !searchModel.results.isEmpty {
-                        LocationGroup(title: "Suggestions") {
-                            ForEach(Array(searchModel.results.enumerated()), id: \.offset) { index, result in
-                            Button {
-                                selectedName = result.title
-                                selectedAddress = result.subtitle
-                                searchModel.query = [result.title, result.subtitle]
-                                    .filter { !$0.isEmpty }
-                                    .joined(separator: ", ")
-                            } label: {
-                                    LocationResultRow(
-                                        icon: "mappin.and.ellipse",
-                                        title: result.title,
-                                        subtitle: result.subtitle,
-                                        isSelected: selectedName == result.title &&
-                                            selectedAddress == result.subtitle
-                                    )
-                            }
-                                .buttonStyle(LocationRowButtonStyle())
+                            } else {
+                                ForEach(
+                                    Array(searchModel.results.enumerated()),
+                                    id: \.offset
+                                ) { index, result in
+                                    Button {
+                                        selectedName = result.title
+                                        selectedAddress = result.subtitle
+                                        searchModel.query = [result.title, result.subtitle]
+                                            .filter { !$0.isEmpty }
+                                            .joined(separator: ", ")
+                                        isSearchFocused = false
+                                    } label: {
+                                        LocationResultRow(
+                                            icon: "mappin.and.ellipse",
+                                            title: result.title,
+                                            subtitle: result.subtitle
+                                        )
+                                    }
+                                    .buttonStyle(LocationRowButtonStyle())
+                                    .accessibilityIdentifier("location-result-\(index)")
 
-                                if index < searchModel.results.count - 1 {
-                                    Divider()
-                                        .padding(.leading, 60)
+                                    if index < searchModel.results.count - 1 {
+                                        Divider()
+                                            .padding(.leading, 58)
+                                    }
                                 }
                             }
                         }
+
+                        UnitNumberField(
+                            unitNumber: $unitNumber,
+                            isFocused: $isUnitFocused,
+                            accessibilityIdentifier: "location-unit-number"
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -169,8 +225,25 @@ struct LocationSearchView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let manualQuery = searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
-                        locationName = selectedName.isEmpty ? manualQuery : selectedName
-                        locationAddress = selectedAddress.isEmpty ? manualQuery : selectedAddress
+                        let trimmedUnit = unitNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if selectedName.isEmpty && selectedAddress.isEmpty && trimmedUnit.isEmpty {
+                            locationName = manualQuery
+                            locationAddress = ""
+                            dismiss()
+                            return
+                        }
+                        let savedAddress = LocationUnitAddress.combine(
+                            base: selectedAddress.isEmpty ? manualQuery : selectedAddress,
+                            unit: trimmedUnit
+                        )
+                        let savedName = selectedName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let normalizedSummary = EventLocationPresentation.summary(
+                            name: savedName,
+                            address: savedAddress,
+                            separator: " · "
+                        )
+                        locationAddress = savedAddress
+                        locationName = normalizedSummary == savedAddress ? "" : savedName
                         dismiss()
                     }
                     .fontWeight(.semibold)
@@ -182,14 +255,31 @@ struct LocationSearchView: View {
             }
         }
         .onChange(of: searchModel.query) { _, query in
-            let selectedQuery = [selectedName, selectedAddress]
-                .filter { !$0.isEmpty }
-                .joined(separator: ", ")
+            let selectedQuery = selectedName == selectedAddress
+                ? selectedName
+                : [selectedName, selectedAddress]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ", ")
             if query.trimmingCharacters(in: .whitespacesAndNewlines) != selectedQuery {
                 selectedName = ""
                 selectedAddress = ""
             }
         }
+        .onAppear {
+            isSearchFocused = true
+        }
+    }
+
+    private var trimmedQuery: String {
+        searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var showsSuggestions: Bool {
+        guard isSearchFocused else { return false }
+        if trimmedQuery.isEmpty {
+            return profileAddress != nil
+        }
+        return !searchModel.results.isEmpty
     }
 }
 
@@ -206,36 +296,43 @@ struct AddressSearchView: View {
 
     @StateObject private var searchModel: LocationSearchModel
     @State private var selectedAddress: String?
+    @State private var unitNumber: String
+    @FocusState private var isSearchFocused: Bool
+    @FocusState private var isUnitFocused: Bool
 
     init(address: Binding<String>) {
+        let parsedAddress = LocationUnitAddress.split(address.wrappedValue)
         _address = address
         _searchModel = StateObject(
-            wrappedValue: LocationSearchModel(initialQuery: address.wrappedValue)
+            wrappedValue: LocationSearchModel(initialQuery: parsedAddress.base)
         )
-        _selectedAddress = State(initialValue: address.wrappedValue.nonEmpty)
+        _selectedAddress = State(initialValue: parsedAddress.base.nonEmpty)
+        _unitNumber = State(initialValue: parsedAddress.unit)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Home address")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 4)
 
-                        LocationSearchField(
+                        LocationAutocompleteField(
                             placeholder: "Street, city, state",
                             query: $searchModel.query,
+                            isFocused: $isSearchFocused,
                             usesAddressContentType: true,
-                            accessibilityIdentifier: "profile-address-search"
-                        )
-                    }
-
-                    if !searchModel.results.isEmpty {
-                        LocationGroup(title: "Suggestions") {
-                            ForEach(Array(searchModel.results.enumerated()), id: \.offset) { index, result in
+                            accessibilityIdentifier: "profile-address-search",
+                            showsSuggestions: isSearchFocused && !searchModel.results.isEmpty,
+                            clearAccessibilityIdentifier: "clear-profile-address-search"
+                        ) {
+                            ForEach(
+                                Array(searchModel.results.enumerated()),
+                                id: \.offset
+                            ) { index, result in
                                 let fullAddress = [result.title, result.subtitle]
                                     .filter { !$0.isEmpty }
                                     .joined(separator: ", ")
@@ -243,12 +340,12 @@ struct AddressSearchView: View {
                                 Button {
                                     selectedAddress = fullAddress
                                     searchModel.query = fullAddress
+                                    isSearchFocused = false
                                 } label: {
                                     LocationResultRow(
                                         icon: "mappin.and.ellipse",
                                         title: result.title,
-                                        subtitle: result.subtitle,
-                                        isSelected: selectedAddress == fullAddress
+                                        subtitle: result.subtitle
                                     )
                                 }
                                 .buttonStyle(LocationRowButtonStyle())
@@ -256,10 +353,16 @@ struct AddressSearchView: View {
 
                                 if index < searchModel.results.count - 1 {
                                     Divider()
-                                        .padding(.leading, 60)
+                                        .padding(.leading, 58)
                                 }
                             }
                         }
+
+                        UnitNumberField(
+                            unitNumber: $unitNumber,
+                            isFocused: $isUnitFocused,
+                            accessibilityIdentifier: "profile-unit-number"
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -274,7 +377,10 @@ struct AddressSearchView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        address = selectedAddress ?? trimmedQuery
+                        address = LocationUnitAddress.combine(
+                            base: selectedAddress ?? trimmedQuery,
+                            unit: unitNumber
+                        )
                         dismiss()
                     }
                     .fontWeight(.semibold)
@@ -288,6 +394,9 @@ struct AddressSearchView: View {
                 selectedAddress = nil
             }
         }
+        .onAppear {
+            isSearchFocused = true
+        }
     }
 
     private var trimmedQuery: String {
@@ -295,28 +404,59 @@ struct AddressSearchView: View {
     }
 }
 
-private struct LocationSearchField: View {
+private struct LocationAutocompleteField<Suggestions: View>: View {
     let placeholder: String
     @Binding var query: String
+    let isFocused: FocusState<Bool>.Binding
     var usesAddressContentType = false
     var accessibilityIdentifier: String? = nil
+    let showsSuggestions: Bool
+    let clearAccessibilityIdentifier: String
+    @ViewBuilder let suggestions: Suggestions
 
     var body: some View {
-        HStack(spacing: 11) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 11) {
+                Image(systemName: "magnifyingglass")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-            TextField(placeholder, text: $query)
-                .textContentType(usesAddressContentType ? .fullStreetAddress : .location)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.search)
-                .accessibilityIdentifier(accessibilityIdentifier ?? placeholder)
+                TextField(placeholder, text: $query)
+                    .textContentType(usesAddressContentType ? .fullStreetAddress : .location)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused(isFocused)
+                    .accessibilityIdentifier(accessibilityIdentifier ?? placeholder)
+
+                if isFocused.wrappedValue && !query.isEmpty {
+                    Button {
+                        query = ""
+                        isFocused.wrappedValue = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                    .accessibilityIdentifier(clearAccessibilityIdentifier)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+
+            if isFocused.wrappedValue && showsSuggestions {
+                Divider()
+                    .padding(.leading, 14)
+                VStack(spacing: 0) {
+                    suggestions
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 50)
         .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 12))
+        .clipShape(.rect(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(HerdTheme.subtleBorder, lineWidth: 1)
@@ -324,25 +464,45 @@ private struct LocationSearchField: View {
     }
 }
 
-private struct LocationGroup<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
+private struct UnitNumberField: View {
+    @Binding var unitNumber: String
+    let isFocused: FocusState<Bool>.Binding
+    let accessibilityIdentifier: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text("Unit number")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
 
-            VStack(spacing: 0) {
-                content
+            HStack(spacing: 10) {
+                TextField("Optional", text: $unitNumber)
+                    .textContentType(.fullStreetAddress)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused(isFocused)
+                    .accessibilityIdentifier(accessibilityIdentifier)
+
+                if isFocused.wrappedValue && !unitNumber.isEmpty {
+                    Button {
+                        unitNumber = ""
+                        isFocused.wrappedValue = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear unit number")
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(HerdTheme.surface, in: .rect(cornerRadius: 18))
-            .clipShape(.rect(cornerRadius: 18))
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 12))
             .overlay {
-                RoundedRectangle(cornerRadius: 18)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(HerdTheme.subtleBorder, lineWidth: 1)
             }
         }
@@ -353,7 +513,6 @@ private struct LocationResultRow: View {
     let icon: String
     let title: String
     let subtitle: String
-    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -367,22 +526,20 @@ private struct LocationResultRow: View {
                 Text(title)
                     .font(.body.weight(.medium))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
-
-            Spacer(minLength: 12)
-
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
-                .font(isSelected ? .body : .footnote.weight(.semibold))
-                .foregroundStyle(isSelected ? .primary : .secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: 66)
+        .frame(minHeight: 58)
         .contentShape(.rect)
     }
 }

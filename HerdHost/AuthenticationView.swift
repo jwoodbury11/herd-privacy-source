@@ -64,17 +64,6 @@ struct AuthenticationView: View {
                         Text(experience.welcome.body)
                             .font(.title3)
                             .foregroundStyle(.secondary)
-
-                        if invitationCoordinator.pendingToken != nil {
-                            Label(
-                                "Your invitation is ready and will open after you sign in.",
-                                systemImage: "envelope.badge.fill"
-                            )
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.top, 12)
-                            .accessibilityIdentifier("pending-invitation-notice")
-                        }
                     }
                     .padding(.horizontal, 4)
                     .padding(.top, experience.layout.welcomeTopSpacing)

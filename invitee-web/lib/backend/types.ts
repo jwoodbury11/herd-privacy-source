@@ -47,6 +47,7 @@ export type CanonicalEvent = {
 export type PublicInvitee = {
   id: string;
   displayName: string;
+  hasResponded?: boolean;
   responseHistory?: {
     missedConfirmedEvents: number;
     totalConfirmedEvents: number;

@@ -5,6 +5,7 @@ export type HerdBindings = {
   DB?: D1Database;
   HERD_DEPLOYMENT_PROFILE?: string;
   HERD_AUTH_PEPPER?: string;
+  HERD_BALLOT_PSEUDONYM_KEY?: string;
   HERD_TEST_ACCOUNT_ACCESS_ENABLED?: string;
   HERD_TEST_ACCOUNT_ACCESS_GENERATION?: string;
   HERD_CHALLENGE_TTL_SECONDS?: string;
@@ -43,6 +44,7 @@ export type HerdBindings = {
   HERD_ATTESTATION_ROOT_CERTIFICATE?: string;
   HERD_SCHEDULER_TOKEN?: string;
   HERD_OBSERVABILITY_TOKEN?: string;
+  HERD_OPERATOR_TOKEN?: string;
   HERD_MONITOR_ALERT_HMAC_SECRET?: string;
   HERD_PUBLIC_APP_URL?: string;
   HERD_IOS_APP_ID?: string;

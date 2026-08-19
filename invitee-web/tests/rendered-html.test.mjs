@@ -141,9 +141,12 @@ test("publishes the messaging terms, privacy policy, and carrier proof", async (
   assert.match(terms, /Reply <strong>STOP<\/strong> to opt out/i);
   assert.match(privacy, /text messaging originator opt-in data and consent/i);
   assert.match(privacy, /permanently delete your account from <strong>Your profile<\/strong>/i);
-  assert.match(privacy, /encrypted reply envelopes are removed 90 days after a final event result/i);
-  assert.match(privacy, /ordinary application database does not store readable reply, minimum, or required-person fields/i);
-  assert.match(privacy, /signed rules retain only an opaque event member ID/i);
+  assert.match(privacy, /private reply revisions are removed 90 days after a final event result/i);
+  assert.match(
+    privacy,
+    /private, event-specific ballot ID—not your name, phone number, account, or other identifying information/i,
+  );
+  assert.match(privacy, /never shown to hosts, guests, or third parties/i);
   assert.match(privacy, /configured messaging provider handles STOP, START, and HELP replies/i);
   assert.doesNotMatch(privacy, /Herd (?:directly )?(?:processes|handles) STOP/iu);
   assert.match(proof, /Send one-time invitations\?/i);
@@ -219,6 +222,7 @@ test("participant counts include the host across web and iPhone surfaces", async
   assert.match(page, /peopleCountLabel\(invitedPeople\.length \+ 1\)/u);
   assert.match(page, /AvatarStack hostName=\{activeEvent\.hostName\}/u);
   assert.equal(experience.home.metrics.invited, "people");
+  assert.equal(experience.home.metrics.minimum, "min attendees");
   assert.equal(experience.invitation.metrics.invited, "invited");
   assert.equal(experience.invitation.metrics.minimum, "min attendees");
   assert.equal(experience.invitation.attendeeEntry.peopleInvitedSuffix, "people invited");
@@ -248,7 +252,7 @@ test("attendees use one collapsing title and one unified, private-status list", 
 
   assert.equal(
     experience.attendees.statusDisclosure,
-    "Attendance status appears only after the event is confirmed. Guests must send an encrypted reply before their status can be shown.",
+    "Attendance status appears only after the event is confirmed. Guests must send a private reply before their status can be shown.",
   );
   assert.match(page, /ATTENDEES_EXPERIENCE\.statusDisclosure/u);
   assert.match(page, /className="people-list"[\s\S]*person-row person-row-host[\s\S]*host-crown/u);
@@ -300,12 +304,36 @@ test("reply countdown remains visible until the deadline and uses compact time p
   );
   assert.match(page, /minutes > 0[\s\S]*`\$\{minutes\}m \$\{seconds % 60\}s`[\s\S]*`\$\{seconds\}s`/u);
   assert.match(page, /eventThirdMetric\(activeEvent,[\s\S]*, now\)/u);
+  assert.match(page, /activeEvent\.resolution\?\.status !== "confirmed" \? <div>[\s\S]*Hourglass/u);
+  assert.match(page, /event\.resolution\.attendanceRevealed[\s\S]*INVITATION_EXPERIENCE\.metrics\.attending/u);
+  assert.doesNotMatch(page, /value: "Yes", label: "confirmed"/u);
   assert.match(
     swiftHome,
     /func userFacingStatusLabel[\s\S]*rsvpDeadline\.map \{ \$0 <= now \}[\s\S]*status\.unconfirmed/u,
   );
   assert.match(swiftHome, /if minutes > 0 \{ return \("\\\(minutes\)m \\\(seconds % 60\)s"/u);
   assert.match(swiftHome, /return \("\\\(seconds\)s", "left to respond"\)/u);
+  assert.match(swiftHome, /if event\.resolution\?\.status != \.confirmed \{[\s\S]*InvitationMetaRow\([\s\S]*icon: "hourglass"/u);
+  assert.doesNotMatch(swiftHome, /return \("Yes", "confirmed"\)/u);
+});
+
+test("event locations copy one clean address and confirm from a bottom toast", async () => {
+  const [page, css, swiftHome] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /function eventLocationClipboardText[\s\S]*locationAddress\.trim\(\)/u);
+  assert.match(page, /navigator\.clipboard\?\.writeText/u);
+  assert.match(page, /className="event-location-copy"[\s\S]*copyEventLocation\(activeEvent\)/u);
+  assert.match(page, /data-testid="address-copied-toast"[\s\S]*Address copied to clipboard/u);
+  assert.match(page, /function eventLocationDisplay[\s\S]*foldedAddress === foldedName[\s\S]*foldedAddress\.startsWith/u);
+  assert.match(page, /eventLocationDisplay\(activeEvent\)\.primary/u);
+  assert.match(page, /eventLocationDisplay\(activeEvent\)\.secondary/u);
+  assert.match(css, /\.event-location-copy \{[\s\S]*cursor: pointer/u);
+  assert.match(swiftHome, /UIPasteboard\.general\.string = copyText/u);
+  assert.match(swiftHome, /Address copied to clipboard/u);
 });
 
 test("event status pills only describe lifecycle while exceptions use detail notices", async () => {
@@ -461,7 +489,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /screen === "status"/);
   assert.match(page, /aria-label="Run status checks"/);
   assert.match(page, /Private reply security/);
-  assert.match(page, /Trust and verification/);
+  assert.match(page, /Event results/);
   assert.match(page, /window\.setInterval\(refreshIfStale, 60_000\)/);
   assert.match(page, /visibilitychange/);
   assert.doesNotMatch(page, /personInitials\(profileName \|\| "Host"\)/);
@@ -542,9 +570,9 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal((swiftHome.match(/\.padding\(\.vertical, 12\)/gu) ?? []).length >= 2, true);
   assert.equal((swiftHome.match(/\.clipShape\(\.rect\(cornerRadius: 14\)\)/gu) ?? []).length >= 2, true);
   assert.equal(experience.reply.goingCollapsedTitle, "I’m down if…");
-  assert.equal(experience.reply.goingCollapsedBody, "Set your encrypted conditions");
-  assert.equal(experience.reply.savedTitle, "Your encrypted reply has been sent");
-  assert.equal(experience.reply.unlockButton, "View my encrypted reply");
+  assert.equal(experience.reply.goingCollapsedBody, "Set your private conditions");
+  assert.equal(experience.reply.savedTitle, "Your private reply has been sent");
+  assert.equal(experience.reply.unlockButton, "View my private reply");
   assert.match(
     swiftHome,
     /primaryReplyActionLabel\(\s*title: replyExperience\.unlockButton,\s*systemImage: "faceid"\s*\)/u,
@@ -560,13 +588,16 @@ test("the web and iPhone shared screens consume one experience contract", async 
   );
   assert.match(
     swiftEditor,
-    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.tint\(Color\(uiColor: \.systemGreen\)\)[\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
+    /Toggle\(isOn: \$draft\.allowsAttendeesToAddGuests\)[\s\S]*?\.tint\(Color\(uiColor: \.systemGray\)\)[\s\S]*?accessibilityIdentifier\("event-allow-attendee-guests"\)/u,
   );
   assert.match(
     page,
     /className="herd-switch"[\s\S]*?role="switch"[\s\S]*?aria-checked=\{activeEvent\.allowsAttendeesToAddGuests\}/u,
   );
-  assert.match(css, /\.herd-switch\[aria-checked="true"\][\s\S]*?background: var\(--green-deep\)/u);
+  assert.match(
+    css,
+    /\.herd-switch\[aria-checked="true"\][\s\S]*?border-color: rgba\(255, 255, 255, 0\.42\);[\s\S]*?background: #6b6b70;/u,
+  );
 
   for (const section of ["profile", "invitation", "attendees", "reply", "privacy", "success"]) {
     assert.ok(experience[section], `missing shared ${section} experience`);
@@ -577,13 +608,11 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.doesNotMatch(page, /inviteMetadata\.hasResponse \|\| inviteMetadata\.responseEnvelope/u);
   assert.equal(
     experience.reply.unreadable,
-    "Your active reply isn’t available on this device. To view or update your reply here, send a new one from this device. It will replace your current reply.",
+    "Your private reply could not be loaded. Refresh and try again.",
   );
-  assert.equal(experience.reply.deviceSwitch.confirmButton, "Switch to this device");
-  assert.equal(experience.reply.deviceSwitch.verifyButton, "Verify and switch");
-  assert.match(page, /beginDeviceSwitchVerification/);
-  assert.match(page, /verifyDeviceSwitchCode/);
-  assert.match(page, /fresh_phone_verification_required|deviceSwitchStage/u);
+  assert.doesNotMatch(page, /beginDeviceSwitchVerification/);
+  assert.doesNotMatch(page, /verifyDeviceSwitchCode/);
+  assert.doesNotMatch(page, /fresh_phone_verification_required|deviceSwitchStage/u);
   assert.match(page, /function ReplyVisibilityPreview/);
   assert.equal((page.match(/<ReplyVisibilityPreview/g) ?? []).length, 2);
   assert.match(css, /\.reply-preview-sheet \.sheet-handle \{[^}]*margin-bottom: 21px/u);
@@ -593,6 +622,12 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /REPLY_EXPERIENCE\.confirmedPreviewLabel/);
   assert.equal(experience.reply.confirmedPreviewLabel, "If the event is confirmed:");
   assert.equal(experience.reply.confirmedPreviewBody, "Your attendance conditions are never shown to anyone.");
+  assert.equal(experience.reply.previewButton, "Preview how others see it");
+  assert.equal(experience.reply.previewTitle, "How your reply shows up to others");
+  assert.equal(
+    experience.reply.confirmedLockedMessage,
+    "You cannot change your response to a confirmed event.",
+  );
   assert.equal(
     experience.reply.noReplyHistoryTemplate,
     "This user has not responded to {missed} of {total} confirmed events they were invited to.",
@@ -608,8 +643,10 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.notConfirmedPreviewLabel, "If the event is not confirmed:");
   assert.equal(experience.reply.notConfirmedPreviewTitle, "This event was not confirmed");
   assert.equal(experience.reply.notConfirmedPreviewBody, "Zero information is shown to anybody.");
-  assert.match(page, /REPLY_EXPERIENCE\.notConfirmedPreviewLabel[\s\S]*className="reply-preview-hidden"[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewTitle[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewBody/u);
-  assert.match(swiftHome, /private struct ReplyVisibilityPreview[\s\S]*Text\(confirmedBody \?\? experience\.confirmedPreviewBody\)[\s\S]*Text\(experience\.notConfirmedPreviewLabel\)[\s\S]*Text\(experience\.notConfirmedPreviewTitle\)[\s\S]*Text\(experience\.notConfirmedPreviewBody\)/u);
+  assert.match(page, /!isConfirmed[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewLabel[\s\S]*className="reply-preview-hidden"[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewTitle[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewBody/u);
+  assert.match(page, /className="confirmed-reply-edit-guard"[\s\S]*REPLY_EXPERIENCE\.confirmedLockedMessage[\s\S]*showConfirmedReplyNotice/u);
+  assert.match(swiftHome, /\.disabled\(event\.resolution\?\.status == \.confirmed\)[\s\S]*confirmed-reply-edit-guard/u);
+  assert.match(swiftHome, /private struct ReplyVisibilityPreview[\s\S]*Text\(confirmedBody \?\? experience\.confirmedPreviewBody\)[\s\S]*if !isConfirmed \{[\s\S]*Text\(experience\.notConfirmedPreviewLabel\)[\s\S]*Text\(experience\.notConfirmedPreviewTitle\)[\s\S]*Text\(experience\.notConfirmedPreviewBody\)/u);
   assert.doesNotMatch(page, /No response by deadline/u);
   assert.doesNotMatch(swiftHome, /No response by deadline/u);
   assert.match(swiftHome, /replyVisibilityPreview\(event\)/);
@@ -622,7 +659,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /PROFILE_EXPERIENCE\.deleteAccountButton/);
   assert.match(page, /confirmation: "DELETE"/);
   assert.match(page, /forgetAllAccountRootSecrets\(deletedUserId\)/);
-  assert.match(experience.profile.accountDeletion.body, /permanently deletes your profile, hosted events, sessions, account keys, and encrypted replies/i);
+  assert.match(experience.profile.accountDeletion.body, /permanently deletes your profile, hosted events, sessions, and private replies/i);
   assert.equal(experience.success.replyPreviewTitle, "This is how your saved reply will show up to others:");
   assert.match(page, /SUCCESS_EXPERIENCE\.replyPreviewTitle[\s\S]*<ReplyVisibilityPreview/u);
   assert.doesNotMatch(page, /SUCCESS_EXPERIENCE\.(?:savedReply|visibility|goingPrivacy|cantCommitPrivacy)/u);
@@ -706,26 +743,15 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(page, /setExpandedPrivacySection\(\(currentSection\)/);
   assert.match(page, /section\.showsVerificationLinks/);
   assert.match(page, /section\.showsPolicyIdentifiers/);
-  assert.match(experience.privacy.navigationTitle, /Prove it to me/);
+  assert.match(experience.privacy.navigationTitle, /How privacy works/);
   assert.equal(experience.privacy.flowSteps.length, 4);
   assert.match(experience.privacy.flowPrivacyLabel, /never shown to the host or guests/i);
-  const tldrSection = experience.privacy.sections.find((section) => /TL;DR/.test(section.title));
-  const conditionSection = experience.privacy.sections.find((section) => /condition set/i.test(section.title));
-  const visibleSection = experience.privacy.sections.find((section) => /can be shown/i.test(section.title));
-  const metadataSection = experience.privacy.sections.find((section) => /still learn/i.test(section.title));
-  const verificationSection = experience.privacy.sections.find((section) => /verify the code/i.test(section.title));
-  assert.match(tldrSection.paragraphs[0], /locks your full reply before it sends/i);
-  assert.match(conditionSection.paragraphs[0], /^No\./i);
-  assert.match(conditionSection.paragraphs[1], /phone number .* not the decryption key/i);
-  assert.match(visibleSection.paragraphs[0], /attending members/i);
-  assert.match(metadataSection.paragraphs[0], /account-linked, not anonymous to Herd/i);
-  assert.match(metadataSection.paragraphs[0], /Herd cannot read your encrypted conditional replies\./i);
-  assert.equal(verificationSection.showsVerificationLinks, true);
-  assert.equal(verificationSection.showsPolicyIdentifiers, true);
-  assert.match(verificationSection.paragraphs[0], /Apache 2\.0/i);
-  assert.match(verificationSection.paragraphs[2], /not the same as an independent audit/i);
-  assert.match(verificationSection.paragraphs[2], /managed internally rather than by an independent third party/i);
-  assert.doesNotMatch(verificationSection.paragraphs[2], /James/i);
+  const privacySection = experience.privacy.sections.find((section) => /kept private/i.test(section.title));
+  const deviceSection = experience.privacy.sections.find((section) => /another device/i.test(section.title));
+  assert.match(privacySection.paragraphs[0], /event-specific ballot ID/i);
+  assert.match(privacySection.paragraphs[1], /never shown to hosts, guests, or third parties/i);
+  assert.match(deviceSection.paragraphs[0], /any supported device/i);
+  assert.doesNotMatch(JSON.stringify(experience.privacy), /Herd can inspect|Herd can read|not anonymous to Herd/i);
   assert.match(experience.privacy.sourceURL, /github\.com\/jwoodbury11\/herd-privacy-source/);
   assert.match(experience.privacy.releaseEvidenceURL, /\.well-known\/herd-release\.json/);
   assert.doesNotMatch(JSON.stringify(experience.privacy), /evaluator .* not deployed yet/i);
@@ -743,15 +769,18 @@ test("web app uses authenticated server APIs instead of browser-only product sta
     "account_key_epochs",
     "event_policies",
     "response_envelopes",
+    "ballot_revisions",
+    "ballot_evaluation_slots",
     "event_resolutions",
     "invitation_deliveries",
   ]) {
     assert.match(schema, new RegExp(`"${table}"`));
   }
   assert.doesNotMatch(schema, /sqliteTable\(\s*"rsvps"/);
-  assert.match(page, /sealPrivateResponse/);
-  assert.match(page, /account\/key-epoch\/initialize/);
-  assert.match(page, /account\/key-epoch\/reset/);
+  assert.match(page, /\/ballot/);
+  assert.doesNotMatch(page, /sealPrivateResponse/);
+  assert.doesNotMatch(page, /account\/key-epoch\/initialize/);
+  assert.doesNotMatch(page, /account\/key-epoch\/reset/);
   assert.match(auth, /maxAttempts|expiresAt|resendAt/);
   assert.match(auth, /SESSION_COOKIE_NAME = "herd_session"/);
   assert.match(eventsRoute, /getAuthenticatedSession/);
@@ -789,4 +818,25 @@ test("hosting handoff explains native sync without a dead store link", async () 
   assert.doesNotMatch(css, /\.home-empty-note/);
   assert.match(css, /\.build-status-pill/);
   assert.doesNotMatch(css, /\.test-code-notice|\.test-login-notice|\.address-suggestion/);
+});
+
+test("internal event viewer stays unlinked, unindexed, and loads only deidentified replies on demand", async () => {
+  const [page, client, route, home] = await Promise.all([
+    readFile(new URL("../app/internal/events/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/internal/events/EventViewer.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/internal/events/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /robots: \{ index: false, follow: false, noarchive: true \}/u);
+  assert.match(route, /requireOperatorAuthorization\(request, bindings\)[\s\S]*?getD1\(\)/u);
+  assert.match(route, /Cache-Control": "no-store"/u);
+  assert.match(route, /X-Robots-Tag": "noindex, nofollow, noarchive"/u);
+  assert.match(route, /LIMIT \?/u);
+  assert.doesNotMatch(route, /phone_number|token_hash|session|payload_ciphertext|required_groups AS/u);
+  assert.doesNotMatch(client, /localStorage|sessionStorage|document\.cookie|phoneNumber|accountId|inviteeId|tokenHash/u);
+  assert.match(client, /View de-identified replies/u);
+  assert.match(client, /api\/internal\/ballots\?eventId=/u);
+  assert.match(client, /requiredGroups/u);
+  assert.doesNotMatch(client, /append_correction|correctionReason|contentDigest/u);
+  assert.doesNotMatch(home, /internal\/events/u);
 });

@@ -785,17 +785,19 @@ test("rejects unauthenticated calls before processing their body", async () => {
   }
 });
 
-test("evaluates before the frozen deadline without revealing attendance", async () => {
+test("can finalize attendance immediately when an event confirms before its deadline", async () => {
   const fixture = await makeFixture({
     deadline: "2099-01-01T00:00:00.000Z",
     eventDate: "2100-01-01T00:00:00.000Z",
   });
+  fixture.request.revealAttendance = true;
+  fixture.request.batchHash = await computeBatchHash(fixture.request);
   const response = await serviceFetch({ body: fixture.request, bindings: fixture.bindings });
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.equal(result.status, "confirmed");
-  assert.equal(result.revealAttendance, false);
-  assert.equal("attendingMemberIds" in result, false);
+  assert.equal(result.revealAttendance, true);
+  assert.deepEqual(result.attendingMemberIds, ["host", INVITEE_A, INVITEE_B]);
 });
 
 test("rejects policy, member order, and batch commitment tampering", async (context) => {

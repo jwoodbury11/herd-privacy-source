@@ -883,7 +883,7 @@ test("event PUT rejects the authenticated host's normalized phone number", async
   );
 });
 
-test("hosts and permitted attendees can add guests before and after private replies begin", async (t) => {
+test("hosts and permitted attendees can add guests until confirmation makes the event final", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
@@ -994,13 +994,49 @@ test("hosts and permitted attendees can add guests before and after private repl
       new Date().toISOString(),
     )
     .run();
-  // An early resolution is still mutable while the reply window is open.
-  // Adding a guest must replace it along with the roster-bound policy.
+  // Confirmation is terminal even when the original reply deadline is still
+  // in the future. Neither replies nor the frozen roster can change afterward.
   await database
     .prepare("UPDATE event_resolutions SET status = 'confirmed' WHERE event_id = ?")
     .bind(eventId)
     .run();
 
+  const confirmedReplyChange = await api(
+    miniflare,
+    `/api/invites/${attendeeEvent.inviteToken}/rsvp`,
+    authorizedJsonRequest("PUT", {
+      envelope: encryptedEnvelope({
+        event: attendeeEvent,
+        inviteeId: accountTwoInvitee.id,
+        accountKeyEpochId: attendeeEvent.accountKeyEpochId,
+        revision: 2,
+        envelopeId: "74000000-0000-4000-8000-000000000103",
+      }),
+    }, sessions.get("2")),
+  );
+  assert.equal(confirmedReplyChange.status, 409);
+  assert.equal((await confirmedReplyChange.json()).error.code, "event_already_confirmed");
+
+  const confirmedAttendeeAddition = await api(
+    miniflare,
+    `/api/events/${eventId}/attendees`,
+    authorizedJsonRequest("POST", {
+      invitees: [{
+        id: "74000000-0000-4000-8000-000000000004",
+        displayName: testAccountNameForAlias("4"),
+        phoneNumber: "+14155550104",
+      }],
+    }, sessions.get("1")),
+  );
+  assert.equal(confirmedAttendeeAddition.status, 409);
+  assert.equal((await confirmedAttendeeAddition.json()).error.code, "event_already_confirmed");
+
+  // The remaining assertions retain coverage for a still-pending roster
+  // expansion after private replies have begun.
+  await database
+    .prepare("UPDATE event_resolutions SET status = 'pending' WHERE event_id = ?")
+    .bind(eventId)
+    .run();
   const postReplyAddition = await api(
     miniflare,
     `/api/events/${eventId}/attendees`,
@@ -1352,6 +1388,199 @@ function authorizedJsonRequest(method, body, accessToken) {
     body: JSON.stringify(body),
   };
 }
+
+test("operator ballot diagnostics stay deidentified and corrections are append-only audited", async (t) => {
+  const operatorToken = "herd-operator-test-token-0123456789-abcdefghijklmnopqrstuvwxyz";
+  const { miniflare, database } = await createHarness({
+    bindings: {
+      HERD_OPERATOR_TOKEN: operatorToken,
+      HERD_BALLOT_PSEUDONYM_KEY:
+        "herd-ballot-test-key-0123456789-abcdefghijklmnopqrstuvwxyz",
+    },
+  });
+  t.after(() => miniflare.dispose());
+
+  const eventId = "7b000000-0000-4000-8000-000000000001";
+  const hostId = "7b000000-0000-4000-8000-000000000002";
+  const inviteeId = "7b000000-0000-4000-8000-000000000003";
+  const ballotId = "A".repeat(43);
+  const now = "2026-08-18T20:00:00.000Z";
+  await database.batch([
+    database.prepare(
+      `INSERT INTO users (id, phone_number, phone_hash, name, address, created_at, updated_at)
+       VALUES (?, ?, ?, ?, '', ?, ?)`,
+    ).bind(hostId, "+14155550991", "operator-host-phone-hash", "Host", now, now),
+    database.prepare(
+      `INSERT INTO events (
+         id, host_user_id, title, event_date, end_date, host_name,
+         location_name, location_address, minimum_participants, rsvp_deadline,
+         event_description, invitations_sent, created_at, updated_at
+       ) VALUES (?, ?, 'Operator fixture', NULL, NULL, 'Host', '', '', 2, NULL, '', 1, ?, ?)`,
+    ).bind(eventId, hostId, now, now),
+    database.prepare(
+      `INSERT INTO invitees (
+         id, event_id, user_id, display_name, phone_number, phone_hash,
+         token_hash, created_at, updated_at
+       ) VALUES (?, ?, NULL, 'Invitee', '+14155550992', 'operator-invitee-phone-hash', ?, ?, ?)`,
+    ).bind(inviteeId, eventId, "operator-invite-token-hash", now, now),
+    database.prepare(
+      `INSERT INTO ballot_revisions (
+         ballot_id, revision, protocol_version, key_version, event_id, response,
+         minimum_participants, required_groups, source, correction_reason,
+         content_digest, created_at
+       ) VALUES (?, 1, 2, 1, ?, 'going', 2, '[]', 'user', NULL, ?, ?)`,
+    ).bind(ballotId, eventId, "operator-original-digest", now),
+  ]);
+
+  const unauthorized = await api(
+    miniflare,
+    `/api/internal/ballots?eventId=${eventId}`,
+  );
+  assert.equal(unauthorized.status, 401);
+
+  const authorization = { authorization: `Bearer ${operatorToken}` };
+  const diagnostic = await api(
+    miniflare,
+    `/api/internal/ballots?eventId=${eventId}`,
+    { headers: authorization },
+  );
+  assert.equal(diagnostic.status, 200, await diagnostic.clone().text());
+  const diagnosticBody = await diagnostic.json();
+  assert.equal(diagnosticBody.ballots.length, 1);
+  assert.equal(diagnosticBody.ballots[0].ballotId, ballotId);
+  const serializedDiagnostic = JSON.stringify(diagnosticBody);
+  assert.doesNotMatch(
+    serializedDiagnostic,
+    /phone|displayName|inviteeId|userId|accountId/iu,
+  );
+
+  const correction = await api(
+    miniflare,
+    "/api/internal/ballots",
+    {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "append_correction",
+        eventId,
+        ballotId,
+        actor: "launch-support",
+        reason: "Correct the recorded minimum after reviewing the reported mismatch.",
+        correlationId: "support-case-2026-08-18-001",
+        response: "cant_commit",
+        minimumParticipants: null,
+        requiredGroups: [],
+      }),
+    },
+  );
+  assert.equal(correction.status, 201, await correction.clone().text());
+  assert.equal((await correction.json()).revision, 2);
+  assert.equal(
+    await database.prepare(
+      "SELECT COUNT(*) AS count FROM ballot_revisions WHERE ballot_id = ?",
+    ).bind(ballotId).first("count"),
+    2,
+  );
+  const action = await database.prepare(
+    `SELECT actor, reason, previous_digest AS previousDigest,
+            next_digest AS nextDigest, correlation_id AS correlationId
+     FROM ballot_operator_actions WHERE ballot_id = ?`,
+  ).bind(ballotId).first();
+  assert.equal(action.actor, "launch-support");
+  assert.equal(action.previousDigest, "operator-original-digest");
+  assert.notEqual(action.nextDigest, action.previousDigest);
+  assert.equal(action.correlationId, "support-case-2026-08-18-001");
+
+  await database.prepare(
+    `INSERT INTO event_resolutions (
+       event_id, policy_hash, status, batch_hash, attending_member_ids,
+       resolved_at, created_at, updated_at
+     ) VALUES (?, 'operator-policy', 'confirmed', NULL, '[]', ?, ?, ?)`,
+  ).bind(eventId, now, now, now).run();
+  const afterConfirmation = await api(
+    miniflare,
+    "/api/internal/ballots",
+    {
+      method: "POST",
+      headers: { ...authorization, "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "append_correction",
+        eventId,
+        ballotId,
+        actor: "launch-support",
+        reason: "This correction must be rejected after confirmation.",
+        correlationId: "support-case-2026-08-18-002",
+        response: "going",
+        minimumParticipants: 2,
+        requiredGroups: [],
+      }),
+    },
+  );
+  assert.equal(afterConfirmation.status, 409);
+});
+
+test("internal event viewer is operator-only and returns bounded public event health", async (t) => {
+  const operatorToken = "herd-viewer-test-token-0123456789-abcdefghijklmnopqrstuvwxyz";
+  const { miniflare, database } = await createHarness({
+    bindings: { HERD_OPERATOR_TOKEN: operatorToken },
+  });
+  t.after(() => miniflare.dispose());
+
+  const eventId = "7c000000-0000-4000-8000-000000000001";
+  const hostId = "7c000000-0000-4000-8000-000000000002";
+  const inviteeId = "7c000000-0000-4000-8000-000000000003";
+  const now = "2026-08-18T21:00:00.000Z";
+  await database.batch([
+    database.prepare(
+      `INSERT INTO users (id, phone_number, phone_hash, name, address, created_at, updated_at)
+       VALUES (?, '+14155550881', 'viewer-host-phone-hash', 'Viewer Host', '', ?, ?)`,
+    ).bind(hostId, now, now),
+    database.prepare(
+      `INSERT INTO events (
+         id, host_user_id, title, event_date, end_date, host_name,
+         location_name, location_address, minimum_participants, rsvp_deadline,
+         event_description, invitations_sent, created_at, updated_at
+       ) VALUES (?, ?, 'Viewer fixture', ?, NULL, 'Viewer Host', 'The Park',
+                 '1 Main St', 2, ?, 'A visible event description.', 1, ?, ?)`,
+    ).bind(eventId, hostId, now, now, now, now),
+    database.prepare(
+      `INSERT INTO invitees (
+         id, event_id, user_id, display_name, phone_number, phone_hash,
+         token_hash, created_at, updated_at
+       ) VALUES (?, ?, NULL, 'Private Invitee', '+14155550882',
+                 'viewer-invitee-phone-hash', 'viewer-private-token-hash', ?, ?)`,
+    ).bind(inviteeId, eventId, now, now),
+    database.prepare(
+      `INSERT INTO ballot_revisions (
+         ballot_id, revision, protocol_version, key_version, event_id, response,
+         minimum_participants, required_groups, source, correction_reason,
+         content_digest, created_at
+       ) VALUES (?, 1, 2, 1, ?, 'going', 2, '[]', 'user', NULL, ?, ?)`,
+    ).bind("B".repeat(43), eventId, "viewer-ballot-digest", now),
+  ]);
+
+  const unauthorized = await api(miniflare, "/api/internal/events");
+  assert.equal(unauthorized.status, 401);
+
+  const response = await api(miniflare, "/api/internal/events?q=Viewer", {
+    headers: { authorization: `Bearer ${operatorToken}` },
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, nofollow, noarchive");
+  const body = await response.json();
+  assert.equal(body.events.length, 1);
+  assert.equal(body.events[0].id, eventId);
+  assert.equal(body.events[0].participantCount, 2);
+  assert.equal(body.events[0].ballotCount, 1);
+  assert.equal(body.events[0].hostName, "Viewer Host");
+  assert.equal(body.events[0].locationAddress, "1 Main St");
+  assert.equal(body.nextCursor, null);
+  assert.doesNotMatch(
+    JSON.stringify(body),
+    /Private Invitee|141555508|phoneHash|phoneNumber|token|ballotId|requiredGroups|contentDigest|session/iu,
+  );
+});
 
 test("operational telemetry correlates API boundaries and stores aggregates only", async (t) => {
   const observabilityToken = "observability-test-token-0123456789-abcdef";

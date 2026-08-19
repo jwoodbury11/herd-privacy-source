@@ -159,7 +159,7 @@ struct RSVPDeadlineSheet: View {
                     .datePickerStyle(.graphical)
                     .labelsHidden()
                 } footer: {
-                    Text("Private replies are evaluated immediately after this deadline.")
+                    Text("Guests can reply until this deadline unless the event confirms first.")
                 }
             }
             .herdScreenBackground()

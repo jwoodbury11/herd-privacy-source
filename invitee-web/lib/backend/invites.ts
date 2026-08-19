@@ -16,6 +16,7 @@ import { verifyStoredEventPolicyCertification } from "./evaluator-trust";
 import {
   getEventById,
   getInviteeResponseHistories,
+  getRespondedInviteeIdsByEvent,
   toPublicEvent,
 } from "./events";
 import {
@@ -143,6 +144,12 @@ export async function getInviteByToken(
   const { hostUserId, ...canonicalEvent } = event;
   void hostUserId;
   const publicEvent = toPublicEvent(canonicalEvent);
+  const respondedInviteeIds = isHost || canRespond
+    ? (await getRespondedInviteeIdsByEvent(db, bindings, [canonicalEvent.id])).get(canonicalEvent.id)
+      ?? new Set<string>()
+    : new Set<string>();
+  const hasBallot = canRespond && respondedInviteeIds.has(access.inviteeId);
+  const canViewResponseProgress = isHost || Boolean(responseEnvelope) || hasBallot;
   const resolution = await getEventResolutionForRead(
     db,
     bindings,
@@ -156,12 +163,16 @@ export async function getInviteByToken(
         ...(canRespond && invitee.id === access.inviteeId
           ? { isCurrentUser: true }
           : {}),
+        ...(canViewResponseProgress
+          ? { hasResponded: respondedInviteeIds.has(invitee.id) }
+          : {}),
       })),
       role: isHost ? ("host" as const) : ("invitee" as const),
       ...(!isHost ? { inviteToken: token } : {}),
       ...(canRespond
         ? {
             hasResponse: Boolean(responseEnvelope),
+            hasBallot,
             responseRevision: responseEnvelope?.revision ?? null,
             responseCertificationStatus: certificationStatus,
             accountKeyEpochId: session.accountKeyEpochId,
@@ -190,6 +201,7 @@ export async function getInviteByToken(
             accountKeyEpochId: session.accountKeyEpochId,
             accountKeyCommitment: session.accountKeyCommitment,
             hasResponse: Boolean(responseEnvelope),
+            hasBallot,
             responseRevision: responseEnvelope?.revision ?? null,
             responseEnvelope,
             responseCertificationStatus: certificationStatus,
@@ -361,6 +373,21 @@ export async function putInviteRsvp(
       "The frozen event policy could not be certified.",
     );
   }
+  const currentResolution = await db
+    .prepare(
+      `SELECT status
+       FROM event_resolutions
+       WHERE event_id = ? AND policy_hash = ?`,
+    )
+    .bind(event.id, event.privateResponsePolicy.policyHash)
+    .first<{ status: string }>();
+  if (currentResolution?.status === "confirmed") {
+    throw new ApiError(
+      409,
+      "event_already_confirmed",
+      "Responses cannot be changed after an event is confirmed.",
+    );
+  }
   if (envelope.eventId !== event.id || envelope.eventId !== access.eventId) {
     throw new ApiError(409, "response_event_mismatch", "The response is for another event.");
   }
@@ -459,6 +486,7 @@ export async function putInviteRsvp(
              AND event_policies.policy_hash = ?
              AND event_policies.evaluator_key_id = ?
              AND event_resolutions.policy_hash = event_policies.policy_hash
+             AND event_resolutions.status <> 'confirmed'
              AND account_key_epochs.user_id = invitees.user_id
              AND account_key_epochs.superseded_at IS NULL
              AND account_key_epochs.key_commitment = ?
@@ -545,8 +573,9 @@ export async function putInviteRsvp(
     }
     const currentState = await db
       .prepare(
-        `SELECT
+         `SELECT
            account_key_epochs.id AS activeAccountKeyEpochId,
+           event_resolutions.status AS resolutionStatus,
            COALESCE(
              (SELECT MAX(revision) FROM response_envelopes WHERE invitee_id = ?),
              0
@@ -560,6 +589,7 @@ export async function putInviteRsvp(
       .bind(access.inviteeId, session!.user.id, access.eventId)
       .first<{
         activeAccountKeyEpochId: string | null;
+        resolutionStatus: string | null;
         latestRevision: number;
       }>();
     if (!currentState) {
@@ -571,6 +601,13 @@ export async function putInviteRsvp(
         "account_key_epoch_changed",
         "The account encryption key changed. Refresh before responding.",
         { accountKeyEpochId: currentState.activeAccountKeyEpochId },
+      );
+    }
+    if (currentState.resolutionStatus === "confirmed") {
+      throw new ApiError(
+        409,
+        "event_already_confirmed",
+        "Responses cannot be changed after an event is confirmed.",
       );
     }
     throw new ApiError(

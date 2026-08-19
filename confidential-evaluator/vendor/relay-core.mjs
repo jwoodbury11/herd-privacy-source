@@ -1251,9 +1251,6 @@ async function normalizeEvaluationRequest(value, config, now) {
   if (document.event.id !== eventId) invalidRequest();
   if (typeof input.revealAttendance !== "boolean") invalidRequest();
   const revealAttendance = input.revealAttendance;
-  if (revealAttendance !== now.toISOString() >= document.rsvpDeadline) {
-    invalidRequest();
-  }
   const batchHash = encodeBase64Url(decodeBase64Url2(input.batchHash, 32));
   const slots = await normalizeSlots(input.slots, eventId, policy, document);
   const batchCommitment = JSON.stringify({

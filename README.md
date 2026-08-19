@@ -74,13 +74,13 @@ SHA-256 pinned by the policy. See
 ## Shared backend
 
 Both apps use the same phone-authenticated API for accounts, profiles, events,
-account-key epochs, frozen policies, and encrypted response envelopes. The
-iPhone app keeps a per-user offline cache, while Cloudflare D1 remains the
-source of truth. Contact identifiers stay on-device and are never sent to the
-API.
+and account-wide private ballots. The iPhone app keeps a per-user offline cache,
+while Cloudflare D1 remains the source of truth. Contact identifiers stay
+on-device and are never sent to the API.
 
-Private response choices and invitee conditions are encrypted on the browser or
-iPhone before upload. See
+Private conditions are stored under event-specific ballot identifiers without
+names, phone numbers, account identifiers, or other identifying fields. They are
+never shown to hosts, guests, or third parties. See
 [`docs/private-response-implementation-status.md`](docs/private-response-implementation-status.md)
 for the exact implemented boundary and the production-activation evidence
 still required before launch claims are appropriate.

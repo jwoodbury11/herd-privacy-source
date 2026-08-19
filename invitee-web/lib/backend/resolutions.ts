@@ -1,4 +1,5 @@
 import type { HerdBindings } from "@/db";
+import { sealPrivateResponse } from "@/lib/privacy/private-response-crypto";
 import {
   base64UrlToBytes,
   bytesToBase64Url,
@@ -15,6 +16,7 @@ import {
   getEvaluatorServiceConfig,
   getEvaluatorTransport,
 } from "./config";
+import { deriveBallotId, deriveBallotMemberId } from "./ballot-identifiers";
 import { verifyStoredEventPolicyCertification } from "./evaluator-trust";
 import { ApiError } from "./http";
 import {
@@ -65,6 +67,19 @@ type CanonicalPolicyFacts = {
   inviteeIds: string[];
   minimumParticipants: number;
   requiredGroups: { id: string; memberIDs: string[] }[];
+};
+
+type LatestBallotRow = {
+  ballotId: string;
+  revision: number;
+  response: "going" | "cant_commit";
+  minimumParticipants: number | null;
+  requiredGroups: string;
+};
+
+type BallotEvaluationSlotRow = {
+  envelope: string;
+  envelopeHash: string;
 };
 
 const EVENT_RESOLUTION_SELECT = `SELECT
@@ -294,12 +309,22 @@ function parseStoredResolution(
     };
   }
   if (row.status === "confirmed") {
+    const revealMigrationActive = row.attendingMemberIds === null && Boolean(
+      row.evaluationLeaseId &&
+      row.evaluationLeaseExpiresAt &&
+      row.batchHash &&
+      row.evaluationRequestHash,
+    );
     if (
       !isCanonicalBase64UrlBytes(row.batchHash, 32) ||
       !row.resolvedAt ||
       !Number.isFinite(Date.parse(row.resolvedAt)) ||
-      row.evaluationLeaseId ||
-      row.evaluationLeaseExpiresAt ||
+      (!revealMigrationActive && (row.evaluationLeaseId || row.evaluationLeaseExpiresAt)) ||
+      (revealMigrationActive && (
+        !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32) ||
+        !row.evaluationLeaseExpiresAt ||
+        !Number.isFinite(Date.parse(row.evaluationLeaseExpiresAt))
+      )) ||
       (row.evaluationRequestHash !== null &&
         !isCanonicalBase64UrlBytes(row.evaluationRequestHash, 32))
     ) {
@@ -351,18 +376,8 @@ function parseStoredResolution(
   );
 }
 
-function requiresDeadlineReveal(
-  row: EventResolutionRow,
-  event: ResolutionReadableEvent,
-  nowIso: string,
-): boolean {
-  return Boolean(
-    event.rsvpDeadline &&
-      nowIso >= event.rsvpDeadline &&
-      (row.status === "confirmed" || row.status === "not_confirmed") &&
-      row.resolvedAt &&
-      row.resolvedAt < event.rsvpDeadline,
-  );
+function requiresAttendanceReveal(row: EventResolutionRow): boolean {
+  return row.status === "confirmed" && row.attendingMemberIds === null;
 }
 
 async function withRevealedGuestStates(
@@ -404,34 +419,6 @@ async function withRevealedGuestStates(
       missedDeadline: !firstResponseAt || firstResponseAt > event.rsvpDeadline!,
     })),
   };
-}
-
-async function resetResolvedForReevaluation(
-  db: D1Database,
-  eventId: string,
-  policyHash: string,
-  nowIso: string,
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE event_resolutions
-       SET status = 'pending',
-           batch_hash = NULL,
-           attending_member_ids = NULL,
-           resolved_at = NULL,
-           evaluation_lease_id = NULL,
-           evaluation_lease_expires_at = NULL,
-           evaluation_request_hash = NULL,
-           result_attestation_protocol_version = NULL,
-           result_attestation_signing_key_id = NULL,
-           result_attestation_evaluated_at = NULL,
-           result_attestation_canonical_document = NULL,
-           result_attestation_signature = NULL,
-           updated_at = ?
-       WHERE event_id = ? AND policy_hash = ?`,
-    )
-    .bind(nowIso, eventId, policyHash)
-    .run();
 }
 
 async function loadResolutionRow(
@@ -589,6 +576,138 @@ async function canonicalPolicyFacts(
   };
 }
 
+async function loadBallotEvaluatorSlots(
+  db: D1Database,
+  bindings: HerdBindings,
+  event: ResolutionReadableEvent,
+  policy: PrivateResponsePolicyV1,
+  facts: CanonicalPolicyFacts,
+): Promise<Map<string, PrivateResponseEnvelopeV1 & { ciphertextHash: string }>> {
+  const rows = await db
+    .prepare(
+      `SELECT revisions.ballot_id AS ballotId,
+              revisions.revision,
+              revisions.response,
+              revisions.minimum_participants AS minimumParticipants,
+              revisions.required_groups AS requiredGroups
+       FROM ballot_revisions AS revisions
+       JOIN (
+         SELECT ballot_id, MAX(revision) AS revision
+         FROM ballot_revisions
+         WHERE event_id = ?
+         GROUP BY ballot_id
+       ) AS latest
+         ON latest.ballot_id = revisions.ballot_id
+        AND latest.revision = revisions.revision
+       WHERE revisions.event_id = ?`,
+    )
+    .bind(event.id, event.id)
+    .all<LatestBallotRow>();
+  if (rows.results.length === 0) return new Map();
+
+  const identityEntries = await Promise.all(facts.inviteeIds.map(async (inviteeId) => [
+    await deriveBallotId(bindings, event.id, inviteeId),
+    inviteeId,
+  ] as const));
+  const inviteeByBallot = new Map(identityEntries);
+  const memberEntries = await Promise.all(facts.inviteeIds.map(async (inviteeId) => [
+    await deriveBallotMemberId(bindings, event.id, inviteeId),
+    inviteeId,
+  ] as const));
+  const inviteeByMember = new Map(memberEntries);
+  const result = new Map<string, PrivateResponseEnvelopeV1 & { ciphertextHash: string }>();
+
+  for (const row of rows.results) {
+    const inviteeId = inviteeByBallot.get(row.ballotId);
+    if (!inviteeId) continue;
+    const cached = await db
+      .prepare(
+        `SELECT envelope, envelope_hash AS envelopeHash
+         FROM ballot_evaluation_slots
+         WHERE ballot_id = ? AND revision = ?`,
+      )
+      .bind(row.ballotId, row.revision)
+      .first<BallotEvaluationSlotRow>();
+    if (cached) {
+      try {
+        const envelope = JSON.parse(cached.envelope) as PrivateResponseEnvelopeV1;
+        if (
+          envelope.eventId === event.id &&
+          envelope.inviteeId === inviteeId &&
+          envelope.policyHash === policy.policyHash &&
+          await responseEnvelopeHash(envelope) === cached.envelopeHash
+        ) {
+          result.set(inviteeId, { ...envelope, ciphertextHash: cached.envelopeHash });
+          continue;
+        }
+      } catch {
+        // Replace a corrupt cache row below from the authoritative ballot.
+      }
+    }
+
+    let storedGroups: Array<{ id: string; memberIDs: string[] }>;
+    try {
+      storedGroups = JSON.parse(row.requiredGroups) as Array<{ id: string; memberIDs: string[] }>;
+      if (!Array.isArray(storedGroups)) throw new Error("invalid groups");
+    } catch {
+      throw new ApiError(500, "ballot_corrupt", "A private ballot could not be evaluated.");
+    }
+    const requiredGroups = storedGroups.map((group) => ({
+      id: group.id,
+      memberIDs: group.memberIDs.map((memberId) => {
+        const resolved = inviteeByMember.get(memberId);
+        if (!resolved) {
+          throw new ApiError(500, "ballot_corrupt", "A private ballot could not be evaluated.");
+        }
+        return resolved;
+      }),
+    }));
+    const rootSecret = crypto.getRandomValues(new Uint8Array(32));
+    const sealed = await sealPrivateResponse(
+      {
+        eventId: event.id,
+        inviteeId,
+        accountKeyEpochId: crypto.randomUUID(),
+        revision: row.revision,
+        response: row.response,
+        minimumParticipants: row.minimumParticipants,
+        requiredGroups,
+        allowedInviteeIds: facts.inviteeIds,
+        accountRootSecret: rootSecret,
+        policy,
+      },
+      // canonicalPolicyFacts authenticated the stored signature and exact
+      // evaluator descriptor immediately before this bridge is constructed.
+      {
+        evaluatorKeyId: policy.evaluatorKeyId,
+        evaluatorPublicKey: policy.evaluatorPublicKey,
+      },
+    ).finally(() => rootSecret.fill(0));
+    const envelopeHash = await responseEnvelopeHash(sealed.envelope);
+    await db
+      .prepare(
+        `INSERT INTO ballot_evaluation_slots (
+           ballot_id, revision, event_id, envelope, envelope_hash, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(ballot_id, revision) DO UPDATE SET
+           envelope = excluded.envelope,
+           envelope_hash = excluded.envelope_hash,
+           created_at = excluded.created_at`,
+      )
+      .bind(
+        row.ballotId,
+        row.revision,
+        event.id,
+        JSON.stringify(sealed.envelope),
+        envelopeHash,
+        new Date().toISOString(),
+      )
+      .run();
+    result.set(inviteeId, { ...sealed.envelope, ciphertextHash: envelopeHash });
+  }
+  return result;
+}
+
 async function buildEvaluatorBatch(
   db: D1Database,
   bindings: HerdBindings,
@@ -654,13 +773,21 @@ async function buildEvaluatorBatch(
     latest.set(row.inviteeId, { ...envelope, ciphertextHash });
   }
 
+  // Protocol-v2 ballots take precedence over legacy envelopes. The cached
+  // bridge envelope preserves the existing isolated evaluator and signed
+  // result boundary while removing all device-held reply-key ownership.
+  const ballotSlots = await loadBallotEvaluatorSlots(db, bindings, event, policy, facts);
+  for (const [inviteeId, envelope] of ballotSlots) latest.set(inviteeId, envelope);
+
   const slots: EvaluatorSlot[] = facts.inviteeIds.map((inviteeId) => {
     const response = latest.get(inviteeId);
     if (!response) return { inviteeId, envelopeHash: null, envelope: null };
     const { ciphertextHash, ...envelope } = response;
     return { inviteeId, envelopeHash: ciphertextHash, envelope };
   });
-  const revealAttendance = nowIso >= event.rsvpDeadline!;
+  // A confirmed event is terminal. Return its final attendee set with the
+  // confirmation instead of retaining an obsolete reply-deadline embargo.
+  const revealAttendance = true;
   const batchDocument = JSON.stringify({
     protocolVersion: PRIVATE_RESPONSE_PROTOCOL_VERSION,
     eventId: event.id,
@@ -671,8 +798,31 @@ async function buildEvaluatorBatch(
       envelopeHash,
     })),
   });
+  const batchHash = await sha256Base64Url(batchDocument);
+  const ballotInputs = await db.prepare(
+    `SELECT ballot_id AS ballotId, MAX(revision) AS revision
+     FROM ballot_revisions
+     WHERE event_id = ?
+     GROUP BY ballot_id
+     ORDER BY ballot_id`,
+  ).bind(event.id).all<{ ballotId: string; revision: number }>();
+  if (ballotInputs.results.length > 0) {
+    await db.prepare(
+      `INSERT INTO ballot_evaluation_runs (
+         id, event_id, input_digest, input_revisions, status,
+         attending_member_ids, error_code, source, reason, created_at
+       ) VALUES (?, ?, ?, ?, 'prepared', NULL, NULL, 'automatic', NULL, ?)
+       ON CONFLICT(event_id, input_digest) DO NOTHING`,
+    ).bind(
+      crypto.randomUUID(),
+      event.id,
+      batchHash,
+      JSON.stringify(ballotInputs.results),
+      nowIso,
+    ).run();
+  }
   return {
-    batchHash: await sha256Base64Url(batchDocument),
+    batchHash,
     revealAttendance,
     slots,
   };
@@ -1013,7 +1163,7 @@ async function acquireRelayEvaluationLease(
   const acquired = await db
     .prepare(
       `UPDATE event_resolutions
-       SET status = 'evaluating',
+       SET status = CASE WHEN status = 'confirmed' THEN 'confirmed' ELSE 'evaluating' END,
            batch_hash = ?,
            evaluation_request_hash = ?,
            evaluation_lease_id = ?,
@@ -1023,6 +1173,15 @@ async function acquireRelayEvaluationLease(
          AND policy_hash = ?
          AND (
            status = 'pending'
+           OR (
+             status = 'confirmed'
+             AND attending_member_ids IS NULL
+             AND resolved_at IS NOT NULL
+             AND (
+               evaluation_lease_id IS NULL
+               OR evaluation_lease_expires_at <= ?
+             )
+           )
            OR (
              status = 'evaluating'
              AND evaluation_lease_expires_at <= ?
@@ -1037,6 +1196,7 @@ async function acquireRelayEvaluationLease(
       nowIso,
       eventId,
       policyHash,
+      nowIso,
       nowIso,
     )
     .run();
@@ -1094,15 +1254,18 @@ async function resetEvaluationLease(
   const released = await db
     .prepare(
       `UPDATE event_resolutions
-       SET status = 'pending',
-           batch_hash = NULL,
-           evaluation_request_hash = NULL,
+       SET status = CASE WHEN status = 'confirmed' THEN 'confirmed' ELSE 'pending' END,
+           batch_hash = CASE WHEN status = 'confirmed' THEN batch_hash ELSE NULL END,
+           evaluation_request_hash = CASE
+             WHEN status = 'confirmed' THEN evaluation_request_hash
+             ELSE NULL
+           END,
            evaluation_lease_id = NULL,
            evaluation_lease_expires_at = NULL,
            updated_at = ?
        WHERE event_id = ?
          AND policy_hash = ?
-         AND status = 'evaluating'
+         AND status IN ('evaluating', 'confirmed')
          AND evaluation_lease_id = ?`,
     )
     .bind(nowIso, eventId, policyHash, leaseId)
@@ -1148,22 +1311,18 @@ export async function startClientRelayEvaluation(
       "The frozen event evaluator key is not available.",
     );
   }
-  let row = await ensurePendingResolution(
+  const row = await ensurePendingResolution(
     db,
     event.id,
     policy.policyHash,
     nowIso,
   );
-  if (requiresDeadlineReveal(row, event, nowIso)) {
-    await resetResolvedForReevaluation(db, event.id, policy.policyHash, nowIso);
-    row = (await loadResolutionRow(db, event.id))!;
-  }
+  const needsAttendanceReveal = requiresAttendanceReveal(row);
   const existing = parseStoredResolution(row, event.id, policy.policyHash)!;
-  if (existing.status !== "pending") {
+  if (existing.status !== "pending" && !needsAttendanceReveal) {
     return { kind: "resolved", resolution: existing };
   }
   if (
-    row.status === "evaluating" &&
     row.evaluationLeaseExpiresAt &&
     row.evaluationLeaseExpiresAt > nowIso
   ) {
@@ -1298,9 +1457,11 @@ export async function completeClientRelayEvaluation(
     nowIso,
   );
   const existing = parseStoredResolution(row, event.id, policy.policyHash)!;
-  if (existing.status !== "pending") return existing;
+  const isAttendanceRevealMigration =
+    row.status === "confirmed" && row.attendingMemberIds === null;
+  if (existing.status !== "pending" && !isAttendanceRevealMigration) return existing;
   if (
-    row.status !== "evaluating" ||
+    (row.status !== "evaluating" && !isAttendanceRevealMigration) ||
     !row.batchHash ||
     !row.evaluationRequestHash ||
     !row.evaluationLeaseId ||
@@ -1378,7 +1539,6 @@ export async function completeClientRelayEvaluation(
   }
   const evaluatedAt = canonicalIsoTimestamp(attestation.evaluatedAt);
   if (
-    evaluatorResult.revealAttendance !== (evaluatedAt >= event.rsvpDeadline) ||
     evaluatedAt > row.evaluationLeaseExpiresAt ||
     Date.parse(evaluatedAt) > Date.parse(nowIso) + 30_000
   ) {
@@ -1445,7 +1605,10 @@ export async function completeClientRelayEvaluation(
            updated_at = ?
        WHERE event_id = ?
          AND policy_hash = ?
-         AND status = 'evaluating'
+         AND (
+           status = 'evaluating'
+           OR (status = 'confirmed' AND attending_member_ids IS NULL)
+         )
          AND batch_hash = ?
          AND evaluation_request_hash = ?
          AND evaluation_lease_id = ?
@@ -1486,6 +1649,11 @@ export async function completeClientRelayEvaluation(
       "The private event result could not be saved.",
     );
   }
+  await db.prepare(
+    `UPDATE ballot_evaluation_runs
+     SET status = ?, attending_member_ids = NULL, error_code = NULL
+     WHERE event_id = ? AND input_digest = ?`,
+  ).bind(evaluatorResult.status, event.id, row.batchHash).run();
   try {
     await sendResolutionTransitionNotifications(
       db,
@@ -1514,21 +1682,12 @@ export async function getEventResolutionForRead(
       "A sent event is missing its reply deadline.",
     );
   }
-  let row = await ensurePendingResolution(
+  const row = await ensurePendingResolution(
     db,
     event.id,
     event.privateResponsePolicy.policyHash,
     nowIso,
   );
-  if (requiresDeadlineReveal(row, event, nowIso)) {
-    await resetResolvedForReevaluation(
-      db,
-      event.id,
-      event.privateResponsePolicy.policyHash,
-      nowIso,
-    );
-    row = (await loadResolutionRow(db, event.id))!;
-  }
   const resolution = parseStoredResolution(
     row,
     event.id,
@@ -1617,6 +1776,11 @@ export async function getEventResolutionForRead(
         leaseId,
       )
       .run();
+    await db.prepare(
+      `UPDATE ballot_evaluation_runs
+       SET status = ?, attending_member_ids = NULL, error_code = NULL
+       WHERE event_id = ? AND input_digest = ?`,
+    ).bind(evaluatorResult.status, event.id, batchHash).run();
     const persisted = await loadResolutionRow(db, event.id);
     if (!persisted) {
       throw new ApiError(
