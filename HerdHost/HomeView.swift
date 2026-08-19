@@ -886,12 +886,14 @@ private struct StatusRow: View {
 }
 
 private struct ProfileView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var authStore
     private let experience = HerdExperience.shared.profile
     @State private var name = ""
     @State private var address = ""
     @State private var hasLoadedProfile = false
     @State private var showsAddressSearch = false
+    @State private var showsUnsavedChangesConfirmation = false
     @State private var showsLogoutConfirmation = false
     @State private var showsAccountDeletionConfirmation = false
     @State private var showsAccountDeletionVerification = false
@@ -969,10 +971,26 @@ private struct ProfileView: View {
             saveFooter
         }
         .navigationTitle("")
+        .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    if profileHasChanges {
+                        showsUnsavedChangesConfirmation = true
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .accessibilityLabel("Back to Herd events")
+                .accessibilityIdentifier("profile-back")
+                .disabled(authStore.isBusy)
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button(role: .destructive) {
@@ -998,6 +1016,17 @@ private struct ProfileView: View {
                 .accessibilityIdentifier("profile-more-actions")
                 .disabled(authStore.isBusy)
             }
+        }
+        .alert(
+            experience.unsavedChanges.title,
+            isPresented: $showsUnsavedChangesConfirmation
+        ) {
+            Button(experience.unsavedChanges.cancelButton, role: .cancel) {}
+            Button(experience.unsavedChanges.confirmButton, role: .destructive) {
+                dismiss()
+            }
+        } message: {
+            Text(experience.unsavedChanges.body)
         }
         .alert(
             experience.logout.title,

@@ -209,7 +209,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(unitNumber.waitForExistence(timeout: 5))
         unitNumber.tap()
         unitNumber.typeText("7")
-        app.navigationBars["Location"].buttons["Save"].tap()
+        app.navigationBars["Location"].buttons["Done"].tap()
 
         XCTAssertTrue(location.waitForExistence(timeout: 5))
         location.tap()
@@ -289,7 +289,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(unitNumber.waitForExistence(timeout: 5))
         unitNumber.tap()
         unitNumber.typeText("5")
-        app.navigationBars["Address"].buttons["Save"].tap()
+        app.navigationBars["Address"].buttons["Done"].tap()
 
         XCTAssertTrue(address.waitForExistence(timeout: 5))
         XCTAssertEqual(

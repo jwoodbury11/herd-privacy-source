@@ -67,7 +67,10 @@ web origin and publishes the signed app identifier to the web runtime.
 
 | Experience | iPhone | Web |
 | --- | --- | --- |
-| Create an event | Opens the native event editor and contact picker | Opens the iPhone download handoff |
+| Full event authoring | Creates and edits drafts in the native event editor and contact picker | New events open the iPhone handoff; hosted drafts retain shared detail and bounded management actions but not the full editor |
+| Add people | Uses the system Contacts picker, with manual entry available | Uses manual entry because browsers do not provide dependable cross-browser Contacts access |
+| Address suggestions | Uses MapKit search suggestions | Uses browser address autofill; adding a third-party geocoder requires a separate privacy and provider review |
+| Protect an opened reply | May use Face ID to protect the local screen | Uses the authenticated account session because browsers cannot require Face ID consistently |
 
 Everything else is presumed to require parity. Add a difference to this table
 before shipping it, with the platform constraint that requires it.
@@ -88,12 +91,10 @@ Both home screens now:
 - use the same event metrics, countdown states, spacing, card radius, and create-card height;
 - show the same `Host an event` card when the list is empty or populated.
 
-The web card alone routes to the iPhone handoff, which is the explicit exception
-above.
-
-Existing hosted events are not part of that exception. On both platforms they
-open the shared event-detail experience. Only a newly started event opens the
-iPhone editor.
+The web create card routes to the iPhone handoff. Sent hosted events open the
+shared event-detail experience on both platforms. An unsent hosted draft opens
+the full editor on iPhone and the bounded hosted-draft detail on web, as recorded
+in the exception table above.
 
 ## Shared account and invitation contract
 
@@ -106,7 +107,7 @@ Together they require both platforms to use the same:
 - dedicated guest-list screen with host and current-user markers;
 - privacy callout and full proof/limits screen;
 - reply selection and condition editing before an explicit submit action;
-- unavailable-response language and the verified switch-to-this-device warning; and
+- unavailable-response language and account-wide saved-reply recovery; and
 - successful-response summary and return actions.
 
 Selecting a reply is local editing state. It must never show `Responded` or
@@ -130,3 +131,5 @@ event, and disable mutation after invitations freeze the event policy.
 Paired reference screenshots and the screen-by-screen decision matrix live in
 `docs/parity-audit-2026-07-31/`. Capture both renderers at the same mobile
 device class and data state whenever a shared experience changes.
+
+The latest executable audit is recorded in `docs/parity-audit-2026-08-18.md`.

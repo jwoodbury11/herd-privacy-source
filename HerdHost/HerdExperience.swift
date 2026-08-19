@@ -109,6 +109,13 @@ struct HerdExperience: Decodable {
     }
 
     struct Profile: Decodable {
+        struct UnsavedChanges: Decodable {
+            let title: String
+            let body: String
+            let cancelButton: String
+            let confirmButton: String
+        }
+
         struct Logout: Decodable {
             let title: String
             let body: String
@@ -140,6 +147,7 @@ struct HerdExperience: Decodable {
         let syncNote: String
         let saveButton: String
         let savedNotice: String
+        let unsavedChanges: UnsavedChanges
         let logoutButton: String
         let deleteAccountButton: String
         let logout: Logout
