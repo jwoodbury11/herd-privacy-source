@@ -1300,9 +1300,12 @@ function keyWitness(value) {
 }
 
 async function evaluatorKeyEpochWitness(manifest) {
+  // A key epoch is bound to the stable policy measurement and evaluator keys.
+  // The exact per-release image digest is verified independently by live
+  // attestation, so artifact-only releases can safely reuse the active epoch.
   const workloadImageDigest =
-    `${manifest.trust.workload.imageDigest.algorithm}:` +
-    manifest.trust.workload.imageDigest.value;
+    `${manifest.trust.workload.policyMeasurement.algorithm}:` +
+    manifest.trust.workload.policyMeasurement.value;
   const descriptor = {
     schemaVersion: 1,
     evaluatorKeyEpochId: manifest.evaluatorKeyEpochId,
