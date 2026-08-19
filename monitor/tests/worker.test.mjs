@@ -186,6 +186,12 @@ function response(record, status = 200) {
   });
 }
 
+function fixtureRequestUrl(input) {
+  const url = new URL(String(input));
+  url.searchParams.delete("herd_sha256");
+  return url.toString();
+}
+
 class MemoryStorage {
   constructor() {
     this.values = new Map();
@@ -342,7 +348,7 @@ test("last-good response/deployment witness survives 503 and rejects the followi
   const forkHash = Buffer.alloc(32, 9).toString("base64url");
   const fork = logEntry(3, hashes[1], forkHash, fixture.keys.receiptTransparencySigning);
   globalThis.fetch = async (input) => {
-    const requestUrl = String(input);
+    const requestUrl = fixtureRequestUrl(input);
     if (requestUrl === `${url}?after=2&limit=500`) {
       if (mode === "down") return response(null, 503);
       if (mode === "fork") return response(page([fork]));
@@ -391,7 +397,7 @@ test("Durable Object serializes overlapping manual checks before advancing a wit
   let initialLogFetches = 0;
   let resumedLogFetches = 0;
   globalThis.fetch = async (input) => {
-    const requestUrl = String(input);
+    const requestUrl = fixtureRequestUrl(input);
     if (requestUrl === fixture.wellKnownUrl) {
       activeWellKnown += 1;
       maximumActiveWellKnown = Math.max(maximumActiveWellKnown, activeWellKnown);

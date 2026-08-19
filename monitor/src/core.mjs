@@ -570,7 +570,12 @@ async function fetchArtifact(fetchImpl, artifact, label, allowedOrigins, { retai
   if (!allowedOrigins.includes(new URL(artifact.url).origin)) {
     throw new TypeError(`${label} uses an unapproved evidence origin.`);
   }
-  const response = await fetchImpl(artifact.url, {
+  const artifactUrl = new URL(artifact.url);
+  // The digest is already independently pinned by the signed manifest. Using
+  // it as a cache key prevents stale object metadata from surviving a
+  // corrected content-type label at an intermediary edge.
+  artifactUrl.searchParams.set("herd_sha256", artifact.sha256);
+  const response = await fetchImpl(artifactUrl.toString(), {
     method: "GET",
     redirect: "manual",
     cache: "no-store",
