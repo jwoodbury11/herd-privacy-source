@@ -61,7 +61,9 @@ function monitoredFixture(options = {}) {
 
 function mockFetch(responses, overrides = new Map()) {
   return async (input) => {
-    const url = String(input);
+    const urlValue = new URL(String(input));
+    urlValue.searchParams.delete("herd_sha256");
+    const url = urlValue.toString();
     if (overrides.has(url)) return overrides.get(url);
     const record = responses.get(url);
     if (!record) return new Response("not found", { status: 404 });
