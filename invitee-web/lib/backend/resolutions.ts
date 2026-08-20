@@ -28,6 +28,7 @@ import {
 } from "./response-envelopes";
 import { recoverPendingResponseTransparency } from "./response-transparency";
 import { sendResolutionTransitionNotifications } from "./resolution-notifications";
+import { getSimpleEventResolution } from "./simple-resolutions";
 import type { EvaluationResultAttestation, EventResolution } from "./types";
 
 type EventResolutionRow = {
@@ -53,6 +54,9 @@ export type ResolutionReadableEvent = {
   id: string;
   title?: string;
   invitationsSent: boolean;
+  minimumParticipants?: number;
+  requiredGroups?: Array<{ memberIDs: string[] }>;
+  invitees?: Array<{ id: string }>;
   rsvpDeadline: string | null;
   privateResponsePolicy: PrivateResponsePolicyV1 | null;
 };
@@ -1738,7 +1742,31 @@ export async function getEventResolutionForRead(
   event: ResolutionReadableEvent,
   nowIso = new Date().toISOString(),
 ): Promise<EventResolution | null> {
-  if (!event.invitationsSent || !event.privateResponsePolicy) return null;
+  if (!event.invitationsSent) return null;
+  if (!event.privateResponsePolicy) {
+    if (
+      event.minimumParticipants === undefined ||
+      event.requiredGroups === undefined ||
+      event.invitees === undefined
+    ) {
+      throw new ApiError(
+        500,
+        "event_resolution_corrupt",
+        "The event is missing the information needed to calculate its result.",
+      );
+    }
+    return getSimpleEventResolution(
+      db,
+      bindings,
+      {
+        ...event,
+        minimumParticipants: event.minimumParticipants,
+        requiredGroups: event.requiredGroups,
+        invitees: event.invitees,
+      },
+      nowIso,
+    );
+  }
   if (!event.rsvpDeadline) {
     throw new ApiError(
       500,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import worker, { runCourier } from "../src/worker.mjs";
+import worker, { runCourier, runScheduledTasks } from "../src/worker.mjs";
 
 const TOKEN = "a".repeat(64);
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -80,6 +80,43 @@ test("an empty queue completes without calling the evaluator", async () => {
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /\/claim$/u);
   assert.equal(calls[0].init.headers.authorization, `Bearer ${TOKEN}`);
+});
+
+test("every production invocation runs authenticated retention even when the queue is empty", async () => {
+  const calls = [];
+  const completed = await runScheduledTasks(
+    ENV,
+    {
+      now: () => 0,
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init });
+        return new Response(null, { status: 204 });
+      },
+    },
+  );
+  assert.equal(completed, 0);
+  assert.equal(calls.length, 2);
+  const retention = calls.find(({ url }) => url.endsWith("/api/internal/data-retention"));
+  const claimCall = calls.find(({ url }) => url.endsWith("/claim"));
+  assert.ok(retention);
+  assert.ok(claimCall);
+  assert.equal(retention.init.headers.authorization, `Bearer ${TOKEN}`);
+  assert.equal(retention.init.body, undefined);
+});
+
+test("a failed retention request makes the scheduled invocation retry", async () => {
+  await assert.rejects(
+    runScheduledTasks(
+      ENV,
+      {
+        now: () => 0,
+        fetchImpl: async (url) => String(url).endsWith("/api/internal/data-retention")
+          ? new Response(null, { status: 503 })
+          : new Response(null, { status: 204 }),
+      },
+    ),
+    /Herd rejected a courier request \(HTTP 503\)/u,
+  );
 });
 
 test("a job is relayed without the scheduler credential and then completed", async () => {

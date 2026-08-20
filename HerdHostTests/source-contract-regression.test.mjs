@@ -116,8 +116,9 @@ test("response progress unlocks only after the current guest replies", async () 
     source("Models.swift"),
   ]);
   assert.match(models, /var hasResponded: Bool\?/u);
+  assert.match(models, /var respondedParticipantCount: Int[\s\S]*\.count \+ 1/u);
   assert.match(home, /role == \.host \|\| hasResponse/u);
-  assert.match(home, /respondedInviteeCount/u);
+  assert.match(home, /respondedParticipantCount/u);
   assert.match(home, /invitee\.hasResponded == true \? "Responded" : "Not responded"/u);
   assert.match(home, /Send your private reply to see who has responded/u);
 });

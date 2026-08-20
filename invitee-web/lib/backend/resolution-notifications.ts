@@ -71,10 +71,6 @@ export async function sendResolutionTransitionNotifications(
               invitees.token_storage_version AS tokenStorageVersion
        FROM invitees
        WHERE invitees.event_id = ?
-         AND EXISTS (
-           SELECT 1 FROM response_envelopes
-           WHERE response_envelopes.invitee_id = invitees.id
-         )
        ORDER BY phoneNumber ASC`,
     )
     .bind(event.id, event.id)

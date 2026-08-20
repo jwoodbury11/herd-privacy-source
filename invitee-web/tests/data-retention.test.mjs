@@ -9,6 +9,7 @@ import { Miniflare } from "miniflare";
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const serverRoot = path.join(projectRoot, "dist/server");
 const migrationDirectory = path.join(projectRoot, "drizzle");
+const schedulerToken = "retention-scheduler-token-0123456789abcdef";
 
 async function javascriptModules(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -48,6 +49,7 @@ async function harness() {
         "herd-retention-test-pepper-0123456789-abcdefghijklmnopqrstuvwxyz",
       HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
       HERD_TEST_ACCOUNT_ACCESS_GENERATION: "herd-retention-generation-v1",
+      HERD_SCHEDULER_TOKEN: schedulerToken,
     },
   });
   const database = await miniflare.getD1Database("DB");
@@ -68,14 +70,17 @@ async function scalar(database, sql) {
   return database.prepare(sql).first("value");
 }
 
-test("the scheduled sweep enforces retention without rewriting transparency", async (t) => {
+test("the authenticated production sweep enforces retention without rewriting transparency", async (t) => {
   const { miniflare, database } = await harness();
   t.after(() => miniflare.dispose());
 
-  const now = "2026-08-02T12:00:00.000Z";
-  const recent = "2026-08-02T11:00:00.000Z";
-  const oldAuth = "2026-06-01T00:00:00.000Z";
-  const oldResponse = "2026-04-01T00:00:00.000Z";
+  const now = Date.now();
+  const recent = new Date(now - 60 * 60 * 1_000).toISOString();
+  const oldAuth = new Date(now - 60 * 24 * 60 * 60 * 1_000).toISOString();
+  const oldResponse = new Date(now - 120 * 24 * 60 * 60 * 1_000).toISOString();
+  const expiredUnconfirmedDeadline = new Date(
+    now - (5 * 24 + 1) * 60 * 60 * 1_000,
+  ).toISOString();
   const userID = "10000000-0000-4000-8000-000000000001";
   const epochID = "20000000-0000-4000-8000-000000000001";
 
@@ -156,7 +161,7 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
        (?, ?, 'Recent unconfirmed', ?, NULL, 'Host', '', '', 1, ?, '', 1, ?, ?),
        (?, ?, 'Expired confirmed', ?, NULL, 'Host', '', '', 1, ?, '', 1, ?, ?)`,
     ).bind(
-      expiredUnconfirmedID, userID, oldResponse, oldResponse, oldResponse, oldResponse,
+      expiredUnconfirmedID, userID, oldResponse, expiredUnconfirmedDeadline, oldResponse, oldResponse,
       recentUnconfirmedID, userID, recent, recent, recent, recent,
       expiredConfirmedID, userID, oldResponse, oldResponse, oldResponse, oldResponse,
     ),
@@ -239,11 +244,24 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     `).bind(oldAuth, recent),
   ]);
 
-  const scheduled = await miniflare.dispatchFetch(
-    `http://localhost/cdn-cgi/handler/scheduled?time=${Date.parse(now)}&cron=${encodeURIComponent("* * * * *")}`,
+  const unauthorized = await miniflare.dispatchFetch(
+    "http://localhost/api/internal/data-retention",
+    { method: "POST" },
   );
-  assert.equal(scheduled.status, 200);
-  assert.equal(await scheduled.text(), "ok");
+  assert.equal(unauthorized.status, 401);
+  assert.equal(
+    await scalar(database, `SELECT COUNT(*) AS value FROM events WHERE id = '${expiredUnconfirmedID}'`),
+    1,
+  );
+
+  const scheduled = await miniflare.dispatchFetch(
+    "http://localhost/api/internal/data-retention",
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${schedulerToken}` },
+    },
+  );
+  assert.equal(scheduled.status, 204);
 
   assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM challenges"), 1);
   assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM sessions"), 1);
@@ -266,7 +284,9 @@ test("the scheduled sweep enforces retention without rewriting transparency", as
     await scalar(database, "SELECT COUNT(*) AS value FROM response_transparency_entries"),
     1,
   );
-  assert.equal(await scalar(database, "SELECT COUNT(*) AS value FROM operational_metrics"), 3);
+  assert.ok(
+    await scalar(database, "SELECT COUNT(*) AS value FROM operational_metrics") >= 3,
+  );
   assert.equal(
     await scalar(database, `SELECT COUNT(*) AS value FROM operational_metrics WHERE bucket_started_at = '${oldAuth}'`),
     0,

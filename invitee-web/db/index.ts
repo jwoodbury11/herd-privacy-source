@@ -45,6 +45,7 @@ export type HerdBindings = {
   HERD_SCHEDULER_TOKEN?: string;
   HERD_OBSERVABILITY_TOKEN?: string;
   HERD_OPERATOR_TOKEN?: string;
+  HERD_DATA_RESET_TOKEN?: string;
   HERD_MONITOR_ALERT_HMAC_SECRET?: string;
   HERD_PUBLIC_APP_URL?: string;
   HERD_IOS_APP_ID?: string;

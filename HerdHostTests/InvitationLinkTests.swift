@@ -731,6 +731,57 @@ final class EventStoreRecoveryTests: XCTestCase {
         super.tearDown()
     }
 
+    func testEventRefreshPreservesResponseProgressForEveryInvitee() async throws {
+        let eventID = UUID()
+        let firstInviteeID = UUID()
+        let secondInviteeID = UUID()
+        let thirdInviteeID = UUID()
+        let remoteEvent: [String: Any] = [
+            "id": eventID.uuidString.lowercased(),
+            "title": "Response projection",
+            "eventDate": "2026-08-29T19:00:00.000Z",
+            "hostName": "Host",
+            "locationName": "",
+            "locationAddress": "",
+            "invitees": [
+                [
+                    "id": firstInviteeID.uuidString.lowercased(),
+                    "displayName": "First",
+                    "hasResponded": true,
+                ],
+                [
+                    "id": secondInviteeID.uuidString.lowercased(),
+                    "displayName": "Second",
+                    "hasResponded": true,
+                ],
+                [
+                    "id": thirdInviteeID.uuidString.lowercased(),
+                    "displayName": "Third",
+                    "hasResponded": true,
+                ],
+            ],
+            "minimumParticipants": 2,
+            "requiredGroups": [],
+            "rsvpDeadline": "2026-08-27T23:59:00.000Z",
+            "eventDescription": "",
+            "createdAt": "2026-08-19T21:30:00.000Z",
+            "invitationsSent": true,
+            "role": "host",
+        ]
+        InvitationMockURLProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/api/events")
+            return try Self.jsonResponse(request, object: ["events": [remoteEvent]])
+        }
+        let client = Self.client()
+        await client.setAccessToken("response-progress-session")
+
+        let events = try await client.fetchEvents()
+
+        let event = try XCTUnwrap(events.first)
+        XCTAssertEqual(event.invitees.filter { $0.hasResponded == true }.count, 3)
+        XCTAssertEqual(event.respondedParticipantCount, 4)
+    }
+
     func testInitialRefreshPublishesEventsBeforeSlowEvaluatorRelayFinishes() async throws {
         let eventID = UUID()
         let token = "Recovery_slow-relay-token-123"
@@ -1256,6 +1307,13 @@ final class SimplifiedBallotAPIClientTests: XCTestCase {
                 )
                 XCTAssertEqual(object["response"] as? String, "going")
                 XCTAssertEqual(object["minimumParticipants"] as? Int, 2)
+                let requiredGroups = try XCTUnwrap(object["requiredGroups"] as? [[String: Any]])
+                XCTAssertEqual(requiredGroups.count, 1)
+                XCTAssertEqual(requiredGroups[0]["id"] as? String, "friends")
+                XCTAssertEqual(
+                    (requiredGroups[0]["memberIDs"] as? [String])?.map { $0.lowercased() },
+                    [memberID.uuidString.lowercased()]
+                )
                 let serialized = String(decoding: body, as: UTF8.self)
                 XCTAssertFalse(serialized.localizedCaseInsensitiveContains("phone"))
                 XCTAssertFalse(serialized.localizedCaseInsensitiveContains("account"))
@@ -1283,6 +1341,50 @@ final class SimplifiedBallotAPIClientTests: XCTestCase {
         await second.setAccessToken("account-session")
         let reopened = try await second.fetchSimplifiedBallot(inviteToken: token)
         XCTAssertEqual(reopened, saved)
+    }
+
+    func testCantCommitExplicitlySendsNullAndNoConditions() async throws {
+        let token = "Account_wide-cant-commit-token-123"
+        let response: [String: Any] = [
+            "ballot": [
+                "protocolVersion": 2,
+                "ballotId": String(repeating: "B", count: 43),
+                "revision": 2,
+                "response": "cant_commit",
+                "minimumParticipants": NSNull(),
+                "requiredGroups": [],
+                "createdAt": "2026-08-19T20:00:00.000Z",
+            ],
+        ]
+        let submitted = expectation(description: "condition-free ballot submitted")
+        InvitationMockURLProtocol.install { request in
+            let body = try Self.requestBody(request)
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(object["response"] as? String, "cant_commit")
+            XCTAssertTrue(object.keys.contains("minimumParticipants"))
+            XCTAssertTrue(object["minimumParticipants"] is NSNull)
+            XCTAssertEqual((object["requiredGroups"] as? [Any])?.count, 0)
+            submitted.fulfill()
+            return try Self.jsonResponse(request, object: response)
+        }
+
+        let client = Self.client()
+        await client.setAccessToken("account-session")
+        let staleCondition = RSVPConditionGroup(id: "stale", memberIDs: [UUID()])
+        let saved = try await client.submitSimplifiedBallot(
+            inviteToken: token,
+            draft: PrivateResponseDraft(
+                response: .cantCommit,
+                minimumParticipants: 10,
+                requiredGroups: [staleCondition]
+            )
+        )
+        await fulfillment(of: [submitted], timeout: 1)
+        XCTAssertEqual(saved.response, .cantCommit)
+        XCTAssertNil(saved.minimumParticipants)
+        XCTAssertTrue(saved.requiredGroups.isEmpty)
     }
 
     private static func client() -> APIClient {

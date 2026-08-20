@@ -24,7 +24,8 @@ test("hosted event deletion stays owner-only and confirmation-gated across clien
   assert.match(css, /\.event-deletion-dialog/u);
 
   assert.match(swiftHome, /if event\?\.isHosted == true[\s\S]*?event-actions-menu/u);
-  assert.match(swiftHome, /Label\([\s\S]*?eventActions\.deleteButton,[\s\S]*?systemImage: "trash"[\s\S]*?\.foregroundStyle\(\.red\)/u);
+  assert.match(swiftHome, /UIImage\(systemName: "trash"\)[\s\S]*?withTintColor\(\.systemRed, renderingMode: \.alwaysOriginal\)/u);
+  assert.match(swiftHome, /Text\(invitationExperience\.eventActions\.deleteButton\)[\s\S]*?\.foregroundStyle\(\.red\)[\s\S]*?Image\(uiImage: Self\.destructiveTrashImage\)/u);
   assert.match(swiftHome, /eventActions\.deletionTitle[\s\S]*?eventActions\.deletionBody/u);
   assert.match(swiftHome, /await store\.delete\(event\)/u);
 

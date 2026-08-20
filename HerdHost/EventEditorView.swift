@@ -107,6 +107,7 @@ struct EventEditorView: View {
                     EditorGroup(title: "Details") {
                         VStack(spacing: 0) {
                             Button {
+                                dismissKeyboard()
                                 showsEventDate = true
                             } label: {
                                 EventEditorRow(
@@ -122,6 +123,7 @@ struct EventEditorView: View {
                             GroupDivider()
 
                             Button {
+                                dismissKeyboard()
                                 showsDeadline = true
                             } label: {
                                 EventEditorRow(
@@ -150,6 +152,7 @@ struct EventEditorView: View {
                             GroupDivider()
 
                             Button {
+                                dismissKeyboard()
                                 showsLocation = true
                             } label: {
                                 EventEditorRow(
@@ -170,6 +173,7 @@ struct EventEditorView: View {
                     ) {
                         VStack(spacing: 0) {
                             Button {
+                                dismissKeyboard()
                                 showsInvitees = true
                             } label: {
                                 EventEditorRow(
@@ -256,32 +260,33 @@ struct EventEditorView: View {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
                     Button("Done") {
-                        focusedField = nil
+                        dismissKeyboard()
                     }
                     .accessibilityIdentifier("event-keyboard-done")
                 }
             }
         }
-        .sheet(isPresented: $showsEventDate) {
+        .herdCanvasBehindSystemUI()
+        .sheet(isPresented: $showsEventDate, onDismiss: dismissKeyboard) {
             EventDateSheet(
                 eventDate: $draft.eventDate,
                 endDate: $draft.endDate,
                 rsvpDeadline: $draft.rsvpDeadline
             )
         }
-        .sheet(isPresented: $showsLocation) {
+        .sheet(isPresented: $showsLocation, onDismiss: dismissKeyboard) {
             LocationSearchView(
                 locationName: $draft.locationName,
                 locationAddress: $draft.locationAddress,
                 profileAddress: authStore.user?.address ?? ""
             )
         }
-        .sheet(isPresented: $showsDeadline) {
+        .sheet(isPresented: $showsDeadline, onDismiss: dismissKeyboard) {
             if let eventDate = draft.eventDate {
                 RSVPDeadlineSheet(rsvpDeadline: $draft.rsvpDeadline, eventDate: eventDate)
             }
         }
-        .sheet(isPresented: $showsSendConfirmation) {
+        .sheet(isPresented: $showsSendConfirmation, onDismiss: dismissKeyboard) {
             SendInviteConfirmationView(invitees: draft.invitees) {
                 showsSendConfirmation = false
                 save(markInvitationsSent: true)
@@ -289,13 +294,13 @@ struct EventEditorView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(isPresented: $showsInvitees) {
+        .fullScreenCover(isPresented: $showsInvitees, onDismiss: dismissKeyboard) {
             AttendeeFlowView(
                 invitees: $draft.invitees,
                 excludedPhoneNumber: authStore.user?.phoneNumber
             )
         }
-        .sheet(item: $requiredPicker) { context in
+        .sheet(item: $requiredPicker, onDismiss: dismissKeyboard) { context in
             RequiredAttendeePickerView(
                 invitees: availableInvitees(for: context),
                 explanation: context.explanation,
@@ -436,6 +441,7 @@ struct EventEditorView: View {
                         group: group,
                         invitees: draft.invitees,
                         onAddAlternative: {
+                            dismissKeyboard()
                             requiredPicker = .alternative(for: group.id)
                         },
                         onRemoveMember: { memberID in
@@ -450,6 +456,7 @@ struct EventEditorView: View {
                 }
 
                 Button {
+                    dismissKeyboard()
                     requiredPicker = .newGroup()
                 } label: {
                     HStack(spacing: 12) {
@@ -548,6 +555,7 @@ struct EventEditorView: View {
     }
 
     private func handlePrimaryAction() {
+        dismissKeyboard()
         if draft.invitationsSent {
             dismiss()
         } else if draft.invitees.isEmpty {
@@ -558,7 +566,7 @@ struct EventEditorView: View {
     }
 
     private func handleClose() {
-        focusedField = nil
+        dismissKeyboard()
         if draft.invitationsSent {
             dismiss()
         } else if isExistingEvent {
@@ -584,6 +592,7 @@ struct EventEditorView: View {
     }
 
     private func save(markInvitationsSent: Bool = false) {
+        dismissKeyboard()
         guard !isSaving else { return }
         let wasSent = draft.invitationsSent
         draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -622,6 +631,11 @@ struct EventEditorView: View {
                 saveErrorMessage = store.errorMessage ?? "Please check your connection and try again."
             }
         }
+    }
+
+    private func dismissKeyboard() {
+        focusedField = nil
+        HerdKeyboard.dismiss()
     }
 }
 

@@ -725,9 +725,10 @@ async function seedBrowserScenario(baseUrl, database) {
     body: eventPayload,
   });
   const createdBody = await requireStatus(created, 200, "Sent event creation");
+  ensure(createdBody?.event?.id === eventId, "The local event was not created.");
   ensure(
-    createdBody?.event?.privateResponsePolicy?.policySignature,
-    "The local event policy was not signed.",
+    createdBody.event.privateResponsePolicy == null,
+    "A protocol-v2 event unexpectedly created a legacy frozen policy.",
   );
 
   const inviteViews = [];
@@ -804,7 +805,7 @@ async function seedBrowserScenario(baseUrl, database) {
          (SELECT COUNT(*) FROM invitation_deliveries
           WHERE event_id = ? AND status = 'sent') AS sentCount,
          (SELECT COUNT(*) FROM event_policies
-          WHERE event_id = ? AND policy_signature IS NOT NULL) AS signedPolicyCount`,
+          WHERE event_id = ?) AS legacyPolicyCount`,
     )
     .bind(eventId, eventId, eventId, eventId)
     .first();
@@ -813,7 +814,7 @@ async function seedBrowserScenario(baseUrl, database) {
       counts.eventCount === 1 &&
       counts.inviteeCount === 8 &&
       counts.sentCount === 8 &&
-      counts.signedPolicyCount === 1,
+      counts.legacyPolicyCount === 0,
     `The local seed counts are invalid: ${JSON.stringify(counts)}`,
   );
 

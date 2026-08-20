@@ -1,10 +1,47 @@
 import SwiftUI
+import UIKit
+
+enum HerdKeyboard {
+    static func dismiss() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+}
 
 enum HerdTheme {
     static let canvas = Color(uiColor: .secondarySystemBackground)
     static let surface = Color(uiColor: .tertiarySystemBackground)
     static let raisedSurface = Color(uiColor: .systemGray5)
     static let subtleBorder = Color(uiColor: .separator)
+}
+
+/// Keeps the UIKit window surface aligned with the SwiftUI canvas. The system
+/// keyboard has rounded transparent edges that can reveal this surface.
+struct HerdWindowCanvasInstaller: UIViewRepresentable {
+    func makeUIView(context: Context) -> HerdWindowCanvasView {
+        HerdWindowCanvasView()
+    }
+
+    func updateUIView(_ uiView: HerdWindowCanvasView, context: Context) {
+        uiView.installCanvasColor()
+    }
+}
+
+final class HerdWindowCanvasView: UIView {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        installCanvasColor()
+    }
+
+    func installCanvasColor() {
+        window?.backgroundColor = .secondarySystemBackground
+        window?.rootViewController?.view.backgroundColor = .clear
+        window?.rootViewController?.view.isOpaque = false
+    }
 }
 
 struct HerdMonochromeSwitchVisual: View {
@@ -70,6 +107,16 @@ extension View {
     func herdScreenBackground() -> some View {
         scrollContentBackground(.hidden)
             .background(HerdTheme.canvas)
+    }
+
+    /// Paints the app canvas through both the container and keyboard safe areas
+    /// without changing the foreground view's keyboard-avoidance layout.
+    func herdCanvasBehindSystemUI() -> some View {
+        background {
+            HerdTheme.canvas
+                .ignoresSafeArea(.container, edges: .all)
+                .ignoresSafeArea(.keyboard, edges: .all)
+        }
     }
 }
 

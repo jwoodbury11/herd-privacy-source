@@ -128,6 +128,12 @@ private struct AppRootView: View {
                 }
             }
         }
+        .background {
+            HerdWindowCanvasInstaller()
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .task {
             eventStore.setUnauthorizedHandler {
                 authStore.expireSession()

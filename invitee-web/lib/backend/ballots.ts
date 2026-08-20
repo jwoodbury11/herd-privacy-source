@@ -6,6 +6,7 @@ import { getAuthConfig } from "./config";
 import { pepperedHash } from "./crypto";
 import { getEventById } from "./events";
 import { ApiError, requireString } from "./http";
+import { getSimpleEventResolution } from "./simple-resolutions";
 
 const BALLOT_PROTOCOL_VERSION = 2;
 const BALLOT_KEY_VERSION = 1;
@@ -109,7 +110,13 @@ function validateDraft(
   if (response !== "going" && response !== "cant_commit") {
     throw new ApiError(400, "invalid_ballot", "Choose a valid private reply.");
   }
-  const minimumParticipants = value.minimumParticipants;
+  // Swift's synthesized Encodable representation historically omitted a nil
+  // optional. Treat that legacy cant-commit shape as the same condition-free
+  // ballot while continuing to require a real minimum for going replies.
+  const minimumParticipants = response === "cant_commit"
+    && value.minimumParticipants === undefined
+    ? null
+    : value.minimumParticipants;
   if (
     response === "going"
       ? !Number.isInteger(minimumParticipants)
@@ -194,14 +201,16 @@ export async function getOwnBallot(
     revision: row.revision,
     response: row.response,
     minimumParticipants: row.minimumParticipants,
-    requiredGroups: storedGroups.map((group) => ({
-      id: group.id,
-      memberIDs: group.memberIDs.map((memberID) => {
+    // Roster edits must not brick an existing reply. A condition that names a
+    // removed attendee is simply no longer satisfiable and is omitted from the
+    // editable projection; the historical ballot revision remains untouched.
+    requiredGroups: storedGroups.flatMap((group) => {
+      const memberIDs = group.memberIDs.flatMap((memberID) => {
         const inviteeId = fromBallot.get(memberID);
-        if (!inviteeId) throw new ApiError(500, "invalid_ballot", "The saved private reply is invalid.");
-        return inviteeId;
-      }),
-    })),
+        return inviteeId ? [inviteeId] : [];
+      });
+      return memberIDs.length > 0 ? [{ id: group.id, memberIDs }] : [];
+    }),
     createdAt: row.createdAt,
   };
 }
@@ -244,6 +253,7 @@ export async function putOwnBallot(
     current.minimumParticipants === draft.minimumParticipants &&
     current.requiredGroups === JSON.stringify(storedGroups)
   ) {
+    await getSimpleEventResolution(db, bindings, event);
     return {
       protocolVersion: 2,
       ballotId,
@@ -286,6 +296,10 @@ export async function putOwnBallot(
       createdAt,
     )
     .run();
+  // A reply is the only input needed to resolve a v2 event. Evaluate it in
+  // the same request so confirmation never depends on a client refresh or a
+  // later scheduler pass.
+  await getSimpleEventResolution(db, bindings, event, createdAt);
   return {
     protocolVersion: 2,
     ballotId,

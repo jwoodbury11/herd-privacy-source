@@ -214,6 +214,9 @@ async function verifiedApiEvent(event: ApiEvent): Promise<ApiEvent> {
         eventId: event.id,
         rsvpDeadline: event.rsvpDeadline,
         privateResponsePolicy: event.privateResponsePolicy,
+        inviteeIds: event.invitees.map(({ id }) => id),
+        minimumParticipants: event.minimumParticipants,
+        requiredGroups: event.requiredGroups,
       },
       event.resolution,
     ),
@@ -382,10 +385,8 @@ function ReplyVisibilityPreview({
       <div className="people-list reply-preview-person">
         <div className="person-row">
           <span className="avatar avatar-tone-1">{personInitials(displayName)}</span>
-          <div>
-            <strong>{displayName}</strong>
-            <span>{status}</span>
-          </div>
+          <strong>{displayName}</strong>
+          <span className="person-status">{status}</span>
         </div>
       </div>
       <p className="reply-preview-note">{confirmedBody ?? REPLY_EXPERIENCE.confirmedPreviewBody}</p>
@@ -545,13 +546,7 @@ function EventInfoNotices({ event }: { event: ApiEvent }) {
     notices.push(INVITATION_EXPERIENCE.notices.sending);
   }
 
-  if (
-    event.invitationsSent &&
-    !event.privateResponsePolicy &&
-    (!event.resolution || event.resolution.status === "pending")
-  ) {
-    notices.push(INVITATION_EXPERIENCE.notices.legacyResultUnavailable);
-  } else if (event.resolution?.status === "verification_unavailable") {
+  if (event.resolution?.status === "verification_unavailable") {
     notices.push(INVITATION_EXPERIENCE.notices.resultUnavailable);
   } else if (event.resolution?.status === "pending" && event.resolution.retrying) {
     notices.push(INVITATION_EXPERIENCE.notices.takingLonger);
@@ -610,6 +605,81 @@ function DeliveryStatusButton({ guest }: { guest: InvitationDeliverySummary["gue
   );
 }
 
+function LockedGuestStatus() {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <span className="locked-guest-status-control">
+      <button
+        type="button"
+        className="locked-guest-status-button"
+        aria-label="Guest status hidden. Send your reply to see guest status."
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+        onBlur={() => setIsOpen(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setIsOpen(false);
+        }}
+      >
+        <span className="locked-guest-status-blur" aria-hidden="true">Guest status</span>
+      </button>
+      {isOpen ? (
+        <span className="locked-guest-status-tooltip" role="tooltip">
+          Send your reply to see guest status.
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function TruncatedPersonName({ name }: { name: string }) {
+  const nameRef = useRef<HTMLElement | null>(null);
+  const [isTruncated, setIsTruncated] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    const element = nameRef.current;
+    if (!element) return;
+
+    const update = () => {
+      const clipped = element.scrollWidth > element.clientWidth + 1;
+      setIsTruncated(clipped);
+      if (!clipped) setIsOpen(false);
+    };
+
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(element);
+    window.addEventListener("resize", update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [name]);
+
+  return (
+    <span className="person-name-control">
+      <button
+        type="button"
+        className="person-name-button"
+        disabled={!isTruncated}
+        data-truncated={isTruncated ? "true" : "false"}
+        aria-expanded={isTruncated ? isOpen : undefined}
+        aria-label={name}
+        onClick={() => setIsOpen((open) => !open)}
+        onBlur={() => setIsOpen(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setIsOpen(false);
+        }}
+      >
+        <strong ref={nameRef} className="person-name">{name}</strong>
+      </button>
+      {isTruncated && isOpen ? (
+        <span className="person-name-tooltip" role="tooltip">{name}</span>
+      ) : null}
+    </span>
+  );
+}
+
 function eventThirdMetric(
   event: ApiEvent,
   fallback: { value: string; label: string },
@@ -628,7 +698,7 @@ function eventThirdMetric(
     && (event.role === "host" || event.hasResponse || event.hasBallot)
   ) {
     return {
-      value: String(event.invitees.filter(({ hasResponded }) => hasResponded).length),
+      value: String(respondedParticipantCount(event)),
       label: "responded",
     };
   }
@@ -841,6 +911,12 @@ function AccountStatusRow({
 
 function participantCount(event: Pick<ApiEvent, "invitees">) {
   return event.invitees.length + 1;
+}
+
+function respondedParticipantCount(event: Pick<ApiEvent, "invitees">) {
+  // The host is always an affirmative participant and therefore always counts
+  // as the first response without creating a synthetic private ballot.
+  return event.invitees.filter(({ hasResponded }) => hasResponded).length + 1;
 }
 
 function peopleCountLabel(count: number) {
@@ -1524,6 +1600,11 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   }, [replyPreviewOpen]);
 
   const selectedConditionPeople = conditionGroups.flat();
+  function blurActiveControl() {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) activeElement.blur();
+  }
+
   function goBack() {
     const previous: Record<Screen, Screen> = {
       welcome: "welcome",
@@ -1543,10 +1624,12 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       return;
     }
     if (screen === "privacy") restorePrivacyTriggerFocusRef.current = true;
+    blurActiveControl();
     setScreen(previous[screen]);
   }
 
   function discardProfileChanges() {
+    blurActiveControl();
     if (currentUser) applyUser(currentUser);
     setProfileNotice("");
     setProfileDiscardConfirmationOpen(false);
@@ -1755,6 +1838,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   function closeGuestAddition() {
     if (guestAdditionPending) return;
+    blurActiveControl();
     setGuestDrafts([]);
     setGuestAdditionError("");
     setScreen("attendees");
@@ -3333,19 +3417,26 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                     </span>
                     <span className="host-crown" aria-hidden="true"><Crown size={10} /></span>
                   </span>
-                  <strong className="person-name">{activeEvent?.hostName || ATTENDEES_EXPERIENCE.hostLabel}</strong>
+                  <TruncatedPersonName name={activeEvent?.hostName || ATTENDEES_EXPERIENCE.hostLabel} />
                   <span className="person-status">{ATTENDEES_EXPERIENCE.hostingLabel}</span>
                 </div>
                 {invitedPeople.map((person, index) => {
                   const attendanceStatus = attendeeStatusLabel(activeEvent, person);
+                  const guestStatusLocked = Boolean(
+                    activeEvent
+                    && activeEvent.role !== "host"
+                    && !activeEvent.hasResponse
+                    && !activeEvent.hasBallot,
+                  );
                   const deliveryGuest = activeEvent?.role === "host"
                     ? activeEvent.invitationDelivery?.guests.find((guest) => guest.inviteeId === person.id)
                     : undefined;
                   return (
                     <div className="person-row" key={person.id}>
                       <span className={`avatar ${initialsTone(index + 1)}`}>{personInitials(person.displayName)}</span>
-                      <strong className="person-name">{person.displayName}</strong>
+                      <TruncatedPersonName name={person.displayName} />
                       {attendanceStatus ? <span className="person-status">{attendanceStatus}</span> : null}
+                      {!attendanceStatus && guestStatusLocked ? <LockedGuestStatus /> : null}
                       {deliveryGuest ? <DeliveryStatusButton guest={deliveryGuest} /> : null}
                     </div>
                   );
@@ -3457,7 +3548,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
             <AppHeader title={PRIVACY_EXPERIENCE.navigationTitle} headingId="privacy-heading" onBack={goBack} />
             <div className="screen-scroll privacy-screen">
               <section className="privacy-hero">
-                <p className="eyebrow">{PRIVACY_EXPERIENCE.eyebrow}</p>
                 <h2 id="privacy-heading" ref={privacyHeadingRef} tabIndex={-1}>{PRIVACY_EXPERIENCE.title}</h2>
                 <p>{PRIVACY_EXPERIENCE.intro}</p>
               </section>
@@ -3537,7 +3627,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                               <div><dt>Declared measurement</dt><dd><code>{activeEvent.privateResponsePolicy.evaluatorMeasurement}</code></dd></div>
                             </dl>
                           ) : (
-                            <p className="proof-unavailable">This event does not currently expose a frozen private-response policy, so the client cannot submit a private response.</p>
+                            <p className="proof-unavailable">Your conditions use a private, event-specific ballot ID—not your name, phone number, account, or other identifying information.</p>
                           )
                         ) : null}
                       </div>

@@ -177,8 +177,8 @@
     },
     "privacyCallout": {
       "title": "Herd is thoughtfully designed to remove all downsides of answering honestly.",
-      "body": "Your conditions are evaluated using a private, event-specific ballot ID—not your name, phone number, account, or other identifying information. They’re never shown to hosts, guests, or third parties.",
-      "action": "How privacy works"
+      "body": "Your conditions are hidden from hosts and guests and stored without your identity.",
+      "action": "Prove it to me"
     },
     "eventActions": {
       "moreLabel": "More event actions",
@@ -254,7 +254,7 @@
     "removeCondition": "Remove required-person condition",
     "chooseButton": "Choose a reply",
     "submitButton": "Send my private reply",
-    "sentButton": "Reply sent",
+    "sentButton": "Reply already sent",
     "updateButton": "Update my private reply",
     "submittingButton": "Saving…",
     "previewButton": "Preview how others see it",
@@ -276,8 +276,7 @@
   },
   "privacy": {
     "navigationTitle": "How privacy works",
-    "eyebrow": "Privacy, simply",
-    "title": "Your conditions stay private",
+    "title": "How privacy works",
     "intro": "Your conditions are evaluated using a private, event-specific ballot ID—not your name, phone number, account, or other identifying information. They’re never shown to hosts, guests, or third parties.",
     "flowTitle": "From your reply to the event result",
     "flowPrivacyLabel": "Your minimum and required-person conditions are never shown to the host or guests.",
@@ -307,8 +306,8 @@
       {
         "title": "How is my reply kept private?",
         "paragraphs": [
-          "Your conditions are evaluated using a private, event-specific ballot ID—not your name, phone number, account, or other identifying information.",
-          "Your conditions are never shown to hosts, guests, or third parties."
+          "On Herd’s servers, your response is anonymized under a private, event-specific ballot ID and is not personally linked to your name, phone number, or account.",
+          "Your conditions are never shown to hosts or guests."
         ],
         "showsPolicyIdentifiers": false,
         "showsVerificationLinks": false

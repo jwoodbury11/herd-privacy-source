@@ -553,6 +553,23 @@ actor APIClient {
             let response: RSVPResponse
             let minimumParticipants: Int?
             let requiredGroups: [RSVPConditionGroup]
+
+            enum CodingKeys: String, CodingKey {
+                case response
+                case minimumParticipants
+                case requiredGroups
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(response, forKey: .response)
+                if let minimumParticipants {
+                    try container.encode(minimumParticipants, forKey: .minimumParticipants)
+                } else {
+                    try container.encodeNil(forKey: .minimumParticipants)
+                }
+                try container.encode(requiredGroups, forKey: .requiredGroups)
+            }
         }
         struct Response: Decodable { let ballot: SimplifiedBallot }
         guard let token = InvitationToken.normalize(inviteToken) else {
@@ -566,8 +583,12 @@ actor APIClient {
         request.httpBody = try HerdJSON.makeEncoder().encode(
             Body(
                 response: draft.response,
-                minimumParticipants: draft.minimumParticipants,
-                requiredGroups: draft.requiredGroups
+                minimumParticipants: draft.response == .going
+                    ? draft.minimumParticipants
+                    : nil,
+                requiredGroups: draft.response == .going
+                    ? draft.requiredGroups
+                    : []
             )
         )
         return try await perform(request, as: Response.self).ballot
@@ -1169,6 +1190,8 @@ private struct RemoteInvitee: Decodable, Sendable {
     var displayName: String
     var phoneNumber: String?
     var isCurrentUser: Bool?
+    var hasResponded: Bool?
+    var responseHistory: Invitee.ResponseHistory?
 
     var invitee: Invitee {
         Invitee(
@@ -1176,7 +1199,9 @@ private struct RemoteInvitee: Decodable, Sendable {
             sourceContactIdentifier: nil,
             displayName: displayName,
             phoneNumber: phoneNumber ?? "",
-            isCurrentUser: isCurrentUser ?? false
+            isCurrentUser: isCurrentUser ?? false,
+            hasResponded: hasResponded,
+            responseHistory: responseHistory
         )
     }
 }

@@ -555,6 +555,12 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         invitees.count + 1
     }
 
+    /// The host is an affirmative participant by definition, so response
+    /// progress starts at one before any invitee has submitted a reply.
+    var respondedParticipantCount: Int {
+        invitees.filter { $0.hasResponded == true }.count + 1
+    }
+
     var outstandingTasks: [String] {
         var tasks: [String] = []
 

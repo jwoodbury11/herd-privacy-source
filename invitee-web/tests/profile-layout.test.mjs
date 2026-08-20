@@ -60,7 +60,7 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(swiftHome, /Text\(experience\.syncNote\)[\s\S]*ProfileField/u);
   assert.match(swiftHome, /\.safeAreaInset\(edge: \.bottom[\s\S]*saveFooter/u);
   assert.match(swiftHome, /\.disabled\(authStore\.isBusy \|\| !profileHasChanges\)/u);
-  assert.match(swiftHome, /isNameFocused = false[\s\S]*authStore\.updateProfile/u);
+  assert.match(swiftHome, /dismissKeyboard\(\)[\s\S]*authStore\.updateProfile/u);
   assert.doesNotMatch(swiftHome, /Label\(savedNotice, systemImage: "checkmark\.circle\.fill"\)/u);
   assert.match(swiftHome, /private var profileAccountActions: some View/u);
   assert.match(swiftHome, /\.navigationTitle\(""\)/u);

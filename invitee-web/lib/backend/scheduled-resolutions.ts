@@ -4,6 +4,7 @@ import { getEventById } from "./events";
 import { ApiError } from "./http";
 import { getEvaluatorRelayConfig } from "./config";
 import { getPrivateResponsePolicies } from "./policy";
+import { getSimpleEventResolution } from "./simple-resolutions";
 import {
   completeClientRelayEvaluation,
   prepareInsertPendingEventResolution,
@@ -497,9 +498,48 @@ export async function runScheduledResolutionSweep(
   bindings: HerdBindings,
   scheduledAt = new Date().toISOString(),
 ): Promise<ScheduledResolutionSweepSummary> {
+  const simpleRows = await db
+    .prepare(
+      `SELECT events.id AS eventId
+       FROM events
+       LEFT JOIN event_policies ON event_policies.event_id = events.id
+       LEFT JOIN event_resolutions ON event_resolutions.event_id = events.id
+       WHERE events.invitations_sent = 1
+         AND event_policies.event_id IS NULL
+         AND events.rsvp_deadline IS NOT NULL
+         AND events.rsvp_deadline <= ?
+         AND (
+           event_resolutions.event_id IS NULL
+           OR event_resolutions.status NOT IN ('confirmed', 'not_confirmed')
+         )
+       ORDER BY events.rsvp_deadline ASC, events.id ASC
+       LIMIT ?`,
+    )
+    .bind(scheduledAt, SCHEDULED_BATCH_LIMIT)
+    .all<{ eventId: string }>();
+  let simpleResolvedCount = 0;
+  let simplePendingCount = 0;
+  let simpleFailedCount = 0;
+  for (const { eventId } of simpleRows.results) {
+    try {
+      const event = await getEventById(db, eventId);
+      if (!event) continue;
+      const resolution = await getSimpleEventResolution(db, bindings, event, scheduledAt);
+      if (resolution?.status === "pending") simplePendingCount += 1;
+      else if (resolution) simpleResolvedCount += 1;
+    } catch {
+      simpleFailedCount += 1;
+    }
+  }
   const candidates = await dueEvents(db, scheduledAt);
   if (candidates.length === 0) {
-    return { selectedCount: 0, ...EMPTY_ATTEMPT_COUNTS };
+    return {
+      selectedCount: simpleRows.results.length,
+      ...EMPTY_ATTEMPT_COUNTS,
+      resolvedCount: simpleResolvedCount,
+      pendingCount: simplePendingCount,
+      failedCount: simpleFailedCount,
+    };
   }
 
   const policies = await getPrivateResponsePolicies(
@@ -526,6 +566,12 @@ export async function runScheduledResolutionSweep(
       releasedLeaseCount:
         summary.releasedLeaseCount + result.releasedLeaseCount,
     }),
-    { selectedCount: candidates.length, ...EMPTY_ATTEMPT_COUNTS },
+    {
+      selectedCount: candidates.length + simpleRows.results.length,
+      ...EMPTY_ATTEMPT_COUNTS,
+      resolvedCount: simpleResolvedCount,
+      pendingCount: simplePendingCount,
+      failedCount: simpleFailedCount,
+    },
   );
 }

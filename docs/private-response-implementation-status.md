@@ -1,6 +1,6 @@
 # Private-response implementation status
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-19
 Scope: current repository state; production activation still requires the release gates.
 
 ## Implemented
@@ -10,15 +10,18 @@ Scope: current repository state; production activation still requires the releas
 - Ballot revisions are append-only, exact retries are idempotent, and confirmed events reject
   changes.
 - Ballot rows contain no user, account, invitee, name, phone, token, or session field.
-- The evaluator bridge deterministically seals a revision-specific slot and records the exact
-  revision set and input digest used for each evaluation.
+- Protocol-v2 ballots resolve directly and deterministically in the API. Ordinary event edits,
+  attendee edits, and replies do not require a remote evaluator certificate, frozen policy,
+  browser relay, lease, or device-owned key.
+- Pre-confirmation roster edits preserve append-only ballot revisions. Conditions that reference a
+  removed attendee become unsatisfied; they never make the event uneditable or unreadable.
 - The protected operator API supports de-identified inspection and append-only correction with a
   required audit record. It is not exposed in product UI or ordinary telemetry.
 - The data inventory and generated database snapshot include every v2 table and field.
 - User-facing privacy copy is shared across web, iOS, and legal surfaces and stays within the
   narrow product statement in `simplified-ballot-architecture.md`.
-- Protocol-v1 remains a bounded compatibility and rollback bridge for already-installed clients;
-  no device-transfer behavior remains in the current product UI.
+- Protocol-v1 remains a bounded, read-only compatibility bridge for untouched historical events;
+  no protocol-v1 device-transfer or evaluator behavior remains in the current product UI.
 
 ## Required for production activation
 

@@ -1165,6 +1165,10 @@ summary:focus-visible {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .privacy-callout .inline-link {
@@ -1570,9 +1574,67 @@ summary:focus-visible {
 .person-row strong { font-size: 14px; }
 .person-row > div span { padding: 3px 7px; border-radius: 999px; background: var(--surface-raised); color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 
-.person-name {
+.person-name-control {
+  position: relative;
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.person-name-button {
+  width: 100%;
+  min-width: 0;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.person-name-button[data-truncated="true"] {
+  cursor: pointer;
+}
+
+.person-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.person-name-tooltip {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: min(280px, calc(100vw - 80px));
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.person-name-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  transform: rotate(45deg);
 }
 
 .person-status {
@@ -1581,6 +1643,65 @@ summary:focus-visible {
   font-size: 12px;
   font-weight: 650;
   text-align: right;
+}
+
+.locked-guest-status-control {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.locked-guest-status-button {
+  min-width: 78px;
+  min-height: 32px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.locked-guest-status-blur {
+  display: block;
+  filter: blur(6px);
+  opacity: .78;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.locked-guest-status-tooltip {
+  position: absolute;
+  z-index: 20;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(230px, calc(100vw - 72px));
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .34);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.locked-guest-status-tooltip::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  transform: rotate(45deg);
 }
 
 .attendee-avatar-wrap {
@@ -1732,10 +1853,11 @@ summary:focus-visible {
 }
 
 .privacy-hero h2 {
-  margin: 7px 0 0;
+  margin: 0;
   font-size: 32px;
   line-height: 1.06;
   letter-spacing: -1px;
+  white-space: nowrap;
 }
 
 .privacy-hero h2:focus { outline: none; }

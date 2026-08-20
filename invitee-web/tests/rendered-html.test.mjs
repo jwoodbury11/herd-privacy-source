@@ -250,6 +250,26 @@ test("participant counts include the host across web and iPhone surfaces", async
   );
 });
 
+test("response progress includes the always-yes host across web and iPhone surfaces", async () => {
+  const [page, swiftModels, swiftHome] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/Models.swift", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    page,
+    /function respondedParticipantCount[\s\S]*hasResponded[\s\S]*\.length \+ 1/u,
+  );
+  assert.match(page, /value: String\(respondedParticipantCount\(event\)\)/u);
+  assert.match(
+    swiftModels,
+    /var respondedParticipantCount: Int[\s\S]*hasResponded == true[\s\S]*\.count \+ 1/u,
+  );
+  assert.match(swiftHome, /event\.respondedParticipantCount/u);
+  assert.doesNotMatch(swiftHome, /respondedInviteeCount/u);
+});
+
 test("attendees use one collapsing title and one unified, private-status list", async () => {
   const [page, css, experienceSource, swiftHome] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -283,6 +303,10 @@ test("attendees use one collapsing title and one unified, private-status list", 
   assert.match(page, /ATTENDEES_EXPERIENCE\.addGuests\.submitMultipleTemplate/u);
   assert.match(css, /\.add-attendees-button/u);
   assert.match(css, /\.guest-draft-card/u);
+  assert.match(page, /function LockedGuestStatus\(\)[\s\S]*Send your reply to see guest status\./u);
+  assert.match(page, /!attendanceStatus && guestStatusLocked \? <LockedGuestStatus \/>/u);
+  assert.match(css, /\.locked-guest-status-blur \{[\s\S]*filter: blur\(6px\)/u);
+  assert.match(css, /\.locked-guest-status-tooltip::after/u);
 
   assert.match(css, /\.app-header h1 \{[\s\S]*visibility: hidden/u);
   assert.match(css, /\.app-header-condensed h1 \{[\s\S]*visibility: visible/u);
@@ -295,10 +319,31 @@ test("attendees use one collapsing title and one unified, private-status list", 
   assert.match(swiftHome, /popover\(isPresented: isPresented/u);
   assert.match(swiftHome, /event\.isHosted \|\| event\.allowsAttendeesToAddGuests/u);
   assert.match(swiftHome, /experience\.addGuests\.button/u);
+  assert.match(swiftHome, /event\.canViewResponseProgress \? nil : invitee\.id/u);
+  assert.match(swiftHome, /Text\("Guest status"\)[\s\S]*\.blur\(radius: 7\)/u);
+  assert.match(swiftHome, /Text\("Send your reply to see guest status\."\)[\s\S]*\.presentationCompactAdaptation\(\.popover\)/u);
   assert.doesNotMatch(
     swiftHome.match(/private struct InvitationAttendees[\s\S]*?private struct InvitationConditionPicker/u)?.[0] ?? "",
     /Text\(experience\.title\)/u,
   );
+});
+
+test("attendee names truncate to one line and reveal only clipped full names", async () => {
+  const [page, css, swiftHome] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /function TruncatedPersonName[\s\S]*scrollWidth > element\.clientWidth \+ 1/u);
+  assert.match(page, /disabled=\{!isTruncated\}/u);
+  assert.match(page, /isTruncated && isOpen[\s\S]*person-name-tooltip/u);
+  assert.match(css, /\.person-name \{[\s\S]*white-space: nowrap;[\s\S]*text-overflow: ellipsis;/u);
+  assert.match(css, /\.person-name-tooltip::after[\s\S]*transform: rotate\(45deg\)/u);
+  assert.match(swiftHome, /private struct TruncatingAttendeeName[\s\S]*intrinsicWidth > displayedWidth \+ 1/u);
+  assert.match(swiftHome, /\.lineLimit\(1\)[\s\S]*\.truncationMode\(\.tail\)/u);
+  assert.match(swiftHome, /guard isTruncated else \{ return \}/u);
+  assert.match(swiftHome, /arrowEdge: \.bottom/u);
 });
 
 test("reply countdown remains visible until the deadline and uses compact time pairs", async () => {
@@ -629,6 +674,8 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.doesNotMatch(page, /fresh_phone_verification_required|deviceSwitchStage/u);
   assert.match(page, /function ReplyVisibilityPreview/);
   assert.equal((page.match(/<ReplyVisibilityPreview/g) ?? []).length, 2);
+  assert.match(page, /reply-preview-person[\s\S]*<strong>\{displayName\}<\/strong>[\s\S]*className="person-status">\{status\}/u);
+  assert.match(swiftHome, /Text\(displayName\)[\s\S]*Spacer\(\)[\s\S]*Text\(status\)/u);
   assert.match(css, /\.reply-preview-sheet \.sheet-handle \{[^}]*margin-bottom: 21px/u);
   assert.match(swiftHome, /replyVisibilityPreviewSheet[\s\S]*\.padding\(\.top, 28\)/u);
   assert.match(swiftHome, /accessibilityIdentifier\("reply-preview-dismiss"\)/u);
@@ -637,6 +684,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.confirmedPreviewLabel, "If the event is confirmed:");
   assert.equal(experience.reply.confirmedPreviewBody, "Your attendance conditions are never shown to anyone.");
   assert.equal(experience.reply.previewButton, "Preview how others see it");
+  assert.equal(experience.reply.sentButton, "Reply already sent");
   assert.equal(experience.reply.previewTitle, "How your reply shows up to others");
   assert.equal(
     experience.reply.confirmedLockedMessage,
@@ -757,13 +805,22 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(page, /setExpandedPrivacySection\(\(currentSection\)/);
   assert.match(page, /section\.showsVerificationLinks/);
   assert.match(page, /section\.showsPolicyIdentifiers/);
+  assert.equal(experience.privacy.title, "How privacy works");
+  assert.equal(experience.privacy.eyebrow, undefined);
+  assert.equal(
+    experience.invitation.privacyCallout.body,
+    "Your conditions are hidden from hosts and guests and stored without your identity.",
+  );
+  assert.equal(experience.invitation.privacyCallout.action, "Prove it to me");
+  assert.ok(experience.invitation.privacyCallout.body.length <= 90);
   assert.match(experience.privacy.navigationTitle, /How privacy works/);
   assert.equal(experience.privacy.flowSteps.length, 4);
   assert.match(experience.privacy.flowPrivacyLabel, /never shown to the host or guests/i);
   const privacySection = experience.privacy.sections.find((section) => /kept private/i.test(section.title));
   const deviceSection = experience.privacy.sections.find((section) => /another device/i.test(section.title));
-  assert.match(privacySection.paragraphs[0], /event-specific ballot ID/i);
-  assert.match(privacySection.paragraphs[1], /never shown to hosts, guests, or third parties/i);
+  assert.match(privacySection.paragraphs[0], /On Herd’s servers, your response is anonymized/i);
+  assert.match(privacySection.paragraphs[0], /not personally linked to your name, phone number, or account/i);
+  assert.match(privacySection.paragraphs[1], /never shown to hosts or guests/i);
   assert.match(deviceSection.paragraphs[0], /any supported device/i);
   assert.doesNotMatch(JSON.stringify(experience.privacy), /Herd can inspect|Herd can read|not anonymous to Herd/i);
   assert.match(experience.privacy.sourceURL, /github\.com\/jwoodbury11\/herd-privacy-source/);

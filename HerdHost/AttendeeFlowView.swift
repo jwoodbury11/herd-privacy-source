@@ -67,9 +67,11 @@ struct AttendeeFlowView: View {
                 contactPicker
             }
         }
+        .herdCanvasBehindSystemUI()
         .onAppear {
             contactService.refresh()
         }
+        .onDisappear(perform: dismissKeyboard)
         .task(id: contactPickerIsActive) {
             guard contactPickerIsActive, isAuthorized else { return }
             await Task.yield()
@@ -79,6 +81,7 @@ struct AttendeeFlowView: View {
             Button("Keep selecting", role: .cancel) {}
             Button("Clear selections", role: .destructive) {
                 selectedIDs.removeAll()
+                dismissKeyboard()
                 dismiss()
             }
         } message: {
@@ -339,7 +342,7 @@ struct AttendeeFlowView: View {
                 .focused($isSearchFocused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .submitLabel(.done)
+                .submitLabel(.return)
                 .onSubmit {
                     isSearchFocused = false
                 }
@@ -454,7 +457,7 @@ struct AttendeeFlowView: View {
     }
 
     private func cancelContactPicker() {
-        isSearchFocused = false
+        dismissKeyboard()
 
         if startsWithReview && showsContactPicker {
             selectedIDs = contactSelectionSnapshot
@@ -477,7 +480,7 @@ struct AttendeeFlowView: View {
     }
 
     private func showContactPickerFromReview() {
-        isSearchFocused = false
+        dismissKeyboard()
         selectedIDs = Set(reviewDrafts.map { invitee in
             invitee.sourceContactIdentifier ?? "existing-\(invitee.id.uuidString)"
         })
@@ -492,7 +495,7 @@ struct AttendeeFlowView: View {
     }
 
     private func prepareReview() {
-        isSearchFocused = false
+        dismissKeyboard()
         reviewDrafts = allCandidates
             .filter { selectedIDs.contains($0.id) }
             .map { candidate in
@@ -523,7 +526,13 @@ struct AttendeeFlowView: View {
             return
         }
         invitees = reviewDrafts
+        dismissKeyboard()
         dismiss()
+    }
+
+    private func dismissKeyboard() {
+        isSearchFocused = false
+        HerdKeyboard.dismiss()
     }
 
     private func isExcludedPhoneNumber(_ phoneNumber: String) -> Bool {
@@ -607,12 +616,14 @@ private struct ManualRecipientSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        dismissKeyboard()
                         dismiss()
                     }
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        dismissKeyboard()
                         let candidate = ContactCandidate(
                             id: "manual-\(UUID().uuidString)",
                             displayName: trimmedName,
@@ -627,11 +638,18 @@ private struct ManualRecipientSheet: View {
                 }
             }
         }
+        .herdCanvasBehindSystemUI()
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .onAppear {
             focusedField = .name
         }
+        .onDisappear(perform: dismissKeyboard)
+    }
+
+    private func dismissKeyboard() {
+        focusedField = nil
+        HerdKeyboard.dismiss()
     }
 }
 
@@ -778,7 +796,10 @@ private struct InviteeReviewView: View {
         .toolbar {
             if let onCancel {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: onCancel) {
+                    Button {
+                        dismissKeyboard()
+                        onCancel()
+                    } label: {
                         Image(systemName: "chevron.left")
                     }
                     .accessibilityLabel("Back")
@@ -812,6 +833,7 @@ private struct InviteeReviewView: View {
     }
 
     private func save() {
+        dismissKeyboard()
         for index in invitees.indices {
             invitees[index].displayName = invitees[index].displayName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -819,6 +841,11 @@ private struct InviteeReviewView: View {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         onSave()
+    }
+
+    private func dismissKeyboard() {
+        isEditing = false
+        HerdKeyboard.dismiss()
     }
 }
 
