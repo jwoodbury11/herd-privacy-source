@@ -165,7 +165,7 @@ struct LocationSearchView: View {
                                     selectedAddress = parsedProfileAddress.base
                                     unitNumber = parsedProfileAddress.unit
                                     searchModel.query = parsedProfileAddress.base
-                                    isSearchFocused = false
+                                    dismissKeyboard()
                                 } label: {
                                     LocationResultRow(
                                         icon: "house",
@@ -186,7 +186,7 @@ struct LocationSearchView: View {
                                         searchModel.query = [result.title, result.subtitle]
                                             .filter { !$0.isEmpty }
                                             .joined(separator: ", ")
-                                        isSearchFocused = false
+                                        dismissKeyboard()
                                     } label: {
                                         LocationResultRow(
                                             icon: "mappin.and.ellipse",
@@ -220,10 +220,14 @@ struct LocationSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        dismissKeyboard()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
+                        dismissKeyboard()
                         let manualQuery = searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
                         let trimmedUnit = unitNumber.trimmingCharacters(in: .whitespacesAndNewlines)
                         if selectedName.isEmpty && selectedAddress.isEmpty && trimmedUnit.isEmpty {
@@ -265,9 +269,11 @@ struct LocationSearchView: View {
                 selectedAddress = ""
             }
         }
+        .herdCanvasBehindSystemUI()
         .onAppear {
             isSearchFocused = true
         }
+        .onDisappear(perform: dismissKeyboard)
     }
 
     private var trimmedQuery: String {
@@ -280,6 +286,12 @@ struct LocationSearchView: View {
             return profileAddress != nil
         }
         return !searchModel.results.isEmpty
+    }
+
+    private func dismissKeyboard() {
+        isSearchFocused = false
+        isUnitFocused = false
+        HerdKeyboard.dismiss()
     }
 }
 
@@ -340,7 +352,7 @@ struct AddressSearchView: View {
                                 Button {
                                     selectedAddress = fullAddress
                                     searchModel.query = fullAddress
-                                    isSearchFocused = false
+                                    dismissKeyboard()
                                 } label: {
                                     LocationResultRow(
                                         icon: "mappin.and.ellipse",
@@ -373,10 +385,14 @@ struct AddressSearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        dismissKeyboard()
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
+                        dismissKeyboard()
                         address = LocationUnitAddress.combine(
                             base: selectedAddress ?? trimmedQuery,
                             unit: unitNumber
@@ -394,13 +410,21 @@ struct AddressSearchView: View {
                 selectedAddress = nil
             }
         }
+        .herdCanvasBehindSystemUI()
         .onAppear {
             isSearchFocused = true
         }
+        .onDisappear(perform: dismissKeyboard)
     }
 
     private var trimmedQuery: String {
         searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func dismissKeyboard() {
+        isSearchFocused = false
+        isUnitFocused = false
+        HerdKeyboard.dismiss()
     }
 }
 

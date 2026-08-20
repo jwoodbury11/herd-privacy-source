@@ -2,7 +2,6 @@ import { getActiveAccountKeyEpoch } from "./account-keys";
 import { deriveBallotId } from "./ballot-identifiers";
 import { getAuthConfig } from "./config";
 import { pepperedHash } from "./crypto";
-import { requireEvaluatorEpochPolicyFence } from "./evaluator-epoch";
 import { ApiError, requireString, requireUuid } from "./http";
 import {
   assertInvitationDeliveryReady,
@@ -13,12 +12,8 @@ import {
 import { createSealedInviteToken, openSealedInviteToken } from "./invite-tokens";
 import { normalizePhoneNumber } from "./phone";
 import {
-  buildPrivateResponsePolicy,
   getPrivateResponsePolicies,
-  getPrivateResponsePolicy,
-  prepareInsertPrivateResponsePolicy,
 } from "./policy";
-import { prepareInsertPendingEventResolution } from "./resolutions";
 import type {
   CanonicalEvent,
   CanonicalInvitee,
@@ -603,6 +598,15 @@ export async function getEventsForUser(
         const access = accessByEvent.get(event.id)!;
         const publicEvent = toPublicEvent(event);
         const hasBallot = respondedByEvent.get(event.id)?.has(access.inviteeId) ?? false;
+        const ballotRevisionRow = hasBallot
+          ? await db
+              .prepare(
+                `SELECT MAX(revision) AS revision
+                 FROM ballot_revisions WHERE ballot_id = ?`,
+              )
+              .bind(await deriveBallotId(bindings, event.id, access.inviteeId))
+              .first<{ revision: number | null }>()
+          : null;
         const canViewResponseProgress = Boolean(access.responseEnvelopeId) || hasBallot;
         return {
           ...publicEvent,
@@ -636,7 +640,7 @@ export async function getEventsForUser(
                   ),
           hasResponse: Boolean(access.responseEnvelopeId),
           hasBallot,
-          responseRevision: access.responseRevision,
+          responseRevision: access.responseRevision ?? ballotRevisionRow?.revision ?? null,
           responseCertificationStatus: access.responseEnvelopeId
             ? access.responseReceiptSignature &&
                 access.responseSignedAt &&
@@ -804,55 +808,10 @@ export async function putHostedEvent(
   const config = getAuthConfig(bindings);
   const nowIso = new Date().toISOString();
   const isSending = event.invitationsSent && !Boolean(existing?.invitationsSent);
-  const existingPolicy = existing
-    ? await getPrivateResponsePolicy(db, eventId)
-    : null;
-  if (existingPolicy) {
-    if (!event.invitationsSent) {
-      throw new ApiError(
-        409,
-        "event_policy_frozen",
-        "Sent invitations and their privacy policy cannot be changed.",
-      );
-    }
-    const candidate = await buildPrivateResponsePolicy(
-      {
-        ...event,
-        createdAt: existing!.createdAt,
-        privateResponsePolicy: null,
-        invitationDelivery: null,
-      },
-      {
-        ...config,
-        privateResponse: {
-          evaluatorKeyId: existingPolicy.evaluatorKeyId,
-          evaluatorPublicKey: existingPolicy.evaluatorPublicKey,
-          evaluatorMeasurement: existingPolicy.evaluatorMeasurement,
-          releaseId: existingPolicy.releaseId,
-        },
-      },
-      existingPolicy.frozenAt,
-    );
-    if (candidate.canonicalDocument !== existingPolicy.canonicalDocument) {
-      throw new ApiError(
-        409,
-        "event_policy_frozen",
-        "Sent invitations and their privacy policy cannot be changed.",
-      );
-    }
-    await dispatchEventInvitations(db, bindings, eventId);
-    const unchanged = await getEventById(db, eventId);
-    if (!unchanged || unchanged.hostUserId !== hostUserId) {
-      throw new ApiError(404, "event_not_found", "The event was not found.");
-    }
-    const { hostUserId: unchangedHostUserId, ...canonical } = unchanged;
-    void unchangedHostUserId;
-    return canonical;
-  }
   if (existing && Boolean(existing.invitationsSent) && !event.invitationsSent) {
     throw new ApiError(
       409,
-      "event_policy_frozen",
+      "event_already_sent",
       "Sent invitations cannot be returned to draft status.",
     );
   }
@@ -864,6 +823,19 @@ export async function putHostedEvent(
     );
   }
   if (isSending) assertInvitationDeliveryReady(bindings, event);
+  if (existing) {
+    const resolution = await db
+      .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
+      .bind(eventId)
+      .first<{ status: string }>();
+    if (resolution?.status === "confirmed") {
+      throw new ApiError(
+        409,
+        "event_already_confirmed",
+        "Confirmed events can’t be changed.",
+      );
+    }
+  }
 
   if (event.invitees.length > 0) {
     const placeholders = event.invitees.map(() => "?").join(", ");
@@ -886,25 +858,14 @@ export async function putHostedEvent(
   }
 
   const createdAt = existing ? null : event.createdAt ?? nowIso;
-  const epochFence = event.invitationsSent
-    ? await requireEvaluatorEpochPolicyFence(db, bindings, new Date(nowIso))
-    : null;
-  const policyToFreeze = event.invitationsSent
-    ? await buildPrivateResponsePolicy(
-        {
-          ...event,
-          createdAt: existing?.createdAt ?? createdAt ?? nowIso,
-          privateResponsePolicy: null,
-          invitationDelivery: null,
-        },
-        config,
-        nowIso,
-        bindings,
-      )
-    : null;
   const statements: D1PreparedStatement[] = [];
   if (existing) {
     statements.push(
+      // Protocol-v2 ballots are independent of the old frozen evaluator
+      // policy. Converting a legacy event removes only that obsolete policy
+      // and its cached result; it never deletes a private ballot.
+      db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(event.id),
+      db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(event.id),
       db
         .prepare(
           `UPDATE events SET
@@ -1101,43 +1062,7 @@ export async function putHostedEvent(
       );
     });
   });
-  if (policyToFreeze) {
-    statements.push(
-      prepareInsertPrivateResponsePolicy(db, event.id, policyToFreeze, epochFence!),
-      prepareInsertPendingEventResolution(
-        db,
-        event.id,
-        policyToFreeze.policyHash,
-        policyToFreeze.frozenAt,
-      ),
-    );
-  }
-  try {
-    await db.batch(statements);
-  } catch (error) {
-    const raced = await getEventById(db, event.id);
-    if (raced?.hostUserId === hostUserId && raced.privateResponsePolicy) {
-      if (
-        policyToFreeze &&
-        raced.privateResponsePolicy.canonicalDocument === policyToFreeze.canonicalDocument
-      ) {
-        await dispatchEventInvitations(db, bindings, event.id);
-        const recovered = await getEventById(db, event.id);
-        if (!recovered || recovered.hostUserId !== hostUserId) {
-          throw new ApiError(404, "event_not_found", "The event was not found.");
-        }
-        const { hostUserId: racedHostUserId, ...canonical } = recovered;
-        void racedHostUserId;
-        return canonical;
-      }
-      throw new ApiError(
-        409,
-        "event_policy_frozen",
-        "Sent invitations and their privacy policy cannot be changed.",
-      );
-    }
-    throw error;
-  }
+  await db.batch(statements);
 
   if (isSending) {
     await dispatchEventInvitations(db, bindings, event.id);
@@ -1145,17 +1070,6 @@ export async function putHostedEvent(
   const saved = await getEventById(db, event.id);
   if (!saved || saved.hostUserId !== hostUserId) {
     throw new ApiError(500, "event_save_failed", "The event could not be saved.");
-  }
-  if (
-    (saved.privateResponsePolicy && !event.invitationsSent) ||
-    (policyToFreeze &&
-      saved.privateResponsePolicy?.canonicalDocument !== policyToFreeze.canonicalDocument)
-  ) {
-    throw new ApiError(
-      409,
-      "event_policy_frozen",
-      "Sent invitations and their privacy policy cannot be changed.",
-    );
   }
   const { hostUserId: savedHostUserId, ...canonical } = saved;
   void savedHostUserId;
@@ -1268,24 +1182,6 @@ export async function addEventAttendees(
   if (!stored.rsvpDeadline || stored.rsvpDeadline <= nowIso) {
     throw new ApiError(409, "rsvp_closed", "Attendees can’t be added after replies close.");
   }
-  const priorResponses = await db
-    .prepare(
-      `SELECT DISTINCT invitee_id AS inviteeId
-       FROM response_envelopes
-       WHERE event_id = ?`,
-    )
-    .bind(eventId)
-    .all<{ inviteeId: string }>();
-  const respondedInviteeIds = new Set(
-    priorResponses.results.map(({ inviteeId }) => inviteeId),
-  );
-  if (respondedInviteeIds.size > 0) {
-    throw new ApiError(
-      409,
-      "event_replies_started",
-      "Attendees can’t be added after replies have started.",
-    );
-  }
   assertInvitationDeliveryReady(bindings, { invitees: newInvitees });
 
   if (newInvitees.length > 0) {
@@ -1307,7 +1203,6 @@ export async function addEventAttendees(
     }
   }
 
-  const epochFence = await requireEvaluatorEpochPolicyFence(db, bindings, new Date(nowIso));
   const nextEvent: CanonicalEvent = {
     ...stored,
     invitees: candidate.invitees,
@@ -1315,7 +1210,6 @@ export async function addEventAttendees(
     privateResponsePolicy: null,
     invitationDelivery: null,
   };
-  const nextPolicy = await buildPrivateResponsePolicy(nextEvent, config, nowIso, bindings);
   const statements: D1PreparedStatement[] = [];
   for (const invitee of newInvitees) {
     const phoneHash = await pepperedHash(config.pepper, "phone", invitee.phoneNumber);
@@ -1346,15 +1240,12 @@ export async function addEventAttendees(
     );
   }
   statements.push(
-    // These are guaranteed empty above. Keep the cleanup in the atomic roster
-    // transition so a stale partial database state cannot survive expansion.
-    db.prepare("DELETE FROM response_envelopes WHERE event_id = ?").bind(eventId),
+    // A roster edit invalidates only the cached result and the obsolete v1
+    // frozen policy. Protocol-v2 ballot revisions are intentionally retained.
     db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(eventId),
     db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(eventId),
     db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(nowIso, eventId),
     ...prepareInvitationDeliveryStatements(db, bindings, nextEvent, nowIso),
-    prepareInsertPrivateResponsePolicy(db, eventId, nextPolicy, epochFence),
-    prepareInsertPendingEventResolution(db, eventId, nextPolicy.policyHash, nowIso),
   );
   await db.batch(statements);
   await dispatchEventInvitations(db, bindings, eventId);

@@ -31,12 +31,12 @@ export type VerifiableEventResolution =
         missedDeadline: boolean;
       }>;
       resolvedAt: string;
-      attestation: EvaluationResultAttestationV1;
+      attestation?: EvaluationResultAttestationV1;
     }
   | {
       status: "not_confirmed";
       resolvedAt: string;
-      attestation: EvaluationResultAttestationV1;
+      attestation?: EvaluationResultAttestationV1;
     };
 
 export type DisplayableEventResolution =
@@ -47,7 +47,78 @@ export type EventResolutionVerificationContext = {
   eventId: string;
   rsvpDeadline: string | null;
   privateResponsePolicy: PrivateResponsePolicyV1 | null;
+  inviteeIds?: string[];
+  minimumParticipants?: number;
+  requiredGroups?: Array<{ memberIDs: string[] }>;
 };
+
+function simpleBackendResolution(
+  context: EventResolutionVerificationContext,
+  value: unknown,
+): VerifiableEventResolution {
+  if (
+    context.privateResponsePolicy !== null ||
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    !context.rsvpDeadline ||
+    !Array.isArray(context.inviteeIds) ||
+    !Number.isInteger(context.minimumParticipants) ||
+    !Array.isArray(context.requiredGroups)
+  ) invalidProof();
+  const raw = value as Record<string, unknown>;
+  if (raw.attestation !== undefined) invalidProof();
+  const resolvedAt = canonicalTimestamp(raw.resolvedAt);
+  if (raw.status === "not_confirmed") {
+    if (resolvedAt < canonicalTimestamp(context.rsvpDeadline)) invalidProof();
+    return { status: "not_confirmed", resolvedAt };
+  }
+  if (raw.status !== "confirmed" || raw.attendanceRevealed !== true) invalidProof();
+  if (
+    !Array.isArray(raw.attendingMemberIds) ||
+    raw.attendingMemberIds[0] !== "host" ||
+    raw.attendingMemberIds.some((member) => typeof member !== "string") ||
+    new Set(raw.attendingMemberIds).size !== raw.attendingMemberIds.length
+  ) invalidProof();
+  const attendingMemberIds = raw.attendingMemberIds as string[];
+  const allowed = new Set(["host", ...context.inviteeIds]);
+  if (
+    attendingMemberIds.some((member) => !allowed.has(member)) ||
+    attendingMemberIds.length < context.minimumParticipants! ||
+    !context.requiredGroups!.every((group) =>
+      group.memberIDs.some((member) => attendingMemberIds.includes(member)),
+    )
+  ) invalidProof();
+  let guestStates: Array<{
+    memberId: string;
+    status: "going" | "cant_commit" | "no_response";
+    missedDeadline: boolean;
+  }> | undefined;
+  if (raw.guestStates !== undefined) {
+    if (!Array.isArray(raw.guestStates)) invalidProof();
+    guestStates = raw.guestStates.map((unknownState) => {
+      const state = exactRecord(unknownState, ["memberId", "status", "missedDeadline"]);
+      if (
+        typeof state.memberId !== "string" ||
+        !context.inviteeIds!.includes(state.memberId) ||
+        !["going", "cant_commit", "no_response"].includes(state.status as string) ||
+        typeof state.missedDeadline !== "boolean"
+      ) invalidProof();
+      return state as {
+        memberId: string;
+        status: "going" | "cant_commit" | "no_response";
+        missedDeadline: boolean;
+      };
+    });
+  }
+  return {
+    status: "confirmed",
+    attendingMemberIds,
+    attendanceRevealed: true,
+    ...(guestStates ? { guestStates } : {}),
+    resolvedAt,
+  };
+}
 
 export type EvaluationResultSigningPin = {
   signingKeyId: string;
@@ -406,6 +477,9 @@ export async function displayableEventResolution(
       : { status: "pending" };
   }
   try {
+    if (context.privateResponsePolicy === null) {
+      return simpleBackendResolution(context, value);
+    }
     return await verifyEventResolutionProof(
       context,
       value,

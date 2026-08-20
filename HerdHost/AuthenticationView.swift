@@ -28,7 +28,7 @@ struct AuthenticationView: View {
                 welcomeScreen
             }
         }
-        .background(HerdTheme.canvas)
+        .herdCanvasBehindSystemUI()
         .alert(
             experience.releaseStatus.heading,
             isPresented: $showsReleaseStatus

@@ -327,7 +327,6 @@ struct HerdExperience: Decodable {
         }
 
         let navigationTitle: String
-        let eyebrow: String
         let title: String
         let intro: String
         let flowTitle: String

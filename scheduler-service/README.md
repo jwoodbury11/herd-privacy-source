@@ -14,6 +14,12 @@ Herd. It cannot decrypt individual replies, and Herd still verifies the lease,
 event policy, batch commitment, signature, and permitted final projection
 before anything is saved.
 
+Every invocation also calls Herd's authenticated data-retention endpoint. That
+is the production path that removes events which remain unconfirmed five days
+after their reply deadline and applies the other documented retention limits.
+The cleanup is idempotent, carries no event data through the scheduler, and a
+failed call causes the next cron invocation to retry it.
+
 The signed response contains the aggregate outcome and, when confirmed, opaque
 member IDs. Neither courier logs request or response bodies, names, phone
 numbers, or individual answers. The Worker has no public HTTP trigger and is

@@ -1,7 +1,7 @@
 {
   "bundle": {
     "path": "test/vendor/invitee-relay-completion.mjs",
-    "sha256": "09ae6090365649ae3affd469954f9b804b41322ef4486ec8b7c64ff60f554c6a"
+    "sha256": "5df413eea126220a00b1ffc43f2fada8834fafc85d468d807b9eddf4caad403e"
   },
   "sources": [
     {
@@ -9,8 +9,16 @@
       "sha256": "b619403aa90272584be20c33e916370782a37cb31cb74b0759bb6af2b8df77a6"
     },
     {
+      "path": "../invitee-web/lib/backend/ballot-identifiers.ts",
+      "sha256": "d20461fd0011603665c1192226b1e71ee502bb777252141c88dabb9e721eb986"
+    },
+    {
       "path": "../invitee-web/lib/backend/resolutions.ts",
-      "sha256": "7550309e12bee3a427f8fc334b0bb6b35c69cfdc83e0fe5ec0d3c446d968eecb"
+      "sha256": "0cd6968635432e113ea360a1e351759fc77f6f4239fae7b9a8c91c028f9f1266"
+    },
+    {
+      "path": "../invitee-web/lib/backend/crypto.ts",
+      "sha256": "897063bbee6acb9f74bc3a35435534e9e45cd91f8f77322c0bfc47148fbfcae3"
     },
     {
       "path": "../invitee-web/lib/backend/config.ts",
@@ -30,7 +38,7 @@
     },
     {
       "path": "../invitee-web/lib/backend/resolution-notifications.ts",
-      "sha256": "640b28a57446eebefa48c738a172bc974c3a3f1778706ac2470a4b1a28e1684e"
+      "sha256": "e622af19b98ae5a2702e420df64aaf576deb2e1793b1a6804127535bb6c2cd54"
     },
     {
       "path": "../invitee-web/lib/backend/response-envelopes.ts",
@@ -41,8 +49,20 @@
       "sha256": "21ba5292e1a5e46d583d59f81cc5ebd46f98fff113d9696142ff8ecf84478d06"
     },
     {
+      "path": "../invitee-web/lib/backend/simple-resolutions.ts",
+      "sha256": "85295bcfee51a99e47da2c6a38dde340fbf79065f0de8c2ac8f3f407a86ffe58"
+    },
+    {
+      "path": "../invitee-web/lib/privacy/private-response-crypto.ts",
+      "sha256": "c8f6e75f8c6b3dd3709ea2da0f4fb779e262ed1791fbf19ecb1f373fac218579"
+    },
+    {
       "path": "../invitee-web/lib/privacy/protocol.ts",
       "sha256": "49106d21ad84f8580249bbc912c9c5754feeb24b2bb37d2d99f4ba0d924bf849"
+    },
+    {
+      "path": "../invitee-web/lib/privacy/trust-verification.ts",
+      "sha256": "275906a54165fd12a206b77ed11e59efbd8e7f1439abe697061a1535d99d5472"
     }
   ]
 }

@@ -334,6 +334,26 @@ final class HerdHostBusinessRuleTests: XCTestCase {
         XCTAssertEqual(event.participantCount, 3)
     }
 
+    func testResponseCountAlwaysIncludesTheAffirmativeHost() {
+        var event = HerdEvent.newDraft()
+        XCTAssertEqual(event.respondedParticipantCount, 1)
+
+        event.invitees = [
+            Invitee(
+                displayName: "Responded Guest",
+                phoneNumber: "+1 415 555 0101",
+                hasResponded: true
+            ),
+            Invitee(
+                displayName: "Waiting Guest",
+                phoneNumber: "+1 415 555 0102",
+                hasResponded: false
+            ),
+        ]
+
+        XCTAssertEqual(event.respondedParticipantCount, 2)
+    }
+
     func testHomeSectionsSeparateUnconfirmedAndPastEvents() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -1200,6 +1220,70 @@ final class EvaluatorAttestationVerificationTests: XCTestCase {
 }
 
 final class EventResolutionProofTests: XCTestCase {
+    func testSimpleBallotResultIsAcceptedWithoutLegacyEvaluatorProof() throws {
+        let inviteeID = UUID(uuidString: "20000000-0000-4000-8000-000000000002")!
+        let deadline = Date(timeIntervalSince1970: 1_800_000_000)
+        let resolution = EventResolution(
+            status: .confirmed,
+            attendingMemberIds: ["host", inviteeID.uuidString.lowercased()],
+            attendanceRevealed: true,
+            resolvedAt: deadline.addingTimeInterval(-60)
+        )
+        let event = HerdEvent(
+            id: UUID(uuidString: "10000000-0000-4000-8000-000000000002")!,
+            title: "Simple result fixture",
+            eventDate: deadline.addingTimeInterval(3_600),
+            endDate: nil,
+            hostName: "Host",
+            locationName: "Test",
+            locationAddress: "",
+            invitees: [Invitee(id: inviteeID, displayName: "Invitee", phoneNumber: "+14155550102")],
+            minimumParticipants: 2,
+            requiredGroups: [],
+            rsvpDeadline: deadline,
+            eventDescription: "",
+            createdAt: deadline.addingTimeInterval(-3_600),
+            invitationsSent: true,
+            privateResponsePolicy: nil,
+            resolution: resolution
+        )
+
+        XCTAssertEqual(EventResolutionVerifier.failClosed(event).resolution?.status, .confirmed)
+    }
+
+    func testSimpleBallotResultRejectsUnknownAttendeeWithoutLegacyEvaluatorProof() throws {
+        let deadline = Date(timeIntervalSince1970: 1_800_000_000)
+        let resolution = EventResolution(
+            status: .confirmed,
+            attendingMemberIds: ["host", UUID().uuidString.lowercased()],
+            attendanceRevealed: true,
+            resolvedAt: deadline.addingTimeInterval(-60)
+        )
+        let event = HerdEvent(
+            id: UUID(uuidString: "10000000-0000-4000-8000-000000000003")!,
+            title: "Invalid simple result fixture",
+            eventDate: deadline.addingTimeInterval(3_600),
+            endDate: nil,
+            hostName: "Host",
+            locationName: "Test",
+            locationAddress: "",
+            invitees: [],
+            minimumParticipants: 2,
+            requiredGroups: [],
+            rsvpDeadline: deadline,
+            eventDescription: "",
+            createdAt: deadline.addingTimeInterval(-3_600),
+            invitationsSent: true,
+            privateResponsePolicy: nil,
+            resolution: resolution
+        )
+
+        XCTAssertEqual(
+            EventResolutionVerifier.failClosed(event).resolution?.status,
+            .verificationUnavailable
+        )
+    }
+
     func testExactSignedResultIsAcceptedAndEveryMutableProjectionIsBound() throws {
         let fixture = try makeFixture()
         try fixture.verifier.verify(fixture.resolution, for: fixture.event)

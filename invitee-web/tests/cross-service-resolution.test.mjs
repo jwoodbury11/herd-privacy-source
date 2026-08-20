@@ -2130,6 +2130,68 @@ test(
 );
 
 test(
+  "legacy iOS cant-commit updates may omit the empty minimum condition",
+  { timeout: 30_000 },
+  async (t) => {
+    const fetchMock = createFetchMock();
+    fetchMock.disableNetConnect();
+    const { miniflare } = await createBackendHarness(fetchMock);
+    t.after(() => miniflare.dispose());
+
+    const host = await authenticate(miniflare, HOST_PHONE);
+    const eventId = "b1000000-0000-4000-8000-000000000001";
+    const eventInvitees = invitees("b0").slice(0, 1);
+    await createEvent(
+      miniflare,
+      host,
+      eventPayload({
+        id: eventId,
+        title: "Condition-free reply update",
+        invitees: eventInvitees,
+        deadline: new Date(Date.now() + 60_000).toISOString(),
+        minimumParticipants: 2,
+        requiredGroups: [],
+        eventDateOffset: 120_000,
+      }),
+    );
+    const invitee = await authenticate(miniflare, "1");
+    const listing = await api(
+      miniflare,
+      "/api/events",
+      authorizedRequest(invitee.accessToken),
+    );
+    const inviteeEvent = (await listing.json()).events.find(({ id }) => id === eventId);
+    assert.ok(inviteeEvent?.inviteToken);
+
+    const initial = await api(
+      miniflare,
+      `/api/invites/${inviteeEvent.inviteToken}/ballot`,
+      jsonRequest("PUT", {
+        response: "going",
+        minimumParticipants: 2,
+        requiredGroups: [],
+      }, invitee.accessToken),
+    );
+    assert.equal(initial.status, 200, await initial.clone().text());
+
+    const updated = await api(
+      miniflare,
+      `/api/invites/${inviteeEvent.inviteToken}/ballot`,
+      jsonRequest("PUT", {
+        response: "cant_commit",
+        requiredGroups: [],
+      }, invitee.accessToken),
+    );
+    assert.equal(updated.status, 200, await updated.clone().text());
+    const ballot = (await updated.json()).ballot;
+    assert.equal(ballot.revision, 2);
+    assert.equal(ballot.response, "cant_commit");
+    assert.equal(ballot.minimumParticipants, null);
+    assert.deepEqual(ballot.requiredGroups, []);
+  },
+);
+
+test(
   "participant relay upgrades a sealed confirmation and accepts only the current signed lease",
   { timeout: 30_000 },
   async (t) => {

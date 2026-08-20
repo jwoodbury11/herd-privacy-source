@@ -132,9 +132,9 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["contact-section-contacts"].exists)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
 
-        let keyboardDone = app.keyboards.buttons["Done"]
-        XCTAssertTrue(keyboardDone.waitForExistence(timeout: 5))
-        keyboardDone.tap()
+        let keyboardReturn = app.keyboards.buttons["return"]
+        XCTAssertTrue(keyboardReturn.waitForExistence(timeout: 5))
+        keyboardReturn.tap()
         XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
 
         app.navigationBars.buttons["Next"].tap()
@@ -216,6 +216,34 @@ final class HerdHostUITests: XCTestCase {
         let reopenedUnitNumber = app.textFields["location-unit-number"]
         XCTAssertTrue(reopenedUnitNumber.waitForExistence(timeout: 5))
         XCTAssertEqual(reopenedUnitNumber.value as? String, "7")
+    }
+
+    func testKeyboardIsDismissedWhenReturningFromEditorChildFlows() {
+        let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+
+        let location = app.buttons["event-location"]
+        XCTAssertTrue(location.waitForExistence(timeout: 5))
+        location.tap()
+
+        let locationSearch = app.textFields["Place name, address, or link"]
+        XCTAssertTrue(locationSearch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        locationSearch.typeText("Coffee")
+        app.navigationBars["Location"].buttons["Cancel"].tap()
+
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
+
+        let attendees = app.buttons["event-attendees"]
+        scrollToMakeHittable(attendees, in: app)
+        attendees.tap()
+        XCTAssertTrue(app.textFields["Search contacts"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.navigationBars.buttons["Cancel"].tap()
+
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
     }
 
     func testProfileSaveEnablesOnlyAfterAChangeAndUsesTheWholeButton() {

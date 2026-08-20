@@ -106,6 +106,7 @@
     { "path": "invitee-web/worker", "recursive": true },
     { "path": "invitee-web/build", "recursive": true },
     { "path": "invitee-web/scripts/browser-acceptance-harness.mjs" },
+    { "path": "invitee-web/scripts/run-current-tests.mjs" },
     { "path": "invitee-web/README.md" },
     { "path": "invitee-web/package.json" },
     { "path": "invitee-web/package-lock.json" },

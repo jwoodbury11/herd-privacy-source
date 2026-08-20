@@ -327,6 +327,14 @@ struct EventResolutionVerifier: Hashable, Sendable {
                 event.resolution?.status == .notConfirmed,
             let resolution = event.resolution
         else { return event }
+        if event.privateResponsePolicy == nil {
+            guard isValidSimpleResolution(resolution, for: event) else {
+                var safeEvent = event
+                safeEvent.resolution = EventResolution(status: .verificationUnavailable)
+                return safeEvent
+            }
+            return event
+        }
         do {
             return try configured(bundle: bundle).failClosed(
                 event,
@@ -345,11 +353,60 @@ struct EventResolutionVerifier: Hashable, Sendable {
                 event.resolution?.status == .notConfirmed,
             let resolution = event.resolution
         else { return event }
+        if event.privateResponsePolicy == nil {
+            guard Self.isValidSimpleResolution(resolution, for: event) else {
+                var safeEvent = event
+                safeEvent.resolution = EventResolution(status: .verificationUnavailable)
+                return safeEvent
+            }
+            return event
+        }
         return (try? failClosed(event, resolution: resolution)) ?? {
             var safeEvent = event
             safeEvent.resolution = EventResolution(status: .verificationUnavailable)
             return safeEvent
         }()
+    }
+
+    private static func isValidSimpleResolution(
+        _ resolution: EventResolution,
+        for event: HerdEvent
+    ) -> Bool {
+        guard
+            resolution.retrying == nil,
+            resolution.attestation == nil,
+            let resolvedAt = resolution.resolvedAt,
+            let deadline = event.rsvpDeadline
+        else { return false }
+        switch resolution.status {
+        case .notConfirmed:
+            return resolvedAt >= deadline &&
+                resolution.attendingMemberIds == nil &&
+                resolution.guestStates == nil
+        case .confirmed:
+            guard
+                resolution.attendanceRevealed == true,
+                let attending = resolution.attendingMemberIds,
+                attending.first == "host",
+                Set(attending).count == attending.count,
+                attending.count >= event.minimumParticipants
+            else { return false }
+            let allowed = Set(["host"] + event.invitees.map { $0.id.uuidString.lowercased() })
+            guard attending.allSatisfy(allowed.contains) else { return false }
+            let attendingSet = Set(attending)
+            guard event.requiredGroups.allSatisfy({ group in
+                group.memberIDs.contains { attendingSet.contains($0.uuidString.lowercased()) }
+            }) else { return false }
+            if let guestStates = resolution.guestStates {
+                let inviteeIDs = Set(event.invitees.map { $0.id.uuidString.lowercased() })
+                guard guestStates.allSatisfy({ inviteeIDs.contains($0.memberId) }) else {
+                    return false
+                }
+            }
+            return true
+        case .pending, .verificationUnavailable:
+            return false
+        }
     }
 
     private func failClosed(

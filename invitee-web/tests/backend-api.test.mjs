@@ -48,7 +48,6 @@ function responseSigningIdentity() {
 }
 
 const defaultResponseSigningIdentity = responseSigningIdentity();
-const replacementResponseSigningIdentity = responseSigningIdentity();
 
 function authorizeEnvelope(unsignedEnvelope, identity) {
   const ciphertextHash = createHash("sha256")
@@ -610,10 +609,9 @@ test("a host event appears for every invited test account after invitations are 
     ),
   );
   assert.equal(sentResponse.status, 200, await sentResponse.clone().text());
-  assert.equal((await sentResponse.json()).event.privateResponsePolicy.evaluatorKeyId, evaluatorKeyId);
+  assert.equal((await sentResponse.json()).event.privateResponsePolicy, null);
 
   const invitedEventsByDigit = new Map();
-  const envelopesByDigit = new Map();
   for (const digit of ["2", "3", "4", "5", "6", "7", "8", "9"]) {
     const invitedEventsResponse = await api(miniflare, "/api/events", {
       headers: { authorization: `Bearer ${sessions.get(digit)}` },
@@ -630,42 +628,17 @@ test("a host event appears for every invited test account after invitations are 
   for (const digit of ["2", "3", "4", "5", "6", "7", "8", "9"]) {
     const invitedEvent = invitedEventsByDigit.get(digit);
     const session = sessionRecords.get(digit);
-    const initializeResponse = await api(
+    const ballotResponse = await api(
       miniflare,
-      "/api/account/key-epoch/initialize",
-      authorizedJsonRequest(
-        "POST",
-        {
-          expectedAccountKeyEpochId: invitedEvent.accountKeyEpochId,
-          keyCommitment: encodedBytes(32, Number(digit) + 40),
-        },
-        session.accessToken,
-      ),
+      `/api/invites/${invitedEvent.inviteToken}/ballot`,
+      authorizedJsonRequest("PUT", {
+        response: "cant_commit",
+        minimumParticipants: null,
+        requiredGroups: [],
+      }, session.accessToken),
     );
-    assert.equal(initializeResponse.status, 200);
-
-    const currentInvitee = invitedEvent.invitees.find(
-      (invitee) => invitee.isCurrentUser,
-    );
-    const envelope = encryptedEnvelope({
-      event: invitedEvent,
-      inviteeId: currentInvitee.id,
-      accountKeyEpochId: invitedEvent.accountKeyEpochId,
-      envelopeId: `73000000-0000-4000-8000-${digit.padStart(12, "0")}`,
-      responseSigningIdentity: responseSigningIdentity(),
-    });
-    envelopesByDigit.set(digit, envelope);
-    const rsvpResponse = await api(
-      miniflare,
-      `/api/invites/${invitedEvent.inviteToken}/rsvp`,
-      authorizedJsonRequest(
-        "PUT",
-        { envelope },
-        session.accessToken,
-      ),
-    );
-    assert.equal(rsvpResponse.status, 200);
-    assert.equal((await rsvpResponse.json()).responseEnvelope.revision, 1);
+    assert.equal(ballotResponse.status, 200, await ballotResponse.clone().text());
+    assert.equal((await ballotResponse.json()).ballot.revision, 1);
 
     const refreshedEventsResponse = await api(miniflare, "/api/events", {
       headers: { authorization: `Bearer ${session.accessToken}` },
@@ -673,133 +646,17 @@ test("a host event appears for every invited test account after invitations are 
     const refreshedEvent = (await refreshedEventsResponse.json()).events.find(
       (candidate) => candidate.id === eventId,
     );
-    assert.equal(refreshedEvent.hasResponse, true);
+    assert.equal(refreshedEvent.hasBallot, true);
     assert.equal(refreshedEvent.responseRevision, 1);
   }
 
   assert.equal(
     await database
-      .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE event_id = ?")
+      .prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
       .bind(eventId)
       .first("count"),
     8,
   );
-
-  const secondEventId = "71000000-0000-4000-8000-000000000002";
-  const secondInviteeId = "72000000-0000-4000-8000-000000000102";
-  const secondEvent = {
-    ...event,
-    id: secondEventId,
-    title: "Post-reset unanswered event",
-    invitees: [
-      {
-        id: secondInviteeId,
-        displayName: "Test account 2",
-        phoneNumber: "+14155550102",
-      },
-    ],
-    invitationsSent: true,
-  };
-  const secondEventResponse = await api(
-    miniflare,
-    `/api/events/${secondEventId}`,
-    authorizedJsonRequest("PUT", secondEvent, sessions.get("1")),
-  );
-  assert.equal(secondEventResponse.status, 200);
-
-  const accountTwoSession = sessionRecords.get("2");
-  const accountTwoFirstEvent = invitedEventsByDigit.get("2");
-  const resetResponse = await api(
-    miniflare,
-    "/api/account/key-epoch/reset",
-    authorizedJsonRequest(
-      "POST",
-      { expectedAccountKeyEpochId: accountTwoFirstEvent.accountKeyEpochId },
-      accountTwoSession.accessToken,
-    ),
-  );
-  assert.equal(resetResponse.status, 200);
-  const reset = await resetResponse.json();
-  assert.notEqual(reset.accountKeyEpochId, accountTwoFirstEvent.accountKeyEpochId);
-
-  const exactRetryAfterReset = await api(
-    miniflare,
-    `/api/invites/${accountTwoFirstEvent.inviteToken}/rsvp`,
-    authorizedJsonRequest(
-      "PUT",
-      { envelope: envelopesByDigit.get("2") },
-      accountTwoSession.accessToken,
-    ),
-  );
-  assert.equal(exactRetryAfterReset.status, 200);
-  assert.equal((await exactRetryAfterReset.json()).responseEnvelope.revision, 1);
-
-  const initializeReplacement = await api(
-    miniflare,
-    "/api/account/key-epoch/initialize",
-    authorizedJsonRequest(
-      "POST",
-      {
-        expectedAccountKeyEpochId: reset.accountKeyEpochId,
-        keyCommitment: encodedBytes(32, 92),
-      },
-      accountTwoSession.accessToken,
-    ),
-  );
-  assert.equal(initializeReplacement.status, 200);
-
-  const replacedAnsweredEnvelope = encryptedEnvelope({
-    event: accountTwoFirstEvent,
-    inviteeId: accountTwoFirstEvent.invitees.find(
-      (invitee) => invitee.isCurrentUser,
-    ).id,
-    accountKeyEpochId: reset.accountKeyEpochId,
-    revision: 2,
-    envelopeId: "73000000-0000-4000-8000-000000000102",
-    responseSigningIdentity: replacementResponseSigningIdentity,
-  });
-  const replaceAnsweredResponse = await api(
-    miniflare,
-    `/api/invites/${accountTwoFirstEvent.inviteToken}/rsvp`,
-    authorizedJsonRequest(
-      "PUT",
-      { envelope: replacedAnsweredEnvelope },
-      accountTwoSession.accessToken,
-    ),
-  );
-  const replaceAnsweredBody = await replaceAnsweredResponse.json();
-  assert.equal(replaceAnsweredResponse.status, 200, JSON.stringify(replaceAnsweredBody));
-  assert.equal(
-    replaceAnsweredBody.responseEnvelope.revision,
-    2,
-  );
-
-  const accountTwoEventsResponse = await api(miniflare, "/api/events", {
-    headers: { authorization: `Bearer ${accountTwoSession.accessToken}` },
-  });
-  const accountTwoSecondEvent = (await accountTwoEventsResponse.json()).events.find(
-    (candidate) => candidate.id === secondEventId,
-  );
-  assert.equal(accountTwoSecondEvent.hasResponse, false);
-  assert.equal(accountTwoSecondEvent.accountKeyEpochId, reset.accountKeyEpochId);
-  const newEventEnvelope = encryptedEnvelope({
-    event: accountTwoSecondEvent,
-    inviteeId: secondInviteeId,
-    accountKeyEpochId: reset.accountKeyEpochId,
-    envelopeId: "73000000-0000-4000-8000-000000000202",
-    responseSigningIdentity: replacementResponseSigningIdentity,
-  });
-  const newEventResponse = await api(
-    miniflare,
-    `/api/invites/${accountTwoSecondEvent.inviteToken}/rsvp`,
-    authorizedJsonRequest(
-      "PUT",
-      { envelope: newEventEnvelope },
-      accountTwoSession.accessToken,
-    ),
-  );
-  assert.equal(newEventResponse.status, 200);
-  assert.equal((await newEventResponse.json()).responseEnvelope.revision, 1);
 
   const accounts = await database
     .prepare(
@@ -944,56 +801,25 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
   assert.equal(attendeeEvent.role, "invitee");
   assert.equal(attendeeEvent.invitees.length, 2);
 
-  const initializeAccountTwo = await api(
-    miniflare,
-    "/api/account/key-epoch/initialize",
-    authorizedJsonRequest("POST", {
-      expectedAccountKeyEpochId: attendeeEvent.accountKeyEpochId,
-      keyCommitment: encodedBytes(32, 72),
-    }, sessions.get("2")),
-  );
-  assert.equal(initializeAccountTwo.status, 200);
   const accountTwoInvitee = attendeeEvent.invitees.find((invitee) => invitee.isCurrentUser);
   assert.ok(accountTwoInvitee);
-  const firstPolicyHash = attendeeEvent.privateResponsePolicy.policyHash;
   const firstResponse = await api(
     miniflare,
-    `/api/invites/${attendeeEvent.inviteToken}/rsvp`,
+    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
     authorizedJsonRequest("PUT", {
-      envelope: encryptedEnvelope({
-        event: attendeeEvent,
-        inviteeId: accountTwoInvitee.id,
-        accountKeyEpochId: attendeeEvent.accountKeyEpochId,
-        envelopeId: "74000000-0000-4000-8000-000000000102",
-      }),
+      response: "cant_commit",
+      minimumParticipants: null,
+      requiredGroups: [],
     }, sessions.get("2")),
   );
   assert.equal(firstResponse.status, 200, await firstResponse.clone().text());
   assert.equal(
     await database
-      .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE event_id = ?")
+      .prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
       .bind(eventId)
       .first("count"),
     1,
   );
-  await database
-    .prepare(
-      `INSERT INTO response_transparency_entries
-        (log_id, previous_entry_hash, entry_hash, envelope_id,
-         canonical_receipt_payload, signing_key_id, receipt_signature,
-         created_at, signed_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL)`,
-    )
-    .bind(
-      "roster-expansion-test-log",
-      "roster-expansion-genesis",
-      "roster-expansion-entry",
-      "74000000-0000-4000-8000-000000000102",
-      "{}",
-      "test-signing-key",
-      new Date().toISOString(),
-    )
-    .run();
   // Confirmation is terminal even when the original reply deadline is still
   // in the future. Neither replies nor the frozen roster can change afterward.
   await database
@@ -1003,15 +829,11 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
 
   const confirmedReplyChange = await api(
     miniflare,
-    `/api/invites/${attendeeEvent.inviteToken}/rsvp`,
+    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
     authorizedJsonRequest("PUT", {
-      envelope: encryptedEnvelope({
-        event: attendeeEvent,
-        inviteeId: accountTwoInvitee.id,
-        accountKeyEpochId: attendeeEvent.accountKeyEpochId,
-        revision: 2,
-        envelopeId: "74000000-0000-4000-8000-000000000103",
-      }),
+      response: "cant_commit",
+      minimumParticipants: null,
+      requiredGroups: [],
     }, sessions.get("2")),
   );
   assert.equal(confirmedReplyChange.status, 409);
@@ -1031,8 +853,8 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
   assert.equal(confirmedAttendeeAddition.status, 409);
   assert.equal((await confirmedAttendeeAddition.json()).error.code, "event_already_confirmed");
 
-  // A roster can expand only before the first private reply. Once replies have
-  // begun, changing the frozen membership would invalidate those ballots.
+  // A protocol-v2 roster can expand after replies begin. The existing
+  // pseudonymous ballot stays intact and the cached result is recalculated.
   await database
     .prepare("UPDATE event_resolutions SET status = 'pending' WHERE event_id = ?")
     .bind(eventId)
@@ -1048,18 +870,11 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
       }],
     }, sessions.get("1")),
   );
-  assert.equal(postReplyAddition.status, 409);
-  assert.equal((await postReplyAddition.json()).error.code, "event_replies_started");
+  assert.equal(postReplyAddition.status, 200, await postReplyAddition.clone().text());
   assert.equal(
     await database
-      .prepare("SELECT COUNT(*) AS count FROM response_envelopes WHERE event_id = ?")
+      .prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
       .bind(eventId)
-      .first("count"),
-    1,
-  );
-  assert.equal(
-    await database
-      .prepare("SELECT COUNT(*) AS count FROM response_transparency_entries")
       .first("count"),
     1,
   );
@@ -1069,9 +884,31 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
   const refreshedAccountTwoEvent = (await refreshedAccountTwo.json()).events.find(
     (candidate) => candidate.id === eventId,
   );
-  assert.equal(refreshedAccountTwoEvent.hasResponse, true);
+  assert.equal(refreshedAccountTwoEvent.hasBallot, true);
   assert.equal(refreshedAccountTwoEvent.responseRevision, 1);
-  assert.equal(refreshedAccountTwoEvent.privateResponsePolicy.policyHash, firstPolicyHash);
+  assert.equal(refreshedAccountTwoEvent.privateResponsePolicy, null);
+  const confirmingBallot = await api(
+    miniflare,
+    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
+    authorizedJsonRequest("PUT", {
+      response: "going",
+      minimumParticipants: 2,
+      requiredGroups: [],
+    }, sessions.get("2")),
+  );
+  assert.equal(confirmingBallot.status, 200, await confirmingBallot.clone().text());
+  const resolvedEvents = await api(miniflare, "/api/events", {
+    headers: { authorization: `Bearer ${sessions.get("2")}` },
+  });
+  const resolvedEvent = (await resolvedEvents.json()).events.find(
+    (candidate) => candidate.id === eventId,
+  );
+  assert.equal(resolvedEvent.resolution.status, "confirmed");
+  assert.deepEqual(resolvedEvent.resolution.attendingMemberIds, [
+    "host",
+    accountTwoInvitee.id,
+  ]);
+  assert.equal(resolvedEvent.privateResponsePolicy, null);
   const disabledEventId = "74000000-0000-4000-8000-000000000011";
   const disabledEvent = {
     ...event,

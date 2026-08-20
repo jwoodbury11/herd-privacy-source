@@ -1080,11 +1080,11 @@ async function sealPrivateResponse(input, serverVerifiedTrust) {
   }
 }
 async function privateResponseEnvelopeHash(envelope) {
-  const digest = await cryptoApi2().subtle.digest(
+  const digest2 = await cryptoApi2().subtle.digest(
     "SHA-256",
     toArrayBuffer(textEncoder.encode(canonicalEnvelopeJson(envelope)))
   );
-  return bytesToBase64Url(new Uint8Array(digest));
+  return bytesToBase64Url(new Uint8Array(digest2));
 }
 
 // invitee-web/lib/backend/http.ts
@@ -1709,8 +1709,8 @@ async function lateMissingEntryProof(value, config) {
   };
 }
 async function sha256Base64Url(value) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return bytesToBase64Url(new Uint8Array(digest));
+  const digest2 = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(digest2));
 }
 async function verifyP256Signature(publicKey, domain, canonicalPayload, signature) {
   const publicKeyBytes = base64UrlToBytes(publicKey);
@@ -1954,11 +1954,11 @@ function unstoredResponseEnvelope(envelope) {
   return storedEnvelope;
 }
 async function responseEnvelopeHash(envelope) {
-  const digest = await crypto.subtle.digest(
+  const digest2 = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(canonicalEnvelopeJson(envelope))
   );
-  return bytesToBase64Url(new Uint8Array(digest));
+  return bytesToBase64Url(new Uint8Array(digest2));
 }
 
 // invitee-web/lib/backend/response-transparency.ts
@@ -2346,10 +2346,6 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
               invitees.token_storage_version AS tokenStorageVersion
        FROM invitees
        WHERE invitees.event_id = ?
-         AND EXISTS (
-           SELECT 1 FROM response_envelopes
-           WHERE response_envelopes.invitee_id = invitees.id
-         )
        ORDER BY phoneNumber ASC`
   ).bind(event.id, event.id).all();
   const config = getInvitationDeliveryConfig(bindings);
@@ -2439,6 +2435,217 @@ async function sendResolutionTransitionNotifications(db, bindings, event, batchH
   }
 }
 
+// invitee-web/lib/backend/simple-resolutions.ts
+function groupsSatisfied(groups, attendingMemberIds) {
+  return groups.every(
+    (group) => group.memberIDs.some((memberId) => attendingMemberIds.has(memberId))
+  );
+}
+async function digest(value) {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/gu, "");
+}
+async function loadLatestBallots(db, bindings, event) {
+  const rows = await db.prepare(
+    `SELECT ballot_id AS ballotId,
+              response,
+              minimum_participants AS minimumParticipants,
+              required_groups AS requiredGroups,
+              created_at AS createdAt
+       FROM ballot_revisions AS ballot
+       WHERE event_id = ?
+         AND revision = (
+           SELECT MAX(candidate.revision)
+           FROM ballot_revisions AS candidate
+           WHERE candidate.ballot_id = ballot.ballot_id
+         )`
+  ).bind(event.id).all();
+  const rowsByBallotId = new Map(rows.results.map((row) => [row.ballotId, row]));
+  const mapped = await Promise.all(event.invitees.map(async ({ id: inviteeId }) => {
+    const [ballotId, memberId] = await Promise.all([
+      deriveBallotId(bindings, event.id, inviteeId),
+      deriveBallotMemberId(bindings, event.id, inviteeId)
+    ]);
+    const row = rowsByBallotId.get(ballotId);
+    if (!row) return null;
+    let requiredGroups = [];
+    try {
+      const parsed = JSON.parse(row.requiredGroups);
+      if (Array.isArray(parsed)) {
+        requiredGroups = parsed.flatMap((group) => {
+          if (!group || typeof group !== "object" || Array.isArray(group)) return [];
+          const memberIDs = group.memberIDs;
+          return Array.isArray(memberIDs) && memberIDs.every((member) => typeof member === "string") ? [{ memberIDs }] : [];
+        });
+      }
+    } catch {
+      return null;
+    }
+    return {
+      inviteeId,
+      memberId,
+      response: row.response,
+      minimumParticipants: row.minimumParticipants,
+      requiredGroups,
+      createdAt: row.createdAt
+    };
+  }));
+  return mapped.filter((ballot) => ballot !== null);
+}
+async function persistResolution(db, eventId, inputDigest, resolution, nowIso) {
+  const attendingMemberIds = resolution.status === "confirmed" ? JSON.stringify(resolution.attendingMemberIds ?? []) : null;
+  const resolvedAt = resolution.status === "pending" ? null : resolution.resolvedAt;
+  await db.prepare(
+    `INSERT INTO event_resolutions
+        (event_id, policy_hash, status, batch_hash, attending_member_ids,
+         resolved_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(event_id) DO UPDATE SET
+         policy_hash = excluded.policy_hash,
+         status = CASE
+           WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.status
+           ELSE excluded.status
+         END,
+         batch_hash = CASE
+           WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.batch_hash
+           ELSE excluded.batch_hash
+         END,
+         attending_member_ids = CASE
+           WHEN event_resolutions.status = 'confirmed'
+             THEN event_resolutions.attending_member_ids
+           ELSE excluded.attending_member_ids
+         END,
+         resolved_at = CASE
+           WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.resolved_at
+           ELSE excluded.resolved_at
+         END,
+         updated_at = excluded.updated_at`
+  ).bind(
+    eventId,
+    inputDigest,
+    resolution.status,
+    resolution.status === "pending" ? null : inputDigest,
+    attendingMemberIds,
+    resolvedAt,
+    nowIso,
+    nowIso
+  ).run();
+}
+async function getSimpleEventResolution(db, bindings, event, nowIso = (/* @__PURE__ */ new Date()).toISOString()) {
+  if (!event.invitationsSent || !event.rsvpDeadline) return null;
+  const stored = await db.prepare(
+    `SELECT status, attending_member_ids AS attendingMemberIds,
+              resolved_at AS resolvedAt
+       FROM event_resolutions WHERE event_id = ?`
+  ).bind(event.id).first();
+  const ballots = await loadLatestBallots(db, bindings, event);
+  const memberIdByInviteeId = new Map(
+    await Promise.all(event.invitees.map(async ({ id }) => [
+      id,
+      await deriveBallotMemberId(bindings, event.id, id)
+    ]))
+  );
+  const ballotByInviteeId = new Map(ballots.map((ballot) => [ballot.inviteeId, ballot]));
+  if (stored?.status === "confirmed" && stored.resolvedAt) {
+    const attendingMemberIds = JSON.parse(stored.attendingMemberIds ?? "[]");
+    const attendingInviteeIds2 = new Set(attendingMemberIds.filter((id) => id !== "host"));
+    return {
+      status: "confirmed",
+      attendingMemberIds,
+      attendanceRevealed: true,
+      guestStates: event.invitees.map(({ id }) => {
+        const ballot = ballotByInviteeId.get(id);
+        return {
+          memberId: id,
+          status: attendingInviteeIds2.has(id) ? "going" : ballot ? "cant_commit" : "no_response",
+          missedDeadline: false
+        };
+      }),
+      resolvedAt: stored.resolvedAt
+    };
+  }
+  const attending = new Set(
+    ballots.filter((ballot) => ballot.response === "going").map((ballot) => ballot.memberId)
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const participantCount = attending.size + 1;
+    for (const ballot of ballots) {
+      if (!attending.has(ballot.memberId)) continue;
+      if (ballot.minimumParticipants === null || ballot.minimumParticipants > participantCount || !groupsSatisfied(ballot.requiredGroups, attending)) {
+        attending.delete(ballot.memberId);
+        changed = true;
+      }
+    }
+  }
+  const hostGroups = event.requiredGroups.map((group) => ({
+    memberIDs: group.memberIDs.flatMap((inviteeId) => {
+      const memberId = memberIdByInviteeId.get(inviteeId);
+      return memberId ? [memberId] : [];
+    })
+  }));
+  const confirmed = attending.size + 1 >= event.minimumParticipants && groupsSatisfied(hostGroups, attending);
+  const attendingInviteeIds = event.invitees.filter(({ id }) => {
+    const memberId = memberIdByInviteeId.get(id);
+    return memberId ? attending.has(memberId) : false;
+  }).map(({ id }) => id);
+  const inputDigest = await digest(JSON.stringify({
+    protocolVersion: 2,
+    eventId: event.id,
+    minimumParticipants: event.minimumParticipants,
+    requiredGroups: event.requiredGroups,
+    inviteeIds: event.invitees.map(({ id }) => id),
+    ballots: ballots.map((ballot) => ({
+      memberId: ballot.memberId,
+      response: ballot.response,
+      minimumParticipants: ballot.minimumParticipants,
+      requiredGroups: ballot.requiredGroups,
+      createdAt: ballot.createdAt
+    }))
+  }));
+  let resolution;
+  if (confirmed) {
+    resolution = {
+      status: "confirmed",
+      attendingMemberIds: ["host", ...attendingInviteeIds],
+      attendanceRevealed: true,
+      guestStates: event.invitees.map(({ id }) => {
+        const ballot = ballotByInviteeId.get(id);
+        const memberId = memberIdByInviteeId.get(id);
+        return {
+          memberId: id,
+          status: ballot?.response === "cant_commit" ? "cant_commit" : attending.has(memberId) ? "going" : ballot ? "cant_commit" : "no_response",
+          missedDeadline: false
+        };
+      }),
+      resolvedAt: nowIso
+    };
+  } else if (nowIso >= event.rsvpDeadline) {
+    resolution = { status: "not_confirmed", resolvedAt: nowIso };
+  } else {
+    resolution = { status: "pending" };
+  }
+  await persistResolution(db, event.id, inputDigest, resolution, nowIso);
+  if (resolution.status !== "pending") {
+    try {
+      await sendResolutionTransitionNotifications(
+        db,
+        bindings,
+        event,
+        inputDigest,
+        resolution.status
+      );
+    } catch (error) {
+      console.error("Herd resolution notification failed", {
+        eventId: event.id,
+        error: error instanceof Error ? error.message : "unknown_error"
+      });
+    }
+  }
+  return resolution;
+}
+
 // invitee-web/lib/backend/resolutions.ts
 var EVENT_RESOLUTION_SELECT = `SELECT
   event_id AS eventId,
@@ -2475,11 +2682,11 @@ function hasExactKeys(value, keys) {
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 async function sha256Base64Url2(value) {
-  const digest = await crypto.subtle.digest(
+  const digest2 = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(value)
   );
-  return bytesToBase64Url(new Uint8Array(digest));
+  return bytesToBase64Url(new Uint8Array(digest2));
 }
 function isCanonicalBase64UrlBytes(value, bytes) {
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/u.test(value)) return false;
@@ -3652,7 +3859,27 @@ async function completeClientRelayEvaluation(db, bindings, event, value, nowIso 
   return finalResolution;
 }
 async function getEventResolutionForRead(db, bindings, event, nowIso = (/* @__PURE__ */ new Date()).toISOString()) {
-  if (!event.invitationsSent || !event.privateResponsePolicy) return null;
+  if (!event.invitationsSent) return null;
+  if (!event.privateResponsePolicy) {
+    if (event.minimumParticipants === void 0 || event.requiredGroups === void 0 || event.invitees === void 0) {
+      throw new ApiError(
+        500,
+        "event_resolution_corrupt",
+        "The event is missing the information needed to calculate its result."
+      );
+    }
+    return getSimpleEventResolution(
+      db,
+      bindings,
+      {
+        ...event,
+        minimumParticipants: event.minimumParticipants,
+        requiredGroups: event.requiredGroups,
+        invitees: event.invitees
+      },
+      nowIso
+    );
+  }
   if (!event.rsvpDeadline) {
     throw new ApiError(
       500,

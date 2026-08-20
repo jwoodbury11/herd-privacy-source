@@ -101,6 +101,7 @@ struct HomeView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
+        .herdCanvasBehindSystemUI()
         .fullScreenCover(item: $presentation) { presentation in
             switch presentation {
             case let .create(event):
@@ -941,6 +942,7 @@ private struct ProfileView: View {
                         placeholder: experience.addressPlaceholder,
                         address: $address,
                         onSelect: {
+                            dismissKeyboard()
                             showsAddressSearch = true
                         }
                     )
@@ -967,6 +969,7 @@ private struct ProfileView: View {
             .padding(.bottom, 24)
         }
         .background(HerdTheme.canvas)
+        .herdCanvasBehindSystemUI()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             saveFooter
         }
@@ -978,6 +981,7 @@ private struct ProfileView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
+                    dismissKeyboard()
                     if profileHasChanges {
                         showsUnsavedChangesConfirmation = true
                     } else {
@@ -1023,6 +1027,7 @@ private struct ProfileView: View {
         ) {
             Button(experience.unsavedChanges.cancelButton, role: .cancel) {}
             Button(experience.unsavedChanges.confirmButton, role: .destructive) {
+                dismissKeyboard()
                 dismiss()
             }
         } message: {
@@ -1053,7 +1058,8 @@ private struct ProfileView: View {
             Text(experience.accountDeletion.body)
         }
         .sheet(
-            isPresented: $showsAddressSearch
+            isPresented: $showsAddressSearch,
+            onDismiss: dismissKeyboard
         ) {
             AddressSearchView(address: $address)
         }
@@ -1150,6 +1156,7 @@ private struct ProfileView: View {
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(authStore.isBusy)
         }
+        .herdCanvasBehindSystemUI()
         .presentationDetents([.medium])
     }
 
@@ -1182,7 +1189,7 @@ private struct ProfileView: View {
 
     private var saveButton: some View {
         Button {
-            isNameFocused = false
+            dismissKeyboard()
             Task {
                 _ = await authStore.updateProfile(name: name, address: address)
             }
@@ -1246,6 +1253,11 @@ private struct ProfileView: View {
             user.name.trimmingCharacters(in: .whitespacesAndNewlines) ||
             address.trimmingCharacters(in: .whitespacesAndNewlines) !=
             user.address.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func dismissKeyboard() {
+        isNameFocused = false
+        HerdKeyboard.dismiss()
     }
 }
 
@@ -1438,7 +1450,7 @@ private struct EventCard: View {
                     )
                 } else if event.canViewResponseProgress {
                     metric(
-                        value: "\(event.respondedInviteeCount)",
+                        value: "\(event.respondedParticipantCount)",
                         label: "responded"
                     )
                 } else {
@@ -1542,16 +1554,6 @@ private extension HerdEvent {
         role == .host || hasResponse || hasBallot
     }
 
-    var respondedInviteeCount: Int {
-        invitees.filter { $0.hasResponded == true }.count
-    }
-
-    var hasUnavailableLegacyResult: Bool {
-        invitationsSent
-            && privateResponsePolicy == nil
-            && (resolution == nil || resolution?.status == .pending)
-    }
-
     func userFacingStatusLabel(at now: Date = .now) -> String {
         let status = HerdExperience.shared.invitation.status
 
@@ -1583,6 +1585,10 @@ private struct InvitationDetailView: View {
     @Environment(EventStore.self) private var store
     private let invitationExperience = HerdExperience.shared.invitation
     private let replyExperience = HerdExperience.shared.reply
+    private static let destructiveTrashImage: UIImage = {
+        guard let image = UIImage(systemName: "trash") else { return UIImage() }
+        return image.withTintColor(.systemRed, renderingMode: .alwaysOriginal)
+    }()
 
     let eventID: UUID
     @State private var selectedResponse: RSVPResponse?
@@ -1636,8 +1642,7 @@ private struct InvitationDetailView: View {
                             }
                             .padding(.top, -4)
 
-                            if event.role == .invitee,
-                               event.privateResponsePolicy != nil {
+                            if event.role == .invitee {
                                 replyCard(event)
                                     .padding(.top, 12)
                             }
@@ -1678,11 +1683,12 @@ private struct InvitationDetailView: View {
                             Button(role: .destructive) {
                                 showsEventDeletionConfirmation = true
                             } label: {
-                                Label(
-                                    invitationExperience.eventActions.deleteButton,
-                                    systemImage: "trash"
-                                )
-                                .foregroundStyle(.red)
+                                Label {
+                                    Text(invitationExperience.eventActions.deleteButton)
+                                        .foregroundStyle(.red)
+                                } icon: {
+                                    Image(uiImage: Self.destructiveTrashImage)
+                                }
                             }
                             .accessibilityIdentifier("delete-hosted-event")
                         } label: {
@@ -1869,9 +1875,7 @@ private struct InvitationDetailView: View {
                 EventInfoNotice(notice: notices.sending, icon: "paperplane")
             }
 
-            if event.hasUnavailableLegacyResult {
-                EventInfoNotice(notice: notices.legacyResultUnavailable, icon: "exclamationmark.lock")
-            } else if event.resolution?.status == .verificationUnavailable {
+            if event.resolution?.status == .verificationUnavailable {
                 EventInfoNotice(notice: notices.resultUnavailable, icon: "exclamationmark.lock")
             } else if event.resolution?.status == .pending && event.resolution?.retrying == true {
                 EventInfoNotice(notice: notices.takingLonger, icon: "clock.arrow.circlepath")
@@ -2000,7 +2004,7 @@ private struct InvitationDetailView: View {
             return ("—", "result unavailable")
         case .notConfirmed, .pending, nil:
             if event.canViewResponseProgress {
-                return ("\(event.respondedInviteeCount)", "responded")
+                return ("\(event.respondedParticipantCount)", "responded")
             }
             return responseCountdown(for: event, at: now)
         }
@@ -2107,6 +2111,7 @@ private struct InvitationDetailView: View {
                 Text(invitationExperience.privacyCallout.body)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
                 HStack(spacing: 5) {
                     Text(invitationExperience.privacyCallout.action)
                         .underline()
@@ -2938,6 +2943,7 @@ private struct InvitationAttendees: View {
     let eventID: UUID
     private let experience = HerdExperience.shared.attendees
     @State private var selectedDeliveryGuestID: UUID?
+    @State private var selectedLockedStatusGuestID: UUID?
     @State private var showsAddAttendees = false
     @State private var pendingInvitees: [Invitee] = []
     @State private var addErrorMessage: String?
@@ -2993,6 +2999,7 @@ private struct InvitationAttendees: View {
                                 tone: index + 1,
                                 status: statusLabel(for: invitee),
                                 isHost: false,
+                                lockedStatusGuestID: event.canViewResponseProgress ? nil : invitee.id,
                                 delivery: deliveryGuest(for: invitee)
                             )
                             if index < event.invitees.count - 1 {
@@ -3080,24 +3087,56 @@ private struct InvitationAttendees: View {
         tone: Int,
         status: String?,
         isHost: Bool,
+        lockedStatusGuestID: UUID? = nil,
         delivery: InvitationDeliveryGuest? = nil
     ) -> some View {
         HStack(spacing: 13) {
             avatar(for: name, tone: tone, isHost: isHost)
-            Text(name)
-                .font(.body.weight(.semibold))
-            Spacer(minLength: 12)
+            TruncatingAttendeeName(name: name)
             if let status {
                 Text(status)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            } else if let lockedStatusGuestID {
+                lockedGuestStatusButton(inviteeID: lockedStatusGuestID)
             }
             if let delivery {
                 deliveryStatusButton(delivery)
             }
         }
         .padding(.vertical, 12)
+    }
+
+    private func lockedGuestStatusButton(inviteeID: UUID) -> some View {
+        let isPresented = Binding(
+            get: { selectedLockedStatusGuestID == inviteeID },
+            set: { presented in
+                selectedLockedStatusGuestID = presented ? inviteeID : nil
+            }
+        )
+        return Button {
+            selectedLockedStatusGuestID = isPresented.wrappedValue ? nil : inviteeID
+        } label: {
+            Text("Guest status")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .blur(radius: 7)
+                .frame(minWidth: 82, minHeight: 32, alignment: .trailing)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Guest status hidden")
+        .accessibilityHint("Send your reply to see guest status")
+        .popover(isPresented: isPresented, arrowEdge: .trailing) {
+            Text("Send your reply to see guest status.")
+                .font(.subheadline.weight(.semibold))
+                .padding(14)
+                .frame(idealWidth: 240, alignment: .leading)
+                .presentationCompactAdaptation(.popover)
+        }
     }
 
     private func deliveryGuest(for invitee: Invitee) -> InvitationDeliveryGuest? {
@@ -3225,6 +3264,94 @@ private struct InvitationAttendees: View {
     }
 }
 
+private struct AttendeeNameDisplayedWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct AttendeeNameIntrinsicWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct TruncatingAttendeeName: View {
+    let name: String
+    @State private var displayedWidth: CGFloat = 0
+    @State private var intrinsicWidth: CGFloat = 0
+    @State private var showsFullName = false
+
+    private var isTruncated: Bool {
+        displayedWidth > 0 && intrinsicWidth > displayedWidth + 1
+    }
+
+    var body: some View {
+        Text(name)
+            .font(.body.weight(.semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(
+                        key: AttendeeNameDisplayedWidthKey.self,
+                        value: geometry.size.width
+                    )
+                }
+            }
+            .overlay(alignment: .leading) {
+                Text(name)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .hidden()
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: AttendeeNameIntrinsicWidthKey.self,
+                                value: geometry.size.width
+                            )
+                        }
+                    }
+            }
+            .contentShape(.rect)
+            .onTapGesture {
+                guard isTruncated else { return }
+                showsFullName.toggle()
+            }
+            .onPreferenceChange(AttendeeNameDisplayedWidthKey.self) { width in
+                displayedWidth = width
+                if intrinsicWidth <= width + 1 {
+                    showsFullName = false
+                }
+            }
+            .onPreferenceChange(AttendeeNameIntrinsicWidthKey.self) { width in
+                intrinsicWidth = width
+                if width <= displayedWidth + 1 {
+                    showsFullName = false
+                }
+            }
+            .accessibilityLabel(name)
+            .accessibilityHint(isTruncated ? "Shows the full name" : "")
+            .popover(
+                isPresented: $showsFullName,
+                attachmentAnchor: .rect(.bounds),
+                arrowEdge: .bottom
+            ) {
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .presentationCompactAdaptation(.popover)
+            }
+    }
+}
+
 private func replyHistoryLabel(missed: Int, total: Int) -> String {
     if missed == 1 && total == 1 {
         return HerdExperience.shared.reply.noReplySingleEventHistory
@@ -3330,15 +3457,25 @@ private struct InvitationPrivacyProof: View {
     let event: HerdEvent
     private let experience = HerdExperience.shared.privacy
     @State private var expandedSectionID: String? = HerdExperience.shared.privacy.sections.first?.id
+    @State private var showsCollapsedTitle = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 VStack(alignment: .leading, spacing: 10) {
-                    eyebrow(experience.eyebrow)
                     Text(experience.title)
                         .font(.largeTitle.weight(.bold))
                         .tracking(-0.7)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .background {
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: InvitationTitleBottomPreferenceKey.self,
+                                    value: geometry.frame(in: .named("privacy-scroll")).maxY
+                                )
+                            }
+                        }
                     Text(experience.intro)
                         .font(.body)
                         .foregroundStyle(.secondary)
@@ -3401,8 +3538,12 @@ private struct InvitationPrivacyProof: View {
             .padding(.top, 14)
             .padding(.bottom, 36)
         }
+        .coordinateSpace(name: "privacy-scroll")
+        .onPreferenceChange(InvitationTitleBottomPreferenceKey.self) { titleBottom in
+            showsCollapsedTitle = titleBottom <= 0
+        }
         .background(HerdTheme.canvas)
-        .navigationTitle(experience.navigationTitle)
+        .navigationTitle(showsCollapsedTitle ? experience.navigationTitle : "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
     }
@@ -3526,7 +3667,7 @@ private struct PrivacyDisclosureSection: View {
                         .padding(12)
                         .background(HerdTheme.canvas, in: .rect(cornerRadius: 12))
                     } else {
-                        Text("This event does not expose a frozen private-response policy, so the client cannot submit a private response.")
+                        Text("Your conditions use a private, event-specific ballot ID—not your name, phone number, account, or other identifying information.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .padding(12)
@@ -3672,15 +3813,16 @@ private struct ReplyVisibilityPreview: View {
                     .frame(width: 40, height: 40)
                     .background(HerdTheme.raisedSurface, in: .circle)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(displayName)
-                        .font(.body.weight(.semibold))
-                    Text(status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(displayName)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
 
                 Spacer()
+
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding(14)
             .background(HerdTheme.surface, in: .rect(cornerRadius: 14))

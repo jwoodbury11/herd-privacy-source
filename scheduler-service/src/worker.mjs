@@ -1,4 +1,5 @@
 const SCHEDULER_BASE_PATH = "/api/internal/scheduled-resolutions";
+const RETENTION_PATH = "/api/internal/data-retention";
 const MAXIMUM_JOBS = 12;
 const MAXIMUM_CLAIM_BYTES = 600 * 1_024;
 const MAXIMUM_RESULT_BYTES = 60 * 1_024;
@@ -499,9 +500,28 @@ export async function runCourier(env, options = {}) {
   return completed;
 }
 
+export async function runScheduledTasks(env, options = {}) {
+  const config = validateRuntimeConfig(env);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const retention = schedulerRequest(
+    fetchImpl,
+    config,
+    RETENTION_PATH,
+    { acceptedStatuses: [204] },
+  );
+  const courier = runCourier(env, options);
+  const [retentionResult, courierResult] = await Promise.allSettled([
+    retention,
+    courier,
+  ]);
+  if (courierResult.status === "rejected") throw courierResult.reason;
+  if (retentionResult.status === "rejected") throw retentionResult.reason;
+  return courierResult.value;
+}
+
 export default {
   scheduled(_controller, env, context) {
-    context.waitUntil(runCourier(env).catch((error) => {
+    context.waitUntil(runScheduledTasks(env).catch((error) => {
       console.error(JSON.stringify({
         schemaVersion: 1,
         kind: "herd.operational",
