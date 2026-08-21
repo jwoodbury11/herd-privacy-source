@@ -19,6 +19,8 @@ type EventSummary = {
   resolutionStatus: "pending" | "evaluating" | "confirmed" | "not_confirmed" | null;
   resolvedAt: string | null;
   participantCount: number;
+  hostConditionGroupCount: number;
+  hostConditionOptionCount: number;
   ballotCount: number;
   legacyResponseCount: number;
   attendingCount: number | null;
@@ -214,6 +216,15 @@ export default function EventViewer() {
                 <div><dt>Location</dt><dd>{event.locationName || event.locationAddress || "Not set"}</dd></div>
                 {event.locationName && event.locationAddress ? <div><dt>Address</dt><dd>{event.locationAddress}</dd></div> : null}
                 <div><dt>Reply deadline</dt><dd>{displayDate(event.rsvpDeadline)}</dd></div>
+                <div>
+                  <dt>Host confirmation rules</dt>
+                  <dd>
+                    Minimum {event.minimumParticipants}
+                    {event.hostConditionGroupCount > 0
+                      ? ` · ${event.hostConditionGroupCount} required attendee ${event.hostConditionGroupCount === 1 ? "condition" : "conditions"} across ${event.hostConditionOptionCount} ${event.hostConditionOptionCount === 1 ? "person" : "people"}`
+                      : " · No required attendee conditions"}
+                  </dd>
+                </div>
                 <div><dt>Created</dt><dd>{displayDate(event.createdAt)}</dd></div>
                 <div><dt>Delivery</dt><dd>{event.deliverySentCount} sent · {event.deliveryPendingCount} pending · {event.deliveryFailedCount} failed</dd></div>
                 {event.legacyResponseCount > 0 ? <div><dt>Compatibility</dt><dd>{event.legacyResponseCount} legacy replies preserved</dd></div> : null}

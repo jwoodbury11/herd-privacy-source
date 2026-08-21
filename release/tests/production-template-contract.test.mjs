@@ -222,7 +222,7 @@ test("monitor dependencies and syntax checks gate every clean CI test path", asy
   );
 });
 
-test("deliberate hosted native iOS release CI runs the public export with the exact release toolchain", async () => {
+test("deliberate native iOS release CI runs the public export with the exact release toolchain", async () => {
   const [privacyWorkflow, releaseWorkflow, toolchains, scheme, localGate] = await Promise.all([
     readFile(
       new URL("../../.github/workflows/privacy-ci.yml", import.meta.url),
@@ -240,11 +240,11 @@ test("deliberate hosted native iOS release CI runs the public export with the ex
     readFile(new URL("../../scripts/test-all", import.meta.url), "utf8"),
   ]);
   const nativeJob = privacyWorkflow.slice(privacyWorkflow.indexOf("  ios-native:"));
-  assert.match(nativeJob, /runs-on: macos-26/u);
+  assert.match(nativeJob, /'macos-26'/u);
+  assert.match(nativeJob, /"self-hosted","herd-release-macos"/u);
   assert.match(nativeJob, /github\.event_name == 'workflow_dispatch'/u);
   assert.match(nativeJob, /github\.repository == 'jwoodbury11\/herd-privacy-source'/u);
   assert.match(nativeJob, /needs\.release-evidence\.result == 'success'/u);
-  assert.doesNotMatch(nativeJob, /self-hosted/u);
   assert.match(nativeJob, /Build, verify, and unpack the reviewed public source/u);
   assert.match(nativeJob, /--require-clean/u);
   assert.match(nativeJob, /cd "\$HERD_TEST_ROOT"/u);
@@ -266,8 +266,8 @@ test("deliberate hosted native iOS release CI runs the public export with the ex
   const preflightJob = releaseWorkflow.slice(
     releaseWorkflow.indexOf("  production-artifact-preflight:"),
   );
-  assert.match(preflightJob, /runs-on: macos-26/u);
-  assert.doesNotMatch(preflightJob, /self-hosted/u);
+  assert.match(preflightJob, /'macos-26'/u);
+  assert.match(preflightJob, /"self-hosted","herd-release-macos"/u);
   assert.match(
     preflightJob,
     /xcode-select --switch \/Applications\/Xcode_26\.6\.app\/Contents\/Developer/u,

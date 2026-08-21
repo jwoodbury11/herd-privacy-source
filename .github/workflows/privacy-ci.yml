@@ -4,6 +4,15 @@ on:
   # Private hosted runners are intentionally opt-in. Public-source pull requests
   # run the comprehensive gate so GitHub can bind its check runs to protection.
   workflow_dispatch:
+    inputs:
+      runner_mode:
+        description: Runner pool for an authorized manual release gate
+        required: true
+        default: hosted
+        type: choice
+        options:
+          - hosted
+          - self-hosted
   pull_request:
     branches:
       - main
@@ -24,7 +33,7 @@ jobs:
   release-evidence:
     name: Release, export, and monitor tools
     if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-linux"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
       - name: Check out source without a persisted credential
@@ -78,7 +87,7 @@ jobs:
   privacy-services:
     name: Privacy services and client contracts
     if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-linux"]') || 'ubuntu-24.04' }}
     timeout-minutes: 30
     steps:
       - name: Check out source without a persisted credential
@@ -172,7 +181,7 @@ jobs:
     name: Native iOS privacy, erasure, and UI tests from public source
     needs: release-evidence
     if: ${{ needs.release-evidence.result == 'success' && (github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source') }}
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-macos"]') || 'macos-26' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -189,7 +198,15 @@ jobs:
           node-version: 22.13.0
 
       - name: Select the pinned hosted Apple toolchain
+        if: ${{ inputs.runner_mode != 'self-hosted' }}
         run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+
+      - name: Verify the pinned self-hosted Apple toolchain
+        if: ${{ inputs.runner_mode == 'self-hosted' }}
+        run: |
+          test -d /Applications/Xcode.app/Contents/Developer
+          DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version | grep -Fx 'Xcode 26.6'
+          echo "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Derive deterministic source time
         run: |

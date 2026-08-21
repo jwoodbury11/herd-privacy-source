@@ -26,6 +26,8 @@ type EventRow = {
   attendingMemberIds: string | null;
   resolvedAt: string | null;
   participantCount: number;
+  hostConditionGroupCount: number;
+  hostConditionOptionCount: number;
   ballotCount: number;
   legacyResponseCount: number;
   deliverySentCount: number;
@@ -89,6 +91,11 @@ export async function GET(request: Request) {
               r.attending_member_ids AS attendingMemberIds,
               r.resolved_at AS resolvedAt,
               (SELECT COUNT(*) + 1 FROM invitees i WHERE i.event_id = e.id) AS participantCount,
+              (SELECT COUNT(*) FROM groups g WHERE g.event_id = e.id) AS hostConditionGroupCount,
+              (SELECT COUNT(*)
+                 FROM group_members gm
+                 JOIN groups g ON g.id = gm.group_id
+                WHERE g.event_id = e.id) AS hostConditionOptionCount,
               (SELECT COUNT(DISTINCT b.ballot_id) FROM ballot_revisions b WHERE b.event_id = e.id) AS ballotCount,
               (SELECT COUNT(*) FROM response_envelopes x WHERE x.event_id = e.id) AS legacyResponseCount,
               (SELECT COUNT(*) FROM invitation_deliveries d WHERE d.event_id = e.id AND d.status = 'sent') AS deliverySentCount,

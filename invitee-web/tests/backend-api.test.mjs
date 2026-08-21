@@ -658,6 +658,22 @@ test("a host event appears for every invited test account after invitations are 
     8,
   );
 
+  for (const viewerDigit of ["1", "2"]) {
+    const viewerResponse = await api(miniflare, "/api/events", {
+      headers: { authorization: `Bearer ${sessions.get(viewerDigit)}` },
+    });
+    assert.equal(viewerResponse.status, 200);
+    const viewerEvent = (await viewerResponse.json()).events.find(
+      (candidate) => candidate.id === eventId,
+    );
+    assert.ok(viewerEvent);
+    assert.equal(
+      viewerEvent.invitees.filter((invitee) => invitee.hasResponded === true).length,
+      8,
+      `test account ${viewerDigit} must receive every other account's response marker`,
+    );
+  }
+
   const accounts = await database
     .prepare(
       `SELECT phone_number AS phoneNumber, name, address
@@ -1339,6 +1355,7 @@ test("internal event viewer is operator-only and returns bounded public event he
   const eventId = "7c000000-0000-4000-8000-000000000001";
   const hostId = "7c000000-0000-4000-8000-000000000002";
   const inviteeId = "7c000000-0000-4000-8000-000000000003";
+  const groupId = "7c000000-0000-4000-8000-000000000004";
   const now = "2026-08-18T21:00:00.000Z";
   await database.batch([
     database.prepare(
@@ -1367,6 +1384,12 @@ test("internal event viewer is operator-only and returns bounded public event he
          content_digest, created_at
        ) VALUES (?, 1, 2, 1, ?, 'going', 2, '[]', 'user', NULL, ?, ?)`,
     ).bind("B".repeat(43), eventId, "viewer-ballot-digest", now),
+    database.prepare(
+      `INSERT INTO groups (id, event_id, position) VALUES (?, ?, 0)`,
+    ).bind(groupId, eventId),
+    database.prepare(
+      `INSERT INTO group_members (group_id, invitee_id, position) VALUES (?, ?, 0)`,
+    ).bind(groupId, inviteeId),
   ]);
 
   const unauthorized = await api(miniflare, "/api/internal/events");
@@ -1382,6 +1405,8 @@ test("internal event viewer is operator-only and returns bounded public event he
   assert.equal(body.events.length, 1);
   assert.equal(body.events[0].id, eventId);
   assert.equal(body.events[0].participantCount, 2);
+  assert.equal(body.events[0].hostConditionGroupCount, 1);
+  assert.equal(body.events[0].hostConditionOptionCount, 1);
   assert.equal(body.events[0].ballotCount, 1);
   assert.equal(body.events[0].hostName, "Viewer Host");
   assert.equal(body.events[0].locationAddress, "1 Main St");

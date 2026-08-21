@@ -120,7 +120,17 @@ test("response progress unlocks only after the current guest replies", async () 
   assert.match(home, /role == \.host \|\| hasResponse/u);
   assert.match(home, /respondedParticipantCount/u);
   assert.match(home, /invitee\.hasResponded == true \? "Responded" : "Not responded"/u);
-  assert.match(home, /Send your private reply to see who has responded/u);
+  assert.match(home, /Image\(systemName: "eye\.slash\.fill"\)/u);
+  assert.match(home, /experience\.responseProgressLocked/u);
+  assert.doesNotMatch(home, /Text\("Guest status"\)[\s\S]*?\.blur\(radius:/u);
+  assert.match(
+    home,
+    /private struct InvitationDetailView[\s\S]*?\.task\(id: eventID\)[\s\S]*?await store\.refresh\(\)[\s\S]*?responseProgressRefreshInterval/u,
+  );
+  assert.match(
+    home,
+    /private struct InvitationAttendees[\s\S]*?\.refreshable \{\s*await store\.refresh\(\)/u,
+  );
 });
 
 test("selected required-attendee chips abbreviate names without changing stored names", async () => {

@@ -34,6 +34,12 @@ on:
         description: Durable HTTPS directory URL where generated production evidence will be published
         required: false
         type: string
+      runner_mode:
+        description: Use GitHub-hosted runners or the approved temporary release runners
+        required: true
+        default: hosted
+        type: choice
+        options: [hosted, self-hosted]
 
 concurrency:
   group: privacy-release-evidence
@@ -53,7 +59,7 @@ jobs:
   stage-evidence:
     if: github.repository == 'jwoodbury11/Herd' || github.repository == 'jwoodbury11/herd-privacy-source'
     environment: privacy-release
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-linux"]') || 'ubuntu-24.04' }}
     timeout-minutes: 30
     steps:
       - name: Check out the authorized revision without a persisted credential
@@ -239,7 +245,7 @@ jobs:
   production-artifact-preflight:
     if: (github.repository == 'jwoodbury11/Herd' || github.repository == 'jwoodbury11/herd-privacy-source') && inputs.release_stage == 'production'
     needs: stage-evidence
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-macos"]') || 'macos-26' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -258,7 +264,15 @@ jobs:
           node-version: 22.13.0
 
       - name: Select the pinned hosted Apple toolchain
+        if: ${{ inputs.runner_mode != 'self-hosted' }}
         run: sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+
+      - name: Select the pinned self-hosted Apple toolchain
+        if: ${{ inputs.runner_mode == 'self-hosted' }}
+        run: |
+          test -d /Applications/Xcode.app/Contents/Developer
+          DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -version | grep -Fx 'Xcode 26.6'
+          echo "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Install the pinned Cosign verifier
         uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
