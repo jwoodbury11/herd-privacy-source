@@ -281,7 +281,11 @@ test("attendees use one collapsing title and one unified, private-status list", 
 
   assert.equal(
     experience.attendees.statusDisclosure,
-    "Attendance status appears only after the event is confirmed. Guests must send a private reply before their status can be shown.",
+    "Each guest’s decision to attend stays private until the event is confirmed.",
+  );
+  assert.equal(
+    experience.attendees.responseProgressLocked,
+    "Send your private reply to see who has already responded.",
   );
   assert.match(page, /ATTENDEES_EXPERIENCE\.statusDisclosure/u);
   assert.match(page, /className="people-list"[\s\S]*person-row person-row-host[\s\S]*host-crown/u);
@@ -303,9 +307,19 @@ test("attendees use one collapsing title and one unified, private-status list", 
   assert.match(page, /ATTENDEES_EXPERIENCE\.addGuests\.submitMultipleTemplate/u);
   assert.match(css, /\.add-attendees-button/u);
   assert.match(css, /\.guest-draft-card/u);
-  assert.match(page, /function LockedGuestStatus\(\)[\s\S]*Send your reply to see guest status\./u);
+  assert.match(page, /function LockedGuestStatus\(\)[\s\S]*<EyeOff size=\{17\}/u);
+  assert.match(page, /ATTENDEES_EXPERIENCE\.responseProgressLocked/u);
+  assert.match(
+    page,
+    /screen !== "event" && screen !== "attendees"[\s\S]*?window\.setInterval\(refreshOpenEvent, 15_000\)/u,
+  );
+  assert.match(
+    page,
+    /setSelectedEvent\(\(current\) => current[\s\S]*?event\.id === current\.id/u,
+  );
   assert.match(page, /!attendanceStatus && guestStatusLocked \? <LockedGuestStatus \/>/u);
-  assert.match(css, /\.locked-guest-status-blur \{[\s\S]*filter: blur\(6px\)/u);
+  assert.doesNotMatch(css, /\.locked-guest-status-blur/u);
+  assert.match(css, /\.locked-guest-status-button \{[\s\S]*border-radius: 999px/u);
   assert.match(css, /\.locked-guest-status-tooltip::after/u);
 
   assert.match(css, /\.app-header h1 \{[\s\S]*visibility: hidden/u);
@@ -320,8 +334,9 @@ test("attendees use one collapsing title and one unified, private-status list", 
   assert.match(swiftHome, /event\.isHosted \|\| event\.allowsAttendeesToAddGuests/u);
   assert.match(swiftHome, /experience\.addGuests\.button/u);
   assert.match(swiftHome, /event\.canViewResponseProgress \? nil : invitee\.id/u);
-  assert.match(swiftHome, /Text\("Guest status"\)[\s\S]*\.blur\(radius: 7\)/u);
-  assert.match(swiftHome, /Text\("Send your reply to see guest status\."\)[\s\S]*\.presentationCompactAdaptation\(\.popover\)/u);
+  assert.match(swiftHome, /Image\(systemName: "eye\.slash\.fill"\)/u);
+  assert.match(swiftHome, /Text\(experience\.responseProgressLocked\)/u);
+  assert.match(swiftHome, /lockedStatusNoticeID != nil[\s\S]*?\.allowsHitTesting\(false\)/u);
   assert.doesNotMatch(
     swiftHome.match(/private struct InvitationAttendees[\s\S]*?private struct InvitationConditionPicker/u)?.[0] ?? "",
     /Text\(experience\.title\)/u,
@@ -908,6 +923,10 @@ test("internal event viewer stays unlinked, unindexed, and loads only deidentifi
   assert.match(client, /View de-identified replies/u);
   assert.match(client, /api\/internal\/ballots\?eventId=/u);
   assert.match(client, /requiredGroups/u);
+  assert.match(client, /Host confirmation rules/u);
+  assert.match(client, /hostConditionGroupCount/u);
+  assert.match(route, /hostConditionGroupCount/u);
+  assert.match(route, /hostConditionOptionCount/u);
   assert.doesNotMatch(client, /append_correction|correctionReason|contentDigest/u);
   assert.doesNotMatch(home, /internal\/events/u);
 });

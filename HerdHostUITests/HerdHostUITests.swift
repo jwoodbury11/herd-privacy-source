@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 @MainActor
@@ -84,6 +85,50 @@ final class HerdHostUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Untitled event"].exists)
+    }
+
+    func testKeyboardSurroundDoesNotExposePureBlack() throws {
+        let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
+
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+        let titleField = app.descendants(matching: .any)["event-title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        titleField.tap()
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
+        attachment.name = "Keyboard surround matches Herd canvas"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        let keyboardFrame = keyboard.frame
+        let outsideTopLeft = CGPoint(
+            x: keyboardFrame.minX + 3,
+            y: keyboardFrame.minY + 3
+        )
+        let adjacentCanvas = CGPoint(
+            x: keyboardFrame.minX + 3,
+            y: keyboardFrame.minY - 7
+        )
+        let outsideColor = try XCTUnwrap(rgb(in: screenshot.image, at: outsideTopLeft))
+        let canvasColor = try XCTUnwrap(rgb(in: screenshot.image, at: adjacentCanvas))
+
+        XCTAssertGreaterThan(
+            luminance(outsideColor),
+            0.05,
+            "The keyboard surround must not fall back to pure black."
+        )
+        XCTAssertLessThan(
+            colorDistance(outsideColor, canvasColor),
+            0.08,
+            "The keyboard's transparent rounded corner must reveal the Herd canvas, not black."
+        )
+    }
+
+    private func luminance(_ color: (CGFloat, CGFloat, CGFloat)) -> CGFloat {
+        0.2126 * color.0 + 0.7152 * color.1 + 0.0722 * color.2
     }
 
     func testContactPickerAddsManualRecipientAndGroupsFilteredSelections() {
@@ -484,6 +529,67 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["How your reply shows up to others"].exists)
     }
 
+    func testRepeatedLockedGuestStatusTapsCannotDismissAttendees() {
+        let app = launch(scenario: "invitation-account-switch")
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550101")
+        XCTAssertTrue(
+            app.staticTexts["This invitation is for another account"]
+                .waitForExistence(timeout: 10)
+        )
+        app.buttons["switch-invitation-account"].tap()
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
+        let guestList = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guestList, in: app.scrollViews.firstMatch)
+        guestList.tap()
+
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        let lockedStatuses = app.buttons.matching(
+            NSPredicate(format: "label == %@", "Guest status hidden")
+        )
+        XCTAssertTrue(lockedStatuses.firstMatch.waitForExistence(timeout: 5))
+        let tapPoints = lockedStatuses.allElementsBoundByIndex
+            .filter(\.isHittable)
+            .prefix(5)
+            .map { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)) }
+        XCTAssertGreaterThanOrEqual(tapPoints.count, 3)
+        for _ in 0..<4 {
+            for tapPoint in tapPoints {
+                tapPoint.tap()
+            }
+        }
+
+        XCTAssertTrue(app.navigationBars["Attendees"].exists)
+        XCTAssertTrue(app.staticTexts["locked-guest-status-notice"].exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Repeated locked status taps remain on attendees"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testAttendeeResponsesRefreshAcrossAccountsWhileEventIsOpen() {
+        let app = launch(scenario: "response-progress-refresh")
+
+        let event = app.staticTexts["Response Refresh Fixture"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        event.tap()
+
+        let guestList = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guestList, in: app.scrollViews.firstMatch)
+        guestList.tap()
+
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        let responded = app.staticTexts.matching(
+            NSPredicate(format: "label == %@", "Responded")
+        )
+        XCTAssertEqual(responded.count, 2)
+        XCTAssertTrue(app.staticTexts["Not responded"].exists)
+    }
+
     func testAccountWideReplyNeverPresentsDeviceTransfer() {
         let app = launch(scenario: "invitation-account-switch")
 
@@ -528,6 +634,37 @@ final class HerdHostUITests: XCTestCase {
         app.launchArguments = ["--herd-ui-testing", scenario] + additionalArguments
         app.launch()
         return app
+    }
+
+    private func rgb(in image: UIImage, at point: CGPoint) -> (CGFloat, CGFloat, CGFloat)? {
+        guard let cgImage = image.cgImage else { return nil }
+        let xScale = CGFloat(cgImage.width) / image.size.width
+        let yScale = CGFloat(cgImage.height) / image.size.height
+        let x = min(max(Int(point.x * xScale), 0), cgImage.width - 1)
+        let y = min(max(Int(point.y * yScale), 0), cgImage.height - 1)
+        guard
+            let data = cgImage.dataProvider?.data,
+            let bytes = CFDataGetBytePtr(data)
+        else { return nil }
+
+        let pixel = bytes + y * cgImage.bytesPerRow + x * (cgImage.bitsPerPixel / 8)
+        guard cgImage.bitsPerPixel >= 24 else { return nil }
+        return (
+            CGFloat(pixel[0]) / 255,
+            CGFloat(pixel[1]) / 255,
+            CGFloat(pixel[2]) / 255
+        )
+    }
+
+    private func colorDistance(
+        _ lhs: (CGFloat, CGFloat, CGFloat),
+        _ rhs: (CGFloat, CGFloat, CGFloat)
+    ) -> CGFloat {
+        sqrt(
+            pow(lhs.0 - rhs.0, 2) +
+            pow(lhs.1 - rhs.1, 2) +
+            pow(lhs.2 - rhs.2, 2)
+        )
     }
 
     private func signIn(_ app: XCUIApplication, phoneNumber: String) {

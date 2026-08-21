@@ -206,7 +206,9 @@
   "attendees": {
     "navigationTitle": "Attendees",
     "title": "Attendees",
-    "statusDisclosure": "Attendance status appears only after the event is confirmed. Guests must send a private reply before their status can be shown.",
+    "statusDisclosure": "Each guest’s decision to attend stays private until the event is confirmed.",
+    "responseProgressLocked": "Send your private reply to see who has already responded.",
+    "responseProgressVisible": "You can see who has already responded.",
     "hostLabel": "Host",
     "hostingLabel": "Hosting",
     "invitedSuffix": "people",

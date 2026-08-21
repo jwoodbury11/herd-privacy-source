@@ -1589,6 +1589,7 @@ private struct InvitationDetailView: View {
         guard let image = UIImage(systemName: "trash") else { return UIImage() }
         return image.withTintColor(.systemRed, renderingMode: .alwaysOriginal)
     }()
+    private static let responseProgressRefreshInterval = Duration.seconds(15)
 
     let eventID: UUID
     @State private var selectedResponse: RSVPResponse?
@@ -1745,6 +1746,16 @@ private struct InvitationDetailView: View {
                     }
                 )
                 .presentationDetents([.medium, .large])
+            }
+        }
+        .task(id: eventID) {
+            while !Task.isCancelled {
+                await store.refresh()
+                do {
+                    try await Task.sleep(for: Self.responseProgressRefreshInterval)
+                } catch {
+                    return
+                }
             }
         }
         .sheet(isPresented: $showsReplyPreview) {
@@ -2943,7 +2954,7 @@ private struct InvitationAttendees: View {
     let eventID: UUID
     private let experience = HerdExperience.shared.attendees
     @State private var selectedDeliveryGuestID: UUID?
-    @State private var selectedLockedStatusGuestID: UUID?
+    @State private var lockedStatusNoticeID: UUID?
     @State private var showsAddAttendees = false
     @State private var pendingInvitees: [Invitee] = []
     @State private var addErrorMessage: String?
@@ -2969,11 +2980,21 @@ private struct InvitationAttendees: View {
         ScrollView {
             if let event {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text(statusDisclosure(for: event))
+                    Text(experience.statusDisclosure)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 8)
+
+                    Label {
+                        Text(responseProgressDisclosure(for: event))
+                    } icon: {
+                        Image(systemName: event.canViewResponseProgress ? "eye" : "eye.slash.fill")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("attendee-response-progress-disclosure")
 
                     Text(participantLabel)
                         .font(.caption.weight(.bold))
@@ -3048,10 +3069,31 @@ private struct InvitationAttendees: View {
                 .padding(.bottom, 32)
             }
         }
+        .refreshable {
+            await store.refresh()
+        }
         .background(HerdTheme.canvas)
         .navigationTitle(experience.navigationTitle)
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
+        .overlay(alignment: .bottom) {
+            if lockedStatusNoticeID != nil {
+                Text(experience.responseProgressLocked)
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: .capsule)
+                    .overlay {
+                        Capsule().stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .allowsHitTesting(false)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityIdentifier("locked-guest-status-notice")
+            }
+        }
         .fullScreenCover(isPresented: $showsAddAttendees) {
             if let event {
                 AttendeeFlowView(
@@ -3111,31 +3153,38 @@ private struct InvitationAttendees: View {
     }
 
     private func lockedGuestStatusButton(inviteeID: UUID) -> some View {
-        let isPresented = Binding(
-            get: { selectedLockedStatusGuestID == inviteeID },
-            set: { presented in
-                selectedLockedStatusGuestID = presented ? inviteeID : nil
-            }
-        )
         return Button {
-            selectedLockedStatusGuestID = isPresented.wrappedValue ? nil : inviteeID
+            showLockedStatusNotice()
         } label: {
-            Text("Guest status")
-                .font(.subheadline.weight(.semibold))
+            Image(systemName: "eye.slash.fill")
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .blur(radius: 7)
-                .frame(minWidth: 82, minHeight: 32, alignment: .trailing)
-                .contentShape(.rect)
+                .frame(width: 34, height: 34)
+                .background(HerdTheme.raisedSurface.opacity(0.72), in: .circle)
+                .overlay {
+                    Circle().stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                }
+                .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Guest status hidden")
-        .accessibilityHint("Send your reply to see guest status")
-        .popover(isPresented: isPresented, arrowEdge: .trailing) {
-            Text("Send your reply to see guest status.")
-                .font(.subheadline.weight(.semibold))
-                .padding(14)
-                .frame(idealWidth: 240, alignment: .leading)
-                .presentationCompactAdaptation(.popover)
+        .accessibilityHint(experience.responseProgressLocked)
+        .accessibilityIdentifier(
+            "locked-guest-status-\(inviteeID.uuidString.lowercased())"
+        )
+    }
+
+    private func showLockedStatusNotice() {
+        let noticeID = UUID()
+        withAnimation(.snappy) {
+            lockedStatusNoticeID = noticeID
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard lockedStatusNoticeID == noticeID else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                lockedStatusNoticeID = nil
+            }
         }
     }
 
@@ -3224,17 +3273,10 @@ private struct InvitationAttendees: View {
         return nil
     }
 
-    private func statusDisclosure(for event: HerdEvent) -> String {
-        if event.resolution?.status == .confirmed {
-            return experience.statusDisclosure
-        }
-        if event.role == .host {
-            return "You can see who has responded. What each person chose stays private until the event is confirmed."
-        }
-        if event.canViewResponseProgress {
-            return "You can see who has responded because your private reply has been sent. What each person chose stays private until the event is confirmed."
-        }
-        return "Send your private reply to see who has responded. What each person chose stays private until the event is confirmed."
+    private func responseProgressDisclosure(for event: HerdEvent) -> String {
+        event.canViewResponseProgress
+            ? experience.responseProgressVisible
+            : experience.responseProgressLocked
     }
 
     private func avatar(for name: String, tone: Int, isHost: Bool) -> some View {

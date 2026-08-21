@@ -12,6 +12,7 @@ struct HerdUITestEnvironment {
         case hostEdit = "host-edit"
         case hostDelete = "host-delete"
         case invitationAccountSwitch = "invitation-account-switch"
+        case responseProgressRefresh = "response-progress-refresh"
     }
 
     static let fixtureOrigin = URL(string: "https://herd-ui-testing.invalid")!
@@ -36,7 +37,8 @@ struct HerdUITestEnvironment {
     }
 
     var startsWithAuthenticatedHost: Bool {
-        scenario == .hostCreate || scenario == .hostEdit || scenario == .hostDelete
+        scenario == .hostCreate || scenario == .hostEdit || scenario == .hostDelete ||
+            scenario == .responseProgressRefresh
     }
 
     var prefilledCreateEvent: HerdEvent? {
@@ -154,12 +156,14 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
     private static var scenario: HerdUITestEnvironment.Scenario = .hostCreate
     private static var events: [[String: Any]] = []
     private static var invitationSignInCount = 0
+    private static var eventsReadCount = 0
 
     static func reset(to scenario: HerdUITestEnvironment.Scenario) {
         lock.lock()
         defer { lock.unlock() }
         self.scenario = scenario
         invitationSignInCount = 0
+        eventsReadCount = 0
         switch scenario {
         case .hostCreate, .invitationAccountSwitch:
             events = []
@@ -189,6 +193,36 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                 "retrying": false,
             ]
             event["invitationDelivery"] = deliveryDictionary(for: event)
+            events = [event]
+        case .responseProgressRefresh:
+            var saved = HerdUITestEnvironment.hostDraft(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000004")!,
+                title: "Response Refresh Fixture"
+            )
+            saved.invitees = [
+                Invitee(
+                    id: UUID(uuidString: "50000000-0000-0000-0000-000000000011")!,
+                    displayName: "One Anderson",
+                    phoneNumber: "+14155550101",
+                    hasResponded: false
+                ),
+                Invitee(
+                    id: UUID(uuidString: "50000000-0000-0000-0000-000000000012")!,
+                    displayName: "Two Brown",
+                    phoneNumber: "+14155550102",
+                    hasResponded: false
+                ),
+                Invitee(
+                    id: UUID(uuidString: "50000000-0000-0000-0000-000000000013")!,
+                    displayName: "Three Davis",
+                    phoneNumber: "+14155550103",
+                    hasResponded: false
+                ),
+            ]
+            saved.invitationsSent = true
+            var event = hostEventDictionary(saved)
+            event["privateResponsePolicy"] = frozenPolicyDictionary()
+            event["resolution"] = ["status": "pending", "retrying": false]
             events = [event]
         }
     }
@@ -285,6 +319,18 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         if method == "GET", path == "/api/events" {
+            eventsReadCount += 1
+            if scenario == .responseProgressRefresh {
+                if eventsReadCount >= 2,
+                   var event = events.first,
+                   var invitees = event["invitees"] as? [[String: Any]] {
+                    invitees[0]["hasResponded"] = true
+                    invitees[1]["hasResponded"] = true
+                    event["invitees"] = invitees
+                    events = [event]
+                }
+                return (200, ["events": events])
+            }
             events = events.map(resolvedEventDictionary)
             return (200, ["events": events])
         }
@@ -333,7 +379,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                         title: "Edited Fixture Draft"
                     )
                 )
-            case .hostDelete, .invitationAccountSwitch:
+            case .hostDelete, .invitationAccountSwitch, .responseProgressRefresh:
                 return (400, ["error": "Invitation fixtures cannot edit events"])
             }
             upsert(event)
@@ -388,8 +434,10 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                     ],
                 ])
             }
+            let event = invitationEventDictionary()
+            events = [event]
             return (200, [
-                "event": invitationEventDictionary(),
+                "event": event,
                 "inviteMetadata": [
                     "id": "30000000-0000-0000-0000-000000000003",
                     "accountKeyEpochId": "80000000-0000-0000-0000-000000000008",
@@ -508,6 +556,54 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
 
     private static func invitationEventDictionary() -> [String: Any] {
         let inviteeID = "30000000-0000-0000-0000-000000000003"
+        let invitees: [[String: Any]] = [
+            [
+                "id": inviteeID,
+                "displayName": "Correct Invitee",
+                "phoneNumber": HerdUITestEnvironment.correctInvitePhoneNumber,
+                "isCurrentUser": true,
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000004",
+                "displayName": "Two Brown",
+                "phoneNumber": "+14155550103",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000005",
+                "displayName": "Three Davis",
+                "phoneNumber": "+14155550104",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000006",
+                "displayName": "Four Garcia",
+                "phoneNumber": "+14155550105",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000007",
+                "displayName": "Five Johnson",
+                "phoneNumber": "+14155550106",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000008",
+                "displayName": "Six Miller",
+                "phoneNumber": "+14155550107",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000009",
+                "displayName": "Seven Smith",
+                "phoneNumber": "+14155550108",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000010",
+                "displayName": "Eight Taylor",
+                "phoneNumber": "+14155550109",
+            ],
+            [
+                "id": "30000000-0000-0000-0000-000000000011",
+                "displayName": "Nine Wilson",
+                "phoneNumber": "+14155550110",
+            ],
+        ]
         return [
             "id": "40000000-0000-0000-0000-000000000004",
             "title": "Private Picnic Invitation",
@@ -516,12 +612,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             "hostName": "Fixture Host",
             "locationName": "Invitation Park",
             "locationAddress": "2 Test Lane",
-            "invitees": [[
-                "id": inviteeID,
-                "displayName": "Correct Invitee",
-                "phoneNumber": HerdUITestEnvironment.correctInvitePhoneNumber,
-                "isCurrentUser": true,
-            ]],
+            "invitees": invitees,
             "minimumParticipants": 2,
             "requiredGroups": [],
             "rsvpDeadline": dateString(.now.addingTimeInterval(86_400)),

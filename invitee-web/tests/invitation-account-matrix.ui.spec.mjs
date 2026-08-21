@@ -235,11 +235,24 @@ test("all eight invitee UI acceptances create one deidentified ballot each", asy
   });
 });
 
+test("an already-open observer receives every other account's response marker", async () => {
+  const observer = authenticatedPages[0];
+  await observer.getByRole("button", { name: "View invitation" }).click();
+  await expectInvitation(observer);
+  await observer.locator(".attendee-entry").click();
+  await expect(observer.getByRole("heading", { name: "Attendees" })).toBeVisible();
+  await expect(observer.locator(".person-status", { hasText: "Responded" })).toHaveCount(8);
+  await observer.getByRole("button", { name: "Go back" }).click();
+  await expectInvitation(observer);
+});
+
 for (let index = 0; index < acceptanceScenarios.length; index += 1) {
   test(`test account ${inviteeAliases[index]} revises its private reply`, async () => {
     const original = acceptanceScenarios[index];
     const page = authenticatedPages[index];
-    await page.getByRole("button", { name: "View invitation" }).click();
+    if (!(await page.getByRole("heading", { name: harness.scenario.title }).isVisible())) {
+      await page.getByRole("button", { name: "View invitation" }).click();
+    }
     await expectInvitation(page);
 
     if (original.reply === "yes") {

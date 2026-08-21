@@ -1550,6 +1550,23 @@ summary:focus-visible {
   line-height: 1.5;
 }
 
+.attendees-response-progress {
+  max-width: 34rem;
+  margin: 10px 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.attendees-response-progress svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .attendees-screen .section-label { margin-top: 24px; }
 
 .people-list {
@@ -1652,24 +1669,22 @@ summary:focus-visible {
 }
 
 .locked-guest-status-button {
-  min-width: 78px;
-  min-height: 32px;
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-raised);
   color: var(--muted);
   cursor: pointer;
 }
 
-.locked-guest-status-blur {
-  display: block;
-  filter: blur(6px);
-  opacity: .78;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1;
-  pointer-events: none;
-  user-select: none;
+.locked-guest-status-button:hover,
+.locked-guest-status-button:focus-visible {
+  color: var(--text);
+  border-color: var(--muted);
 }
 
 .locked-guest-status-tooltip {

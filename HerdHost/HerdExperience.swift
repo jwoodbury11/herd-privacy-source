@@ -258,6 +258,8 @@ struct HerdExperience: Decodable {
         let navigationTitle: String
         let title: String
         let statusDisclosure: String
+        let responseProgressLocked: String
+        let responseProgressVisible: String
         let hostLabel: String
         let hostingLabel: String
         let invitedSuffix: String

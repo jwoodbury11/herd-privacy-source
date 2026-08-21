@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, Construction, ContactRound, Crown, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, Construction, ContactRound, Crown, Eye, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { herdExperience } from "@/lib/experience";
 import { relayHostEventEvaluation } from "@/lib/client/evaluation-relay";
@@ -612,7 +612,7 @@ function LockedGuestStatus() {
       <button
         type="button"
         className="locked-guest-status-button"
-        aria-label="Guest status hidden. Send your reply to see guest status."
+        aria-label={`Guest status hidden. ${ATTENDEES_EXPERIENCE.responseProgressLocked}`}
         aria-expanded={isOpen}
         onClick={() => setIsOpen((open) => !open)}
         onBlur={() => setIsOpen(false)}
@@ -620,11 +620,11 @@ function LockedGuestStatus() {
           if (event.key === "Escape") setIsOpen(false);
         }}
       >
-        <span className="locked-guest-status-blur" aria-hidden="true">Guest status</span>
+        <EyeOff size={17} aria-hidden="true" />
       </button>
       {isOpen ? (
         <span className="locked-guest-status-tooltip" role="tooltip">
-          Send your reply to see guest status.
+          {ATTENDEES_EXPERIENCE.responseProgressLocked}
         </span>
       ) : null}
     </span>
@@ -1169,6 +1169,9 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         (Array.isArray(body.events) ? body.events : []).map(verifiedApiEvent),
       );
       setEvents(sortEventsForHome(verifiedEvents));
+      setSelectedEvent((current) => current
+        ? verifiedEvents.find((event) => event.id === current.id) ?? current
+        : current);
       markEventsUpdated();
     } catch (error) {
       setHomeRefreshError(
@@ -1277,6 +1280,21 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshIfStale);
+    };
+  }, [currentUser, refreshHomeEvents, screen]);
+
+  useEffect(() => {
+    if ((screen !== "event" && screen !== "attendees") || !currentUser) return;
+    const refreshOpenEvent = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshHomeEvents();
+    };
+    refreshOpenEvent();
+    const timer = window.setInterval(refreshOpenEvent, 15_000);
+    document.addEventListener("visibilitychange", refreshOpenEvent);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshOpenEvent);
     };
   }, [currentUser, refreshHomeEvents, screen]);
 
@@ -3395,13 +3413,17 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               <div className="screen-page-heading">
                 <h2 id="attendees-heading">{ATTENDEES_EXPERIENCE.title}</h2>
                 <p className="attendees-disclosure">
-                  {activeEvent?.resolution?.status === "confirmed"
-                    ? ATTENDEES_EXPERIENCE.statusDisclosure
-                    : activeEvent?.role === "host"
-                      ? "You can see who has responded. What each person chose stays private until the event is confirmed."
-                      : activeEvent?.hasResponse || activeEvent?.hasBallot
-                        ? "You can see who has responded because your private reply has been sent. What each person chose stays private until the event is confirmed."
-                        : "Send your private reply to see who has responded. What each person chose stays private until the event is confirmed."}
+                  {ATTENDEES_EXPERIENCE.statusDisclosure}
+                </p>
+                <p className="attendees-response-progress">
+                  {activeEvent?.role === "host" || activeEvent?.hasResponse || activeEvent?.hasBallot
+                    ? <Eye size={15} aria-hidden="true" />
+                    : <EyeOff size={15} aria-hidden="true" />}
+                  <span>
+                    {activeEvent?.role === "host" || activeEvent?.hasResponse || activeEvent?.hasBallot
+                      ? ATTENDEES_EXPERIENCE.responseProgressVisible
+                      : ATTENDEES_EXPERIENCE.responseProgressLocked}
+                  </span>
                 </p>
               </div>
               <p className="section-label">{peopleCountLabel(invitedPeople.length + 1)}</p>
