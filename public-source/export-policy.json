@@ -89,6 +89,26 @@
       "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
     },
     {
+      "path": "HerdHost/Assets.xcassets/HerdWelcomeSplash.imageset/herd-welcome-splash.png",
+      "binarySha256": "9c23737a46e3088148ab640f98243dacb5b6b8bf6b6a3c281da64fab805c3401"
+    },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-poker.imageset/event-scene-poker.png", "binarySha256": "0c2b735b59ec37df566bd375aba7fd947c7974769658e354a6283e965d925d5e" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-tennis.imageset/event-scene-tennis.png", "binarySha256": "04a2244dd34dcb9297df1dac83e85e64247452011efe6e31284913791c7df71d" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-board-games.imageset/event-scene-board-games.png", "binarySha256": "ec30b0a2fb6004b7adb1c81b7d48c18685e6cc8f2cc0dd437c4d3ddfa9141a51" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-house-drinks.imageset/event-scene-house-drinks.png", "binarySha256": "90d267ed220b5b214f2179a49d3c9f47c2cf5971c1d34c1bebd40033c03567fb" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-restaurant.imageset/event-scene-restaurant.png", "binarySha256": "a540e700e842f0592c47a26f9fb874227142b4f514799ac3069e44d2cb59cddd" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-cocktail-bar.imageset/event-scene-cocktail-bar.png", "binarySha256": "a796b65c20e385888757b34d105a621dc5e5bbe681c334f6a162e68255eed64e" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-club-dancing.imageset/event-scene-club-dancing.png", "binarySha256": "64eb69378a6c2941f79b0e1d715ef4feb1d8673921fa1aa205bcbf3f7d918cfc" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-movie-night.imageset/event-scene-movie-night.png", "binarySha256": "38a14540f05d56d66989dc10d1ff75966ce4712fd58ee2e0780ecab557c60a40" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-park-picnic.imageset/event-scene-park-picnic.png", "binarySha256": "2268d7bfaf3a0ad10061521144b814e3280c6477e5e429871d8749cd7d6a6382" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-travel-airport.imageset/event-scene-travel-airport.png", "binarySha256": "ff822bc0d9ef9c447e60028b69850a8c26190de0be031f837f04ea22287065a6" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-camping.imageset/event-scene-camping.png", "binarySha256": "e745dcea25e7f6644c0bd31c2a325003e4317189931f9a248070824e5b9317b1" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-fishing.imageset/event-scene-fishing.png", "binarySha256": "bb9af8dd5dc8feaf0b5c8bb01d60a3b163978d5f5017dea3d02045a4304534d5" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-birthday-party.imageset/event-scene-birthday-party.png", "binarySha256": "cc86916cc6260db65321cd87ac5dd89a036e78de2ca2c7ebfe225fc4b0d28844" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-jacuzzi.imageset/event-scene-jacuzzi.png", "binarySha256": "39cf9f11b8747e86cb1881dbf777b26044edd51b92e8054656b4a2c231439aec" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-skiing.imageset/event-scene-skiing.png", "binarySha256": "9febdc732490363b7747ae67e27c74271229a01f85f0f343fe29557b61ce704f" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-other.imageset/event-scene-other.png", "binarySha256": "6538310bb8f040ecd3c9f6b10f9252d7db9445cd042a7d502155ea8488640bf9" },
+    {
       "path": "HerdHost.xcodeproj",
       "recursive": true,
       "extensions": [".pbxproj", ".plist", ".xcscheme"]
@@ -129,6 +149,26 @@
       "path": "invitee-web/public/og.png",
       "binarySha256": "c5e5818e488380ab033f9a47623029e5f8228edde6e6761adf3428f54a93a95c"
     },
+    {
+      "path": "invitee-web/public/brand/herd-welcome-splash.png",
+      "binarySha256": "9c23737a46e3088148ab640f98243dacb5b6b8bf6b6a3c281da64fab805c3401"
+    },
+    { "path": "invitee-web/public/event-images/poker.png", "binarySha256": "0c2b735b59ec37df566bd375aba7fd947c7974769658e354a6283e965d925d5e" },
+    { "path": "invitee-web/public/event-images/tennis.png", "binarySha256": "04a2244dd34dcb9297df1dac83e85e64247452011efe6e31284913791c7df71d" },
+    { "path": "invitee-web/public/event-images/board-games.png", "binarySha256": "ec30b0a2fb6004b7adb1c81b7d48c18685e6cc8f2cc0dd437c4d3ddfa9141a51" },
+    { "path": "invitee-web/public/event-images/house-drinks.png", "binarySha256": "90d267ed220b5b214f2179a49d3c9f47c2cf5971c1d34c1bebd40033c03567fb" },
+    { "path": "invitee-web/public/event-images/restaurant.png", "binarySha256": "a540e700e842f0592c47a26f9fb874227142b4f514799ac3069e44d2cb59cddd" },
+    { "path": "invitee-web/public/event-images/cocktail-bar.png", "binarySha256": "a796b65c20e385888757b34d105a621dc5e5bbe681c334f6a162e68255eed64e" },
+    { "path": "invitee-web/public/event-images/club-dancing.png", "binarySha256": "64eb69378a6c2941f79b0e1d715ef4feb1d8673921fa1aa205bcbf3f7d918cfc" },
+    { "path": "invitee-web/public/event-images/movie-night.png", "binarySha256": "38a14540f05d56d66989dc10d1ff75966ce4712fd58ee2e0780ecab557c60a40" },
+    { "path": "invitee-web/public/event-images/park-picnic.png", "binarySha256": "2268d7bfaf3a0ad10061521144b814e3280c6477e5e429871d8749cd7d6a6382" },
+    { "path": "invitee-web/public/event-images/travel-airport.png", "binarySha256": "ff822bc0d9ef9c447e60028b69850a8c26190de0be031f837f04ea22287065a6" },
+    { "path": "invitee-web/public/event-images/camping.png", "binarySha256": "e745dcea25e7f6644c0bd31c2a325003e4317189931f9a248070824e5b9317b1" },
+    { "path": "invitee-web/public/event-images/fishing.png", "binarySha256": "bb9af8dd5dc8feaf0b5c8bb01d60a3b163978d5f5017dea3d02045a4304534d5" },
+    { "path": "invitee-web/public/event-images/birthday-party.png", "binarySha256": "cc86916cc6260db65321cd87ac5dd89a036e78de2ca2c7ebfe225fc4b0d28844" },
+    { "path": "invitee-web/public/event-images/jacuzzi.png", "binarySha256": "39cf9f11b8747e86cb1881dbf777b26044edd51b92e8054656b4a2c231439aec" },
+    { "path": "invitee-web/public/event-images/skiing.png", "binarySha256": "9febdc732490363b7747ae67e27c74271229a01f85f0f343fe29557b61ce704f" },
+    { "path": "invitee-web/public/event-images/other.png", "binarySha256": "6538310bb8f040ecd3c9f6b10f9252d7db9445cd042a7d502155ea8488640bf9" },
     { "path": "invitee-web/public/assets/herd-entry.json" },
     {
       "path": "invitee-web/public/icons/herd-32.png",
