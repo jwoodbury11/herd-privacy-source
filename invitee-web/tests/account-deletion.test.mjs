@@ -58,6 +58,7 @@ async function createHarness() {
     d1Databases: { DB: `herd-account-deletion-${process.pid}-${Date.now()}` },
     bindings: {
       HERD_AUTH_PEPPER: testPepper,
+      HERD_BALLOT_PSEUDONYM_KEY: "test-only-high-entropy-ballot-key",
       HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
       HERD_TEST_ACCOUNT_ACCESS_GENERATION: testAccessGeneration,
       HERD_TEST_HOST_PHONE_E164: "+14155550111",
@@ -270,11 +271,14 @@ test("account deletion requires recent phone authentication and erases all recov
       .bind(envelopeID, nowIso, nowIso),
   ]);
 
-  const inviteBeforeDeletion = await api(
-    miniflare,
-    `/api/invites/${originalInviteToken}`,
+  assert.equal(
+    await scalar(
+      database,
+      "SELECT COUNT(*) AS value FROM invitees WHERE token_hash = ?",
+      originalInviteTokenHash,
+    ),
+    1,
   );
-  assert.equal(inviteBeforeDeletion.status, 200);
 
   const deleteeSessionHash = pepperedTestHash(
     "session-token",
@@ -443,11 +447,6 @@ test("account deletion requires recent phone authentication and erases all recov
   assert.match(tombstone.phoneHash, /^erased-phone:/);
   assert.match(tombstone.tokenHash, /^erased-token:/);
 
-  const oldInviteAfterDeletion = await api(
-    miniflare,
-    `/api/invites/${originalInviteToken}`,
-  );
-  assert.equal(oldInviteAfterDeletion.status, 404);
   for (const accessToken of [deletee.accessToken, freshDeletee.accessToken]) {
     const deletedSession = await api(miniflare, "/api/me", {
       headers: { authorization: `Bearer ${accessToken}` },
@@ -457,6 +456,12 @@ test("account deletion requires recent phone authentication and erases all recov
 
   const recreated = await testSession(miniflare, "2");
   assert.notEqual(recreated.user.id, deletee.user.id);
+  const oldInviteAfterDeletion = await api(
+    miniflare,
+    `/api/invites/${originalInviteToken}`,
+    { headers: { authorization: `Bearer ${recreated.accessToken}` } },
+  );
+  assert.equal(oldInviteAfterDeletion.status, 404);
   const preservedTombstone = await database
     .prepare("SELECT user_id AS userId FROM invitees WHERE id = ?")
     .bind(guestInviteeID)

@@ -97,22 +97,20 @@ export async function getInviteByToken(
     throw new ApiError(404, "invite_not_found", "The invitation was not found.");
   }
   const config = getAuthConfig(bindings);
+  const session = await getAuthenticatedSession(request, {
+    required: true,
+    db,
+    bindings,
+  });
   const tokenHash = await pepperedHash(config.pepper, "invite-token", token);
   const access = await findInviteAccess(db, tokenHash);
   if (!access) throw new ApiError(404, "invite_not_found", "The invitation was not found.");
 
-  const session = await getAuthenticatedSession(request, {
-    required: false,
-    db,
-    bindings,
-  });
-  const sessionPhoneHash = session
-    ? await pepperedHash(config.pepper, "phone", session.user.phoneNumber)
-    : null;
-  const isInvitee = Boolean(sessionPhoneHash && sessionPhoneHash === access.phoneHash);
+  const sessionPhoneHash = await pepperedHash(config.pepper, "phone", session.user.phoneNumber);
+  const isInvitee = sessionPhoneHash === access.phoneHash;
   const isHost = session?.user.id === access.hostUserId;
   const canRespond = isInvitee && !isHost;
-  if (session && !isInvitee && !isHost) {
+  if (!isInvitee && !isHost) {
     throw new ApiError(
       403,
       "invite_for_different_account",
@@ -122,18 +120,6 @@ export async function getInviteByToken(
 
   const event = await getEventById(db, access.eventId);
   if (!event) throw new ApiError(404, "invite_not_found", "The invitation was not found.");
-  if (!session) {
-    return {
-      invitationPreview: {
-        eventId: event.id,
-        title: event.title,
-        hostName: event.hostName,
-        eventDate: event.eventDate,
-        phoneNumberMasked: maskPhoneNumber(access.phoneNumber),
-        requiresAuthentication: true,
-      },
-    };
-  }
   const responseEnvelope =
     canRespond
       ? await getLatestValidResponseEnvelope(db, access.inviteeId)

@@ -87,48 +87,76 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Untitled event"].exists)
     }
 
-    func testKeyboardSurroundDoesNotExposePureBlack() throws {
+    func testEventImagePreviewSelectionSaveAndReopenStayInSync() {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
 
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
-        let titleField = app.descendants(matching: .any)["event-title"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
-        titleField.tap()
+        let poker = app.buttons["event-image-poker"]
+        XCTAssertTrue(poker.waitForExistence(timeout: 5))
+        XCTAssertEqual(poker.value as? String, "Selected")
 
-        let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-        let screenshot = XCUIScreen.main.screenshot()
-        let attachment = XCTAttachment(screenshot: screenshot)
-        attachment.name = "Keyboard surround matches Herd canvas"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let carousel = app.scrollViews["event-image-carousel"]
+        XCTAssertTrue(carousel.waitForExistence(timeout: 5))
+        let preview = app.buttons["event-image-preview-fishing"]
+        for _ in 0..<6 where !preview.isHittable {
+            carousel.swipeLeft()
+        }
+        XCTAssertTrue(preview.isHittable)
+        preview.tap()
+        let fishingPreview = app.images["event-image-preview-full-fishing"]
+        XCTAssertTrue(fishingPreview.waitForExistence(timeout: 5))
+        app.swipeLeft()
+        let birthdayPreview = app.images["event-image-preview-full-birthday-party"]
+        XCTAssertTrue(birthdayPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(birthdayPreview.isHittable)
+        app.swipeRight()
+        XCTAssertTrue(fishingPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(fishingPreview.isHittable)
+        app.swipeLeft()
+        XCTAssertTrue(birthdayPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(birthdayPreview.isHittable)
+        app.swipeLeft()
+        let jacuzziPreview = app.images["event-image-preview-full-jacuzzi"]
+        XCTAssertTrue(jacuzziPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(jacuzziPreview.isHittable)
+        app.swipeLeft()
+        let skiingPreview = app.images["event-image-preview-full-skiing"]
+        XCTAssertTrue(skiingPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(skiingPreview.isHittable)
+        app.swipeLeft()
+        let otherPreview = app.images["event-image-preview-full-other"]
+        XCTAssertTrue(otherPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(otherPreview.isHittable)
+        app.swipeRight()
+        XCTAssertTrue(skiingPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(skiingPreview.isHittable)
+        let skiingPreviewName = app.staticTexts["event-image-preview-name-skiing"]
+        XCTAssertTrue(skiingPreviewName.waitForExistence(timeout: 5))
+        XCTAssertEqual(skiingPreviewName.label, "Skiing")
+        let previewDone = app.buttons["event-image-preview-done"]
+        XCTAssertTrue(previewDone.waitForExistence(timeout: 5))
+        XCTAssertEqual(previewDone.label, "Done")
+        let previewScreenshot = XCTAttachment(screenshot: app.screenshot())
+        previewScreenshot.name = "event-image-preview-selects-current-page"
+        previewScreenshot.lifetime = .keepAlways
+        add(previewScreenshot)
+        previewDone.tap()
 
-        let keyboardFrame = keyboard.frame
-        let outsideTopLeft = CGPoint(
-            x: keyboardFrame.minX + 3,
-            y: keyboardFrame.minY + 3
-        )
-        let adjacentCanvas = CGPoint(
-            x: keyboardFrame.minX + 3,
-            y: keyboardFrame.minY - 7
-        )
-        let outsideColor = try XCTUnwrap(rgb(in: screenshot.image, at: outsideTopLeft))
-        let canvasColor = try XCTUnwrap(rgb(in: screenshot.image, at: adjacentCanvas))
+        let skiing = app.buttons["event-image-skiing"]
+        XCTAssertTrue(skiing.waitForExistence(timeout: 5))
+        XCTAssertTrue(skiing.isHittable)
+        XCTAssertEqual(skiing.value as? String, "Selected")
 
-        XCTAssertGreaterThan(
-            luminance(outsideColor),
-            0.05,
-            "The keyboard surround must not fall back to pure black."
-        )
-        XCTAssertLessThan(
-            colorDistance(outsideColor, canvasColor),
-            0.08,
-            "The keyboard's transparent rounded corner must reveal the Herd canvas, not black."
-        )
-    }
+        app.buttons["event-primary-action"].tap()
+        let cardImage = app.images["event-card-image-skiing"]
+        XCTAssertTrue(cardImage.waitForExistence(timeout: 10))
 
-    private func luminance(_ color: (CGFloat, CGFloat, CGFloat)) -> CGFloat {
-        0.2126 * color.0 + 0.7152 * color.1 + 0.0722 * color.2
+        app.staticTexts["Untitled event"].tap()
+        XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
+        let reopenedSkiing = app.buttons["event-image-skiing"]
+        XCTAssertTrue(reopenedSkiing.waitForExistence(timeout: 5))
+        XCTAssertTrue(reopenedSkiing.isHittable)
+        XCTAssertEqual(reopenedSkiing.value as? String, "Selected")
     }
 
     func testContactPickerAddsManualRecipientAndGroupsFilteredSelections() {
@@ -176,6 +204,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["contact-section-selected"].exists)
         XCTAssertTrue(app.staticTexts["contact-section-contacts"].exists)
         XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertFalse(app.buttons["Dismiss keyboard"].exists)
 
         let keyboardReturn = app.keyboards.buttons["return"]
         XCTAssertTrue(keyboardReturn.waitForExistence(timeout: 5))
@@ -460,62 +489,179 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Deletable Fixture Event"].exists)
     }
 
-    func testInvitationSurvivesWrongAccountAndOpensForCorrectAccount() {
-        let app = launch(scenario: "invitation-account-switch")
+    func testConfirmedHostEditsDetailsWhileAttendanceRulesStayLocked() {
+        let app = launch(scenario: "host-delete")
 
-        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
-        signIn(
-            app,
-            phoneNumber: "4155550101"
-        )
+        let eventTitle = app.staticTexts["Deletable Fixture Event"]
+        XCTAssertTrue(eventTitle.waitForExistence(timeout: 10))
+        eventTitle.tap()
 
-        XCTAssertTrue(
-            app.staticTexts["This invitation is for another account"]
-                .waitForExistence(timeout: 10)
-        )
-        let switchAccount = app.buttons["switch-invitation-account"]
-        XCTAssertTrue(switchAccount.exists)
-        switchAccount.tap()
+        let actions = app.buttons["event-actions-menu"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 5))
+        actions.tap()
+        let editAction = app.buttons["edit-hosted-event"]
+        XCTAssertTrue(editAction.waitForExistence(timeout: 5))
+        XCTAssertEqual(editAction.label, "Edit this event")
+        editAction.tap()
 
-        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
-        signIn(
-            app,
-            phoneNumber: "4155550102"
-        )
+        XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["event-primary-action"].label, "Save")
 
-        XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].exists)
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
+        let deadline = app.buttons["event-rsvp-deadline"]
+        XCTAssertTrue(deadline.waitForExistence(timeout: 5))
+        deadline.tap()
+        let lockToast = app.staticTexts["confirmed-event-edit-lock-toast"]
+        XCTAssertTrue(lockToast.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            lockToast.label,
+            "Attendance settings and the RSVP deadline can’t be changed after confirmation."
         )
+        let lockedEditorScreenshot = XCTAttachment(screenshot: app.screenshot())
+        lockedEditorScreenshot.name = "confirmed-event-edit-lock-toast"
+        lockedEditorScreenshot.lifetime = .keepAlways
+        add(lockedEditorScreenshot)
+
+        let attendanceLock = app.buttons["event-attendance-settings-locked"]
+        scrollToMakeHittable(attendanceLock, in: app)
+        attendanceLock.tap()
+        XCTAssertTrue(lockToast.exists)
+
+        let requiredLock = app.buttons["event-required-attendees-locked"]
+        scrollToMakeHittable(requiredLock, in: app)
+        requiredLock.tap()
+        XCTAssertTrue(lockToast.exists)
+
+        let editorScroll = app.scrollViews["event-editor-scroll"]
+        for _ in 0..<5 {
+            editorScroll.swipeDown()
+        }
+        let titleField = app.descendants(matching: .any)["event-title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        replaceText(in: titleField, with: "Updated Confirmed Event")
+        app.buttons["event-keyboard-done"].tap()
+        app.buttons["event-primary-action"].tap()
+
+        let updatedTitle = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "Updated Confirmed Event")
+        ).firstMatch
+        XCTAssertTrue(updatedTitle.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Confirmed"].exists)
     }
 
-    func testReplyPreviewDismissesFromTheEdgeOfTheVisibleButton() {
-        let app = launch(scenario: "invitation-account-switch")
+    func testHomeEventCardStacksStatusTitleAndDateWithoutLocation() {
+        let app = launch(scenario: "host-delete")
+        let eventID = "20000000-0000-0000-0000-000000000003"
+
+        let status = app.staticTexts["event-card-status-\(eventID)"]
+        let title = app.staticTexts["event-card-title-\(eventID)"]
+        let date = app.staticTexts["event-card-date-\(eventID)"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        XCTAssertTrue(title.exists)
+        XCTAssertTrue(date.exists)
+
+        XCTAssertLessThan(status.frame.maxY, title.frame.minY)
+        XCTAssertLessThan(title.frame.maxY, date.frame.minY)
+        XCTAssertFalse(app.staticTexts["Fixture Park"].exists)
+
+        let eventCard = app.buttons["event-card-\(eventID)"]
+        let createCard = app.buttons["create-event-card"]
+        let cardImage = app.images["event-card-image-poker"].firstMatch
+        XCTAssertTrue(eventCard.exists)
+        XCTAssertTrue(createCard.exists)
+        XCTAssertTrue(cardImage.exists)
+        XCTAssertGreaterThanOrEqual(cardImage.frame.width, 140)
+        XCTAssertGreaterThanOrEqual(eventCard.frame.height, 226)
+        XCTAssertEqual(eventCard.frame.height, createCard.frame.height, accuracy: 1)
+    }
+
+    func testInvitationSignInUsesStandardSplashAndShowsInviteOnHome() {
+        let app = launch(scenario: "invitee-home")
 
         XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
-        signIn(app, phoneNumber: "4155550101")
-        XCTAssertTrue(
-            app.staticTexts["This invitation is for another account"]
-                .waitForExistence(timeout: 10)
-        )
-        app.buttons["switch-invitation-account"].tap()
-        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
+        XCTAssertFalse(app.staticTexts["Herd"].exists)
+        XCTAssertFalse(app.buttons["Pre-release alpha"].exists)
+        XCTAssertFalse(app.staticTexts["Private Picnic Invitation"].exists)
         signIn(app, phoneNumber: "4155550102")
 
         XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Opened only after the invitation account matches."].exists)
+        XCTAssertFalse(app.buttons["switch-invitation-account"].exists)
+    }
+
+    func testWelcomePhoneEntryUsesPlaceholderAndPinsActionsAboveKeyboard() {
+        let app = launch(scenario: "invitee-home")
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        let phone = app.textFields["authentication-phone"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 5))
+        XCTAssertEqual(phone.placeholderValue, "Sign in with phone")
+        XCTAssertFalse(app.staticTexts["Sign in with phone number"].exists)
+
+        let keyboard = app.keyboards.firstMatch
+        let legal = app.staticTexts["authentication-legal"]
+        let action = app.buttons["authentication-request-code"]
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertTrue(legal.exists)
+        XCTAssertTrue(action.exists)
+        XCTAssertLessThan(action.frame.maxY, legal.frame.minY)
+        let keyboardGap = keyboard.frame.minY - legal.frame.maxY
+        XCTAssertGreaterThanOrEqual(keyboardGap, 4)
+        XCTAssertLessThanOrEqual(keyboardGap, 24)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "welcome-keyboard-layout"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testEventDetailHeroReachesNavigationAndScrollShowsTruncatedTitleDivider() {
+        let app = launch(scenario: "invitee-home")
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+
+        let hero = app.images["event-detail-image-poker"]
+        let back = app.buttons["Back to Herd events"]
+        XCTAssertTrue(hero.waitForExistence(timeout: 10))
+        XCTAssertTrue(back.exists)
+        XCTAssertLessThanOrEqual(abs(hero.frame.minY - back.frame.minY), 32)
+        XCTAssertGreaterThanOrEqual(hero.frame.height, 315)
+        let expandedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        expandedScreenshot.name = "event-detail-hero-under-navigation"
+        expandedScreenshot.lifetime = .keepAlways
+        add(expandedScreenshot)
+
+        let detailScroll = app.scrollViews.firstMatch
+        detailScroll.swipeUp()
+        detailScroll.swipeUp()
+
+        let collapsedTitle = app.staticTexts["event-detail-collapsed-title"]
+        XCTAssertTrue(collapsedTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(collapsedTitle.label, "Private Picnic Invitation")
+        XCTAssertLessThan(collapsedTitle.frame.height, 30)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["event-detail-navigation-divider"].exists
+        )
+        let collapsedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        collapsedScreenshot.name = "event-detail-collapsed-navigation-title"
+        collapsedScreenshot.lifetime = .keepAlways
+        add(collapsedScreenshot)
+    }
+
+    func testReplyPreviewDismissesFromTheEdgeOfTheVisibleButton() {
+        let app = launch(scenario: "invitee-home")
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].waitForExistence(timeout: 10))
         let preview = app.buttons["reply-preview-trigger"]
         scrollToMakeHittable(preview, in: app.scrollViews.firstMatch)
         preview.tap()
@@ -529,20 +675,16 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["How your reply shows up to others"].exists)
     }
 
-    func testRepeatedLockedGuestStatusTapsCannotDismissAttendees() {
-        let app = launch(scenario: "invitation-account-switch")
+    func testLockedGuestStatusEyesShowAnchoredTooltipWithoutDismissingAttendees() {
+        let app = launch(scenario: "invitee-home")
 
-        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        signIn(app, phoneNumber: "4155550101")
-        XCTAssertTrue(
-            app.staticTexts["This invitation is for another account"]
-                .waitForExistence(timeout: 10)
-        )
-        app.buttons["switch-invitation-account"].tap()
         XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
         signIn(app, phoneNumber: "4155550102")
 
-        XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].waitForExistence(timeout: 10))
         let guestList = app.staticTexts["See the full guest list"]
         scrollToMakeHittable(guestList, in: app.scrollViews.firstMatch)
         guestList.tap()
@@ -552,21 +694,15 @@ final class HerdHostUITests: XCTestCase {
             NSPredicate(format: "label == %@", "Guest status hidden")
         )
         XCTAssertTrue(lockedStatuses.firstMatch.waitForExistence(timeout: 5))
-        let tapPoints = lockedStatuses.allElementsBoundByIndex
-            .filter(\.isHittable)
-            .prefix(5)
-            .map { $0.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)) }
-        XCTAssertGreaterThanOrEqual(tapPoints.count, 3)
-        for _ in 0..<4 {
-            for tapPoint in tapPoints {
-                tapPoint.tap()
-            }
-        }
+        lockedStatuses.firstMatch.tap()
 
         XCTAssertTrue(app.navigationBars["Attendees"].exists)
-        XCTAssertTrue(app.staticTexts["locked-guest-status-notice"].exists)
+        let tooltip = app.staticTexts["locked-guest-status-tooltip"]
+        XCTAssertTrue(tooltip.waitForExistence(timeout: 2))
+        XCTAssertEqual(tooltip.label, "Reply privately to see who has responded.")
+        XCTAssertLessThan(tooltip.frame.maxY, lockedStatuses.firstMatch.frame.minY)
         let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "Repeated locked status taps remain on attendees"
+        screenshot.name = "attendee-locked-status-tooltip"
         screenshot.lifetime = .keepAlways
         add(screenshot)
     }
@@ -583,38 +719,104 @@ final class HerdHostUITests: XCTestCase {
         guestList.tap()
 
         XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["You can see who has already responded."].exists)
         let responded = app.staticTexts.matching(
             NSPredicate(format: "label == %@", "Responded")
         )
+        XCTAssertEqual(responded.count, 0)
+        XCTAssertTrue(responded.element(boundBy: 1).waitForExistence(timeout: 5))
         XCTAssertEqual(responded.count, 2)
         XCTAssertTrue(app.staticTexts["Not responded"].exists)
     }
 
+    func testPrivacyProofKeepsSpacingWithoutTheEssentialsLabelAndCentersBoundaryIcon() {
+        let app = launch(scenario: "response-progress-refresh")
+
+        let event = app.staticTexts["Response Refresh Fixture"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        event.tap()
+
+        let proofLink = app.staticTexts["Prove it to me"]
+        scrollToMakeHittable(proofLink, in: app.scrollViews.firstMatch)
+        proofLink.tap()
+
+        XCTAssertTrue(app.staticTexts["How privacy works"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["The essentials"].exists)
+        XCTAssertTrue(app.staticTexts["privacy-answers-title"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["privacy-navigation-divider"].exists
+        )
+
+        let icon = app.images["privacy-flow-boundary-icon"]
+        let label = app.staticTexts["privacy-flow-boundary-label"]
+        XCTAssertTrue(icon.waitForExistence(timeout: 2))
+        XCTAssertTrue(label.waitForExistence(timeout: 2))
+        XCTAssertLessThan(abs(icon.frame.midY - label.frame.midY), 2)
+
+        let privacyScroll = app.scrollViews.firstMatch
+        privacyScroll.swipeUp()
+        privacyScroll.swipeUp()
+        XCTAssertTrue(app.navigationBars["How privacy works"].waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["privacy-navigation-divider"].exists
+        )
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "privacy-proof-collapsed-navigation"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testConfirmedAttendeeStatusesStayInsideTheirRows() {
+        let app = launch(scenario: "confirmed-attendees")
+
+        let event = app.staticTexts["Confirmed Attendee Layout"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        event.tap()
+
+        let guestList = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guestList, in: app.scrollViews.firstMatch)
+        guestList.tap()
+
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["This user has not responded to 0 of 0 confirmed events they were invited to."].exists)
+        XCTAssertTrue(app.staticTexts["No response"].exists)
+
+        let history = app.staticTexts[
+            "This user has not responded to 2 of 3 confirmed events they were invited to."
+        ]
+        XCTAssertTrue(history.waitForExistence(timeout: 2))
+        XCTAssertGreaterThanOrEqual(history.frame.minX, 0)
+        XCTAssertLessThanOrEqual(history.frame.maxX, app.frame.maxX - 20)
+        XCTAssertLessThanOrEqual(history.frame.height, 40)
+
+        for name in ["One Anderson", "Two Brown", "Three Davis"] {
+            let label = app.staticTexts[name]
+            XCTAssertTrue(label.exists)
+            XCTAssertGreaterThanOrEqual(label.frame.minX, 20)
+        }
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "confirmed-attendee-status-layout"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     func testAccountWideReplyNeverPresentsDeviceTransfer() {
-        let app = launch(scenario: "invitation-account-switch")
+        let app = launch(scenario: "invitee-home")
 
         XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
-        signIn(app, phoneNumber: "4155550101")
-        XCTAssertTrue(
-            app.staticTexts["This invitation is for another account"]
-                .waitForExistence(timeout: 10)
-        )
-        app.buttons["switch-invitation-account"].tap()
-        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
-        XCTAssertFalse(
-            app.staticTexts["Your invitation is ready and will open after you sign in."].exists
-        )
         signIn(app, phoneNumber: "4155550102")
 
-        XCTAssertTrue(app.staticTexts["Private Picnic Invitation"].waitForExistence(timeout: 10))
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].waitForExistence(timeout: 10))
         let cantCommit = app.buttons["Can’t commit"]
         scrollToMakeHittable(cantCommit, in: app.scrollViews.firstMatch)
         cantCommit.tap()
 
-        let submit = app.buttons["Send my private reply"]
+        let submit = app.buttons["reply-submit"]
         scrollToMakeHittable(submit, in: app.scrollViews.firstMatch)
         submit.tap()
 
@@ -624,6 +826,65 @@ final class HerdHostUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["device-switch-action"].exists)
         XCTAssertFalse(app.navigationBars["Confirm your phone number"].exists)
+    }
+
+    func testInvitationDetailSupportsPullToRefresh() {
+        let app = launch(scenario: "invitee-home")
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].waitForExistence(timeout: 10))
+
+        let detailScroll = app.scrollViews["invitation-detail-scroll"]
+        XCTAssertTrue(detailScroll.waitForExistence(timeout: 5))
+        detailScroll.swipeDown()
+
+        XCTAssertTrue(app.staticTexts["Opened only after the invitation account matches."].exists)
+        XCTAssertTrue(app.buttons["Back to Herd events"].exists)
+    }
+
+    func testResponseSuccessSwitchesBetweenEqualOutcomeCards() {
+        let app = launch(
+            scenario: "invitee-home",
+            additionalArguments: ["--open-response-success"]
+        )
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+
+        XCTAssertTrue(app.staticTexts["Thanks for responding"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Your latest reply is saved."].exists)
+        XCTAssertTrue(app.staticTexts["This is how your reply will appear to others."].exists)
+
+        let preview = app.otherElements["success-outcome-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Correct Invitee"].exists)
+        XCTAssertTrue(app.staticTexts["Going"].exists)
+        XCTAssertFalse(app.staticTexts["This event was not confirmed"].exists)
+        let confirmedHeight = preview.frame.height
+
+        let confirmedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        confirmedScreenshot.name = "response-success-confirmed-outcome"
+        confirmedScreenshot.lifetime = .keepAlways
+        add(confirmedScreenshot)
+
+        app.buttons["Event not confirmed"].tap()
+        XCTAssertTrue(app.staticTexts["This event was not confirmed"].waitForExistence(timeout: 3))
+        XCTAssertEqual(preview.frame.height, confirmedHeight, accuracy: 1)
+        XCTAssertFalse(app.staticTexts["Correct Invitee"].exists)
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "response-success-outcome-toggle"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     private func launch(
@@ -713,7 +974,7 @@ final class HerdHostUITests: XCTestCase {
             scrollView.swipeDown()
         }
         var attempts = 0
-        while (!element.exists || !element.isHittable), attempts < 8 {
+        while (!element.exists || !element.isHittable), attempts < 16 {
             scrollView.swipeUp()
             attempts += 1
         }
@@ -724,7 +985,7 @@ final class HerdHostUITests: XCTestCase {
     private func scrollToMakeHittable(_ element: XCUIElement, in scrollView: XCUIElement) {
         XCTAssertTrue(scrollView.waitForExistence(timeout: 5))
         var attempts = 0
-        while (!element.exists || !element.isHittable), attempts < 8 {
+        while (!element.exists || !element.isHittable), attempts < 16 {
             scrollView.swipeUp()
             attempts += 1
         }

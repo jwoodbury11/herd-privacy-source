@@ -11,14 +11,14 @@ struct HerdUITestEnvironment {
         case hostCreate = "host-create"
         case hostEdit = "host-edit"
         case hostDelete = "host-delete"
-        case invitationAccountSwitch = "invitation-account-switch"
+        case inviteeHome = "invitee-home"
         case responseProgressRefresh = "response-progress-refresh"
+        case confirmedAttendees = "confirmed-attendees"
     }
 
     static let fixtureOrigin = URL(string: "https://herd-ui-testing.invalid")!
     static let invitationToken = "ui-invitation-token-123"
-    static let correctInvitePhoneNumber = "+14155550102"
-    static let wrongInvitePhoneNumber = "+14155550101"
+    static let inviteePhoneNumber = "+14155550102"
     static let resultSigningKeyID = "herd-ui-result-signing-v1"
     static let resultSigningPrivateKey = "8cux37M5HcHj1MxyOu6VwFnVzXhLCaISDdqAl_CDsIo"
     static let resultSigningPublicKey =
@@ -38,7 +38,7 @@ struct HerdUITestEnvironment {
 
     var startsWithAuthenticatedHost: Bool {
         scenario == .hostCreate || scenario == .hostEdit || scenario == .hostDelete ||
-            scenario == .responseProgressRefresh
+            scenario == .responseProgressRefresh || scenario == .confirmedAttendees
     }
 
     var prefilledCreateEvent: HerdEvent? {
@@ -49,18 +49,15 @@ struct HerdUITestEnvironment {
         )
     }
 
-    var pendingInvitationURL: URL? {
-        guard scenario == .invitationAccountSwitch else { return nil }
-        return Self.fixtureOrigin.appending(path: "invite/\(Self.invitationToken)")
-    }
-
-    var sessionStore: KeychainSessionStore {
-        KeychainSessionStore(service: "com.herd.ui-tests.auth.\(scenario.rawValue)")
-    }
-
-    var pendingInvitationStore: PendingInvitationKeychainStore {
-        PendingInvitationKeychainStore(
-            service: "com.herd.ui-tests.invitation.\(scenario.rawValue)"
+    func makeSessionStore() -> any SessionStoring {
+        HerdUITestSessionStore(
+            session: startsWithAuthenticatedHost
+                ? AuthSession(
+                    user: Self.hostUser,
+                    accessToken: HerdUITestURLProtocol.hostAccessToken,
+                    expiresAt: .now.addingTimeInterval(86_400)
+                )
+                : nil
         )
     }
 
@@ -78,17 +75,6 @@ struct HerdUITestEnvironment {
 
         let suiteName = "com.herd.ui-tests.defaults.\(scenario.rawValue)"
         defaults.removePersistentDomain(forName: suiteName)
-        try? sessionStore.delete()
-        try? pendingInvitationStore.delete()
-
-        guard startsWithAuthenticatedHost else { return }
-        try? sessionStore.save(
-            AuthSession(
-                user: Self.hostUser,
-                accessToken: HerdUITestURLProtocol.hostAccessToken,
-                expiresAt: .now.addingTimeInterval(86_400)
-            )
-        )
     }
 
     func makeAPIClient() -> APIClient {
@@ -149,24 +135,44 @@ struct HerdUITestEnvironment {
     }
 }
 
+private final class HerdUITestSessionStore: SessionStoring {
+    private var session: AuthSession?
+
+    init(session: AuthSession?) {
+        self.session = session
+    }
+
+    func load() throws -> AuthSession? {
+        session
+    }
+
+    func save(_ session: AuthSession) throws {
+        self.session = session
+    }
+
+    func delete() throws {
+        session = nil
+    }
+}
+
 private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
     static let hostAccessToken = "ui-host-access-token"
 
     private static let lock = NSLock()
     private static var scenario: HerdUITestEnvironment.Scenario = .hostCreate
     private static var events: [[String: Any]] = []
-    private static var invitationSignInCount = 0
     private static var eventsReadCount = 0
 
     static func reset(to scenario: HerdUITestEnvironment.Scenario) {
         lock.lock()
         defer { lock.unlock() }
         self.scenario = scenario
-        invitationSignInCount = 0
         eventsReadCount = 0
         switch scenario {
-        case .hostCreate, .invitationAccountSwitch:
+        case .hostCreate:
             events = []
+        case .inviteeHome:
+            events = [invitationEventDictionary()]
         case .hostEdit:
             events = [hostEventDictionary(
                 HerdUITestEnvironment.hostDraft(
@@ -224,6 +230,59 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             event["privateResponsePolicy"] = frozenPolicyDictionary()
             event["resolution"] = ["status": "pending", "retrying": false]
             events = [event]
+        case .confirmedAttendees:
+            var saved = HerdUITestEnvironment.hostDraft(
+                id: UUID(uuidString: "20000000-0000-0000-0000-000000000005")!,
+                title: "Confirmed Attendee Layout"
+            )
+            let goingID = UUID(uuidString: "50000000-0000-0000-0000-000000000021")!
+            let noHistoryID = UUID(uuidString: "50000000-0000-0000-0000-000000000022")!
+            let historyID = UUID(uuidString: "50000000-0000-0000-0000-000000000023")!
+            saved.invitees = [
+                Invitee(
+                    id: goingID,
+                    displayName: "One Anderson",
+                    phoneNumber: "+14155550121"
+                ),
+                Invitee(
+                    id: noHistoryID,
+                    displayName: "Two Brown",
+                    phoneNumber: "+14155550122",
+                    responseHistory: .init(missedConfirmedEvents: 0, totalConfirmedEvents: 0)
+                ),
+                Invitee(
+                    id: historyID,
+                    displayName: "Three Davis",
+                    phoneNumber: "+14155550123",
+                    responseHistory: .init(missedConfirmedEvents: 2, totalConfirmedEvents: 3)
+                ),
+            ]
+            saved.invitationsSent = true
+            saved.rsvpDeadline = .now.addingTimeInterval(-86_400)
+            saved.resolution = EventResolution(
+                status: .confirmed,
+                attendingMemberIds: ["host", goingID.uuidString.lowercased()],
+                attendanceRevealed: true,
+                guestStates: [
+                    RevealedGuestState(
+                        memberId: goingID.uuidString.lowercased(),
+                        status: .going,
+                        missedDeadline: false
+                    ),
+                    RevealedGuestState(
+                        memberId: noHistoryID.uuidString.lowercased(),
+                        status: .noResponse,
+                        missedDeadline: true
+                    ),
+                    RevealedGuestState(
+                        memberId: historyID.uuidString.lowercased(),
+                        status: .noResponse,
+                        missedDeadline: true
+                    ),
+                ],
+                resolvedAt: .now
+            )
+            events = [hostEventDictionary(saved)]
         }
     }
 
@@ -321,7 +380,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         if method == "GET", path == "/api/events" {
             eventsReadCount += 1
             if scenario == .responseProgressRefresh {
-                if eventsReadCount >= 2,
+                if eventsReadCount >= 6,
                    var event = events.first,
                    var invitees = event["invitees"] as? [[String: Any]] {
                     invitees[0]["hasResponded"] = true
@@ -379,7 +438,21 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                         title: "Edited Fixture Draft"
                     )
                 )
-            case .hostDelete, .invitationAccountSwitch, .responseProgressRefresh:
+            case .hostDelete:
+                guard
+                    path == "/api/events/20000000-0000-0000-0000-000000000003",
+                    let body,
+                    var submitted = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+                    let stored = events.first
+                else {
+                    return (404, ["error": "Unexpected confirmed event edit"])
+                }
+                submitted["role"] = "host"
+                submitted["privateResponsePolicy"] = stored["privateResponsePolicy"]
+                submitted["resolution"] = stored["resolution"]
+                submitted["invitationDelivery"] = stored["invitationDelivery"]
+                event = submitted
+            case .inviteeHome, .responseProgressRefresh, .confirmedAttendees:
                 return (400, ["error": "Invitation fixtures cannot edit events"])
             }
             upsert(event)
@@ -401,23 +474,23 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         if method == "POST", path == "/api/auth/request-code" {
-            guard scenario == .invitationAccountSwitch else {
+            guard scenario == .inviteeHome else {
                 return (400, ["error": "Unexpected fixture sign-in"])
             }
-            invitationSignInCount += 1
-            let isCorrect = invitationSignInCount > 1
-            let phoneNumber = isCorrect
-                ? HerdUITestEnvironment.correctInvitePhoneNumber
-                : HerdUITestEnvironment.wrongInvitePhoneNumber
+            let requestedPhone = body
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["phoneNumber"] as? String
+            guard requestedPhone == HerdUITestEnvironment.inviteePhoneNumber else {
+                return (400, ["error": "Unexpected fixture phone number"])
+            }
             let user = HerdUser(
-                id: isCorrect ? "ui-correct-invite-account" : "ui-wrong-invite-account",
-                phoneNumber: phoneNumber,
-                name: isCorrect ? "Correct Invitee" : "Wrong Invitee",
+                id: "ui-invitee-account",
+                phoneNumber: HerdUITestEnvironment.inviteePhoneNumber,
+                name: "Invitee",
                 address: ""
             )
             return (200, sessionDictionary(
                 user: user,
-                accessToken: isCorrect ? "ui-correct-invite-token" : "ui-wrong-invite-token"
+                accessToken: "ui-invitee-access-token"
             ))
         }
 
@@ -426,7 +499,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         if method == "GET", path == "/api/invites/\(HerdUITestEnvironment.invitationToken)" {
-            guard authorization == "Bearer ui-correct-invite-token" else {
+            guard authorization == "Bearer ui-invitee-access-token" else {
                 return (403, [
                     "error": [
                         "code": "invite_for_different_account",
@@ -560,7 +633,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             [
                 "id": inviteeID,
                 "displayName": "Correct Invitee",
-                "phoneNumber": HerdUITestEnvironment.correctInvitePhoneNumber,
+                "phoneNumber": HerdUITestEnvironment.inviteePhoneNumber,
                 "isCurrentUser": true,
             ],
             [
@@ -638,18 +711,11 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
 
     private static func userDictionary(for authorization: String?) -> [String: Any] {
         switch authorization {
-        case "Bearer ui-correct-invite-token":
+        case "Bearer ui-invitee-access-token":
             return [
-                "id": "ui-correct-invite-account",
-                "phoneNumber": HerdUITestEnvironment.correctInvitePhoneNumber,
-                "name": "Correct Invitee",
-                "address": "",
-            ]
-        case "Bearer ui-wrong-invite-token":
-            return [
-                "id": "ui-wrong-invite-account",
-                "phoneNumber": HerdUITestEnvironment.wrongInvitePhoneNumber,
-                "name": "Wrong Invitee",
+                "id": "ui-invitee-account",
+                "phoneNumber": HerdUITestEnvironment.inviteePhoneNumber,
+                "name": "Invitee",
                 "address": "",
             ]
         default:

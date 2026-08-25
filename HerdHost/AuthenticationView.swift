@@ -4,12 +4,10 @@ struct AuthenticationView: View {
     private static let verificationCodeLength = 4
 
     @Environment(AuthStore.self) private var authStore
-    @Environment(InvitationCoordinator.self) private var invitationCoordinator
     @State private var phoneNumber = ""
     @State private var code = ""
     @State private var automaticallySubmittedPhoneNumber: String?
     @State private var automaticallySubmittedCode: String?
-    @State private var showsReleaseStatus = false
     @State private var currentTime = Date.now
     @FocusState private var focusedField: Field?
 
@@ -29,14 +27,6 @@ struct AuthenticationView: View {
             }
         }
         .herdCanvasBehindSystemUI()
-        .alert(
-            experience.releaseStatus.heading,
-            isPresented: $showsReleaseStatus
-        ) {
-            Button(experience.releaseStatus.dismissButton, role: .cancel) {}
-        } message: {
-            Text(experience.releaseStatus.body)
-        }
         .onAppear {
             focusedField = authStore.challenge == nil ? .phone : .code
         }
@@ -60,23 +50,34 @@ struct AuthenticationView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    brand
+                    Image("HerdWelcomeSplash")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .frame(
+                            height: min(
+                                max(geometry.size.height * 0.30, 165),
+                                220
+                            )
+                        )
+                        .padding(.top, 4)
+                        .accessibilityHidden(true)
 
                     VStack(alignment: .leading, spacing: 7) {
                         Text(experience.welcome.title)
-                            .font(.system(size: 42, weight: .bold))
-                            .tracking(-1.4)
+                            .font(.system(size: 33, weight: .bold))
+                            .tracking(-1.2)
                             .lineSpacing(-2)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
 
                         Text(experience.welcome.body)
-                            .font(.title3)
+                            .font(.system(size: 16))
                             .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 4)
-                    .padding(.top, experience.layout.welcomeTopSpacing)
-                    .padding(.bottom, 24)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
 
                     phoneEntry
 
@@ -85,102 +86,66 @@ struct AuthenticationView: View {
                             .padding(.top, 12)
                             .padding(.horizontal, 4)
                     }
-
-                    Spacer(minLength: 28)
-
-                    welcomeAction
                 }
                 .frame(maxWidth: 520)
-                .frame(
-                    maxWidth: .infinity,
-                    minHeight: geometry.size.height,
-                    alignment: .top
-                )
+                .frame(maxWidth: .infinity, alignment: .top)
                 .padding(.horizontal, experience.layout.horizontalPadding)
-                .padding(.top, experience.layout.topPadding)
-                .padding(.bottom, 18)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
             }
             .scrollDismissesKeyboard(.interactively)
-        }
-    }
-
-    private var brand: some View {
-        HStack(spacing: 10) {
-            HerdBrandMark()
-
-            Text(experience.brandName)
-                .font(.system(size: 18, weight: .bold))
-                .tracking(-0.3)
-
-            Spacer(minLength: 12)
-
-            Button {
-                showsReleaseStatus = true
-            } label: {
-                Label(experience.releaseStatus.label, systemImage: "hammer.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(HerdTheme.surface, in: .capsule)
-                    .overlay {
-                        Capsule()
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                    }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                welcomeAction
+                    .frame(maxWidth: 520)
+                    .padding(.horizontal, experience.layout.horizontalPadding)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .background(HerdTheme.canvas)
             }
-            .buttonStyle(PlainPressButtonStyle())
         }
     }
 
     private var phoneEntry: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(experience.welcome.phoneLabel)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 3)
-
-            TextField(experience.welcome.phonePlaceholder, text: $phoneNumber)
-                .keyboardType(.phonePad)
-                .textContentType(.telephoneNumber)
-                .focused($focusedField, equals: .phone)
-                .font(.body)
-                .padding(.horizontal, 16)
-                .frame(minHeight: experience.layout.fieldHeight)
-                .background(
-                    HerdTheme.surface,
-                    in: .rect(cornerRadius: experience.layout.fieldCornerRadius)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: experience.layout.fieldCornerRadius)
-                        .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+        TextField(experience.welcome.phonePlaceholder, text: $phoneNumber)
+            .keyboardType(.phonePad)
+            .textContentType(.telephoneNumber)
+            .focused($focusedField, equals: .phone)
+            .font(.body)
+            .padding(.horizontal, 16)
+            .frame(minHeight: experience.layout.fieldHeight)
+            .background(
+                HerdTheme.surface,
+                in: .rect(cornerRadius: experience.layout.fieldCornerRadius)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: experience.layout.fieldCornerRadius)
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+            }
+            .onChange(of: phoneNumber) { previousValue, value in
+                let formatted = Self.formattedPhoneNumber(value)
+                if formatted != value {
+                    phoneNumber = formatted
                 }
-                .onChange(of: phoneNumber) { previousValue, value in
-                    let formatted = Self.formattedPhoneNumber(value)
-                    if formatted != value {
-                        phoneNumber = formatted
-                    }
-                    authStore.clearError()
+                authStore.clearError()
 
-                    if
-                        Self.shouldAutomaticallySubmitPhoneNumber(
-                            previousValue: previousValue,
-                            newValue: value
-                        ),
-                        automaticallySubmittedPhoneNumber != formatted,
-                        !authStore.isBusy
-                    {
-                        automaticallySubmittedPhoneNumber = formatted
-                        requestVerificationCode(for: formatted)
-                    }
+                if
+                    Self.shouldAutomaticallySubmitPhoneNumber(
+                        previousValue: previousValue,
+                        newValue: value
+                    ),
+                    automaticallySubmittedPhoneNumber != formatted,
+                    !authStore.isBusy
+                {
+                    automaticallySubmittedPhoneNumber = formatted
+                    requestVerificationCode(for: formatted)
                 }
-                .accessibilityIdentifier("authentication-phone")
-        }
+            }
+            .accessibilityLabel(experience.welcome.phoneLabel)
+            .accessibilityIdentifier("authentication-phone")
     }
 
     private var welcomeAction: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             Button {
                 requestVerificationCode(for: phoneNumber)
             } label: {
@@ -225,11 +190,13 @@ struct AuthenticationView: View {
 
     private var legalFootnote: some View {
         Text(legalAttributedString)
-            .font(.system(size: 10))
+            .font(.system(size: 9.5))
             .foregroundStyle(Color(uiColor: .tertiaryLabel))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
+            .fixedSize(horizontal: false, vertical: true)
             .tint(.secondary)
+            .accessibilityIdentifier("authentication-legal")
     }
 
     private var legalAttributedString: AttributedString {
@@ -534,10 +501,7 @@ struct AuthenticationView: View {
 
         focusedField = nil
         Task {
-            _ = await authStore.requestCode(
-                phoneNumber: candidate,
-                inviteToken: invitationCoordinator.pendingToken
-            )
+            _ = await authStore.requestCode(phoneNumber: candidate)
         }
     }
 
@@ -560,36 +524,5 @@ struct AuthenticationView: View {
         let digits = value.filter(\.isWholeNumber)
         let suffix = String(digits.suffix(4))
         return "••• ••• \(String(repeating: "•", count: max(0, 4 - suffix.count)))\(suffix)"
-    }
-}
-
-private struct HerdBrandMark: View {
-    private let ivory = Color(red: 0.98, green: 0.97, blue: 0.93)
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 9)
-                .fill(Color.black)
-
-            Capsule()
-                .fill(ivory)
-                .frame(width: 17, height: 4)
-
-            ForEach([-1.0, 1.0], id: \.self) { column in
-                Capsule()
-                    .fill(ivory)
-                    .frame(width: 5, height: 11)
-                    .offset(x: column * 6.5)
-
-                ForEach([-1.0, 1.0], id: \.self) { row in
-                    Circle()
-                        .fill(ivory)
-                        .frame(width: 5.5, height: 5.5)
-                        .offset(x: column * 6.5, y: row * 9)
-                }
-            }
-        }
-        .frame(width: 36, height: 36)
-        .accessibilityHidden(true)
     }
 }

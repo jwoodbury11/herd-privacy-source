@@ -226,6 +226,17 @@ final class PrivateResponseInteropTests: XCTestCase {
 }
 
 final class HerdHostBusinessRuleTests: XCTestCase {
+    func testEventImageSelectionAlwaysHasPokerFallback() {
+        var draft = HerdEvent.newDraft()
+        XCTAssertEqual(draft.eventImageID, .poker)
+
+        draft.eventImageID = nil
+        XCTAssertEqual(draft.resolvedEventImageID, .poker)
+        draft.ensureEventImageSelection()
+        XCTAssertEqual(draft.eventImageID, .poker)
+        XCTAssertEqual(EventImageID.clubDancing.label, "Club")
+    }
+
     func testRequiredAttendeeNamesUseFirstNameAndUppercaseLastInitial() {
         XCTAssertEqual(RequiredAttendeeName.shortened("Grant Bernero"), "Grant B")
         XCTAssertEqual(RequiredAttendeeName.shortened("  Ella   herdTestUser  "), "Ella H")

@@ -3285,11 +3285,7 @@ test(
         miniflare,
         `/api/invites/${event.inviteToken}`,
       );
-      assert.equal(publicOpen.status, 200);
-      const publicProjection = await publicOpen.json();
-      assert.equal(publicProjection.invitationPreview.eventId, eventId);
-      assert.equal(publicProjection.invitationPreview.requiresAuthentication, true);
-      assert.equal(Object.hasOwn(publicProjection, "event"), false);
+      assert.equal(publicOpen.status, 401);
 
       const authenticatedOpen = await api(
         miniflare,

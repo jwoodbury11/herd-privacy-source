@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, Construction, ContactRound, Crown, Eye, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
+import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, ContactRound, Crown, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { herdExperience } from "@/lib/experience";
 import { relayHostEventEvaluation } from "@/lib/client/evaluation-relay";
@@ -18,6 +18,7 @@ import type {
 } from "@/lib/privacy/protocol";
 import { reportClientSignal, trackedFetch } from "@/lib/client/telemetry";
 import { requiredAttendeeName } from "@/lib/client/display-names.mjs";
+import { eventImagePath, type EventImageID } from "@/lib/event-images";
 
 const OTP_LENGTH = 4;
 const AUTH_EXPERIENCE = herdExperience.authentication;
@@ -191,6 +192,7 @@ export type ApiEvent = {
   requiredGroups: ApiRequiredGroup[];
   rsvpDeadline: string | null;
   eventDescription: string;
+  eventImageID?: EventImageID;
   createdAt: string;
   invitationsSent: boolean;
   role?: "host" | "invitee";
@@ -308,15 +310,6 @@ type AuthSession = {
   expiresAt: string;
 };
 
-type InvitationPreview = {
-  eventId: string;
-  title: string;
-  hostName: string;
-  eventDate: string | null;
-  phoneNumberMasked: string;
-  requiresAuthentication: true;
-};
-
 function initialsTone(index: number) {
   return `avatar-tone-${(index % 5) + 1}`;
 }
@@ -373,26 +366,35 @@ function ReplyVisibilityPreview({
   status,
   isConfirmed = false,
   confirmedBody,
+  outcome,
 }: {
   displayName: string;
   status: string;
   isConfirmed?: boolean;
   confirmedBody?: string;
+  outcome?: "both" | "confirmed" | "not-confirmed";
 }) {
+  const previewOutcome = outcome ?? (isConfirmed ? "confirmed" : "both");
   return (
     <div className="reply-visibility-preview">
-      {!isConfirmed ? <p className="reply-preview-label">{REPLY_EXPERIENCE.confirmedPreviewLabel}</p> : null}
-      <div className="people-list reply-preview-person">
-        <div className="person-row">
-          <span className="avatar avatar-tone-1">{personInitials(displayName)}</span>
-          <strong>{displayName}</strong>
-          <span className="person-status">{status}</span>
-        </div>
-      </div>
-      <p className="reply-preview-note">{confirmedBody ?? REPLY_EXPERIENCE.confirmedPreviewBody}</p>
-      {!isConfirmed ? (
+      {previewOutcome === "both" ? <p className="reply-preview-label">{REPLY_EXPERIENCE.confirmedPreviewLabel}</p> : null}
+      {previewOutcome !== "not-confirmed" ? (
         <>
-          <p className="reply-preview-label">{REPLY_EXPERIENCE.notConfirmedPreviewLabel}</p>
+          <div className="people-list reply-preview-person">
+            <div className="person-row">
+              <span className="avatar avatar-tone-1">{personInitials(displayName)}</span>
+              <strong>{displayName}</strong>
+              <span className="person-status">{status}</span>
+            </div>
+          </div>
+          <p className="reply-preview-note">{confirmedBody ?? REPLY_EXPERIENCE.confirmedPreviewBody}</p>
+        </>
+      ) : null}
+      {previewOutcome !== "confirmed" ? (
+        <>
+          {previewOutcome === "both" ? (
+            <p className="reply-preview-label">{REPLY_EXPERIENCE.notConfirmedPreviewLabel}</p>
+          ) : null}
           <div className="reply-preview-hidden">
             <EyeOff size={18} aria-hidden="true" />
             <strong>{REPLY_EXPERIENCE.notConfirmedPreviewTitle}</strong>
@@ -739,12 +741,12 @@ function attendeeStatusLabel(
       ? "Going"
       : state.status === "cant_commit"
         ? "Can’t commit"
-        : person.responseHistory
+        : person.responseHistory && person.responseHistory.totalConfirmedEvents > 0
           ? noReplyHistoryLabel(
               person.responseHistory.missedConfirmedEvents,
               person.responseHistory.totalConfirmedEvents,
             )
-          : "This user did not respond by the deadline.";
+          : "No response";
     return state.missedDeadline && state.status !== "no_response"
       ? `${label} · replied late`
       : label;
@@ -835,22 +837,6 @@ function AppHeader({
   );
 }
 
-function BrandMark() {
-  return (
-    <div className="brand-lockup" aria-label={AUTH_EXPERIENCE.brandName}>
-      <Image
-        src="/herd-icon.png"
-        alt=""
-        width={36}
-        height={36}
-        priority
-        unoptimized
-      />
-      <span>{AUTH_EXPERIENCE.brandName}</span>
-    </div>
-  );
-}
-
 function AvatarStack({ hostName, invitees }: { hostName: string; invitees: ApiInvitee[] }) {
   const participantCount = invitees.length + 1;
   return (
@@ -919,10 +905,6 @@ function respondedParticipantCount(event: Pick<ApiEvent, "invitees">) {
   return event.invitees.filter(({ hasResponded }) => hasResponded).length + 1;
 }
 
-function peopleCountLabel(count: number) {
-  return `${count} ${count === 1 ? "person" : "people"}`;
-}
-
 function eventLocationClipboardText(event: ApiEvent) {
   const address = event.locationAddress.trim();
   if (address) return address;
@@ -983,18 +965,21 @@ function EventCard({
         aria-label={`Open ${event.title || "event"}`}
       ></button>
       <div className="card-topline">
-        <h2>{event.title || HOME_EXPERIENCE.untitledEvent}</h2>
-        <span className="status-pill">
-          {eventStatusLabel(event)}
-        </span>
+        <div className="event-card-copy">
+          <span className="status-pill">
+            {eventStatusLabel(event)}
+          </span>
+          <h2>{event.title || HOME_EXPERIENCE.untitledEvent}</h2>
+          <p className="card-date">{formatCardDate(event.eventDate)}</p>
+        </div>
+        <Image
+          className="event-card-image"
+          src={eventImagePath(event.eventImageID)}
+          alt=""
+          width={224}
+          height={224}
+        />
       </div>
-      <p className="card-date">{formatCardDate(event.eventDate)}</p>
-      {eventLocationDisplay(event).primary ? (
-        <p className="location-line">
-          <MapPin className="location-icon" size={16} strokeWidth={1.8} aria-hidden="true" />
-          {eventLocationDisplay(event).primary}
-        </p>
-      ) : null}
       <div className="metric-row">
         <Metric value={String(participantCount(event))} label={HOME_EXPERIENCE.metrics.invited} />
         <Metric value={String(event.minimumParticipants)} label={HOME_EXPERIENCE.metrics.minimum} />
@@ -1004,13 +989,14 @@ function EventCard({
   );
 }
 
-export function HerdApp({ inviteToken }: { inviteToken?: string }) {
+export function HerdApp() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [otp, setOtp] = useState("");
   const [otpError, setOtpError] = useState("");
   const [resendSeconds, setResendSeconds] = useState(0);
   const [resendNotice, setResendNotice] = useState("");
   const [reply, setReply] = useState<Reply>(null);
+  const [successPreviewOutcome, setSuccessPreviewOutcome] = useState<"confirmed" | "not-confirmed">("confirmed");
   const [savedReplyFingerprint, setSavedReplyFingerprint] = useState<string | null>(null);
   const [events, setEvents] = useState<ApiEvent[]>([]);
   const [lastEventsUpdatedAt, setLastEventsUpdatedAt] = useState<number | null>(null);
@@ -1019,11 +1005,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [statusCheckedAt, setStatusCheckedAt] = useState<number | null>(null);
   const [homeRefreshError, setHomeRefreshError] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<ApiEvent | null>(null);
-  const [invitationPreview, setInvitationPreview] = useState<InvitationPreview | null>(null);
-  const [invitePreviewPending, setInvitePreviewPending] = useState(Boolean(inviteToken));
-  const [invitePreviewError, setInvitePreviewError] = useState("");
-  const [invitePreviewRefresh, setInvitePreviewRefresh] = useState(0);
-  const [inviteAccountMismatch, setInviteAccountMismatch] = useState(false);
   const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
   const [authPending, setAuthPending] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -1038,7 +1019,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [address, setAddress] = useState("");
   const [addressUnit, setAddressUnit] = useState("");
-  const [releaseStatusOpen, setReleaseStatusOpen] = useState(false);
   const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const [profileDiscardConfirmationOpen, setProfileDiscardConfirmationOpen] = useState(false);
   const [accountDeletionOpen, setAccountDeletionOpen] = useState(false);
@@ -1052,7 +1032,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const [eventDeletionPending, setEventDeletionPending] = useState(false);
   const [guestPermissionError, setGuestPermissionError] = useState("");
   const [guestPermissionPending, setGuestPermissionPending] = useState(false);
-  const [guestDrafts, setGuestDrafts] = useState<GuestDraft[]>([]);
+  const [guestDraft, setGuestDraft] = useState<GuestDraft | null>(null);
   const [guestAdditionError, setGuestAdditionError] = useState("");
   const [guestAdditionPending, setGuestAdditionPending] = useState(false);
   const [minimum, setMinimum] = useState(4);
@@ -1076,8 +1056,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   const eventActionsRef = useRef<HTMLDetailsElement | null>(null);
   const hostDownloadTriggerRef = useRef<HTMLButtonElement | null>(null);
   const hostDownloadHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const releaseStatusTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const releaseStatusCloseRef = useRef<HTMLButtonElement | null>(null);
   const privacyTriggerRef = useRef<HTMLButtonElement | null>(null);
   const privacyHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const restorePrivacyTriggerFocusRef = useRef(false);
@@ -1105,7 +1083,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setEventDeletionPending(false);
     setGuestPermissionError("");
     setGuestPermissionPending(false);
-    setGuestDrafts([]);
+    setGuestDraft(null);
     setGuestAdditionError("");
     setGuestAdditionPending(false);
     setAccountDeletionChallenge(null);
@@ -1119,11 +1097,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     setCurrentUser(null);
     setInviteMetadata(null);
     setPrivateResponseState("idle");
-    setInvitationPreview(null);
-    setInvitePreviewPending(Boolean(inviteToken));
-    setInvitePreviewError("");
-    setInviteAccountMismatch(false);
-    setInvitePreviewRefresh((value) => value + 1);
     setProfileName("");
     setPhoneNumber("");
     setAddress("");
@@ -1140,7 +1113,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       addressCopiedNoticeTimerRef.current = null;
     }
     setScreen("welcome");
-  }, [inviteToken]);
+  }, []);
   const recoverExpiredSession = useCallback(() => {
     resetAuthenticatedExperience();
     setAuthError("Your session expired. Sign in again to continue.");
@@ -1290,7 +1263,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       void refreshHomeEvents();
     };
     refreshOpenEvent();
-    const timer = window.setInterval(refreshOpenEvent, 15_000);
+    const timer = window.setInterval(refreshOpenEvent, 2_000);
     document.addEventListener("visibilitychange", refreshOpenEvent);
     return () => {
       window.clearInterval(timer);
@@ -1356,61 +1329,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         resolutionRefreshInFlightRef.current = false;
       }
     })();
-  }, [events, inviteToken, markEventsUpdated, now, recoverExpiredSession, resolutionRefreshTarget, screen]);
-
-  useEffect(() => {
-    if (!inviteToken) return;
-    let cancelled = false;
-    void (async () => {
-      setInvitePreviewPending(true);
-      setInvitePreviewError("");
-      try {
-        const response = await trackedFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, {
-          credentials: "include",
-        });
-        if (!response.ok) {
-          const error = await responseErrorDetails(
-            response,
-            "This invitation could not be loaded.",
-          );
-          if (error.code === "invite_for_different_account") {
-            setInviteAccountMismatch(true);
-          }
-          throw new Error(error.message);
-        }
-        const body = await response.json() as {
-          invitationPreview?: InvitationPreview;
-          event?: ApiEvent;
-          inviteMetadata?: InviteMetadata;
-        };
-        if (cancelled) return;
-        if (body.invitationPreview) {
-          setInviteAccountMismatch(false);
-          setInvitationPreview(body.invitationPreview);
-          return;
-        }
-        if (body.event) {
-          const event = await verifiedApiEvent(body.event);
-          setInviteAccountMismatch(false);
-          setSelectedEvent(event);
-          setMinimum(event.minimumParticipants);
-          setReply(null);
-          setConditionGroups([]);
-          setInviteMetadata(body.inviteMetadata ?? null);
-          setEvents((current) => upsertHomeEvent(current, event));
-          return;
-        }
-        throw new Error("This invitation could not be loaded.");
-      } catch (error) {
-        if (!cancelled) {
-          setInvitePreviewError(error instanceof Error ? error.message : "This invitation could not be loaded.");
-        }
-      } finally {
-        if (!cancelled) setInvitePreviewPending(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [invitePreviewRefresh, inviteToken]);
+  }, [events, markEventsUpdated, now, recoverExpiredSession, resolutionRefreshTarget, screen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1422,8 +1341,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         const body = await response.json() as { user: ApiUser; accountKeyEpochId?: string };
         if (cancelled) return;
         applyUser(body.user);
-        const openedInvitation = await loadAuthenticatedData();
-        if (!cancelled) setScreen(openedInvitation ? "event" : "home");
+        await loadAuthenticatedData();
+        if (!cancelled) setScreen("home");
       } catch (error) {
         if (!cancelled) setAuthError(error instanceof Error ? error.message : "Couldn’t restore your session.");
       }
@@ -1445,7 +1364,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       setReplyError("");
       setPrivateResponseState("loading");
       try {
-        const token = selectedEvent.inviteToken ?? inviteToken;
+        const token = selectedEvent.inviteToken;
         if (!token) throw new Error("This invitation does not have an active reply link yet.");
         const response = await trackedFetch(`/api/invites/${encodeURIComponent(token)}/ballot`, {
           credentials: "include",
@@ -1502,7 +1421,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   }, [
     currentUser,
     inviteMetadata?.canRespond,
-    inviteToken,
     selectedEvent?.id,
     selectedEvent?.inviteToken,
     selectedEvent?.minimumParticipants,
@@ -1539,19 +1457,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       window.requestAnimationFrame(() => privacyTriggerRef.current?.focus({ preventScroll: true }));
     }
   }, [screen]);
-
-  useEffect(() => {
-    if (!releaseStatusOpen) return;
-    window.requestAnimationFrame(() => releaseStatusCloseRef.current?.focus());
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setReleaseStatusOpen(false);
-      window.requestAnimationFrame(() => releaseStatusTriggerRef.current?.focus());
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [releaseStatusOpen]);
 
   useEffect(() => {
     if (!conditionSheetOpen) return;
@@ -1674,16 +1579,9 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     }
   }
 
-  async function loadAuthenticatedData(): Promise<boolean> {
-    const requests: Promise<Response>[] = [
-      trackedFetch("/api/events", { credentials: "include" }),
-    ];
-    if (inviteToken) {
-      requests.push(trackedFetch(`/api/invites/${encodeURIComponent(inviteToken)}`, { credentials: "include" }));
-    }
-
-    const [eventsResponse, inviteResponse] = await Promise.all(requests);
-    if (eventsResponse.status === 401 || inviteResponse?.status === 401) {
+  async function loadAuthenticatedData(): Promise<void> {
+    const eventsResponse = await trackedFetch("/api/events", { credentials: "include" });
+    if (eventsResponse.status === 401) {
       recoverExpiredSession();
       throw new Error("Your session expired. Sign in again to continue.");
     }
@@ -1696,33 +1594,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     );
     setEvents(sortEventsForHome(verifiedEvents));
     markEventsUpdated();
-    if (inviteResponse && !inviteResponse.ok) {
-      const error = await responseErrorDetails(
-        inviteResponse,
-        "This invitation could not be loaded.",
-      );
-      if (error.code === "invite_for_different_account") {
-        setInviteAccountMismatch(true);
-      }
-      throw new Error(error.message);
-    }
-    if (inviteResponse?.ok) {
-      const inviteBody = await inviteResponse.json() as AuthenticatedInviteResponse;
-      const rawEvent = inviteBody.event ?? inviteBody.invitation;
-      if (rawEvent) {
-        const event = await verifiedApiEvent(rawEvent);
-        setInviteAccountMismatch(false);
-        setSelectedEvent(event);
-        setMinimum(event.minimumParticipants);
-        setReply(null);
-        setSavedReplyFingerprint(null);
-        setConditionGroups([]);
-        setInviteMetadata(inviteBody.inviteMetadata ?? null);
-        setEvents((current) => upsertHomeEvent(current, event));
-        return true;
-      }
-    }
-    return false;
   }
 
   async function openEvent(event: ApiEvent) {
@@ -1739,7 +1610,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       setPrivateResponseState("idle");
       return;
     }
-    const token = event.inviteToken ?? inviteToken;
+    const token = event.inviteToken;
     if (!token) {
       setReplyError("This invitation does not have an active reply link yet.");
       setPrivateResponseState("idle");
@@ -1818,6 +1689,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           requiredGroups: event.requiredGroups,
           rsvpDeadline: event.rsvpDeadline,
           eventDescription: event.eventDescription,
+          eventImageID: event.eventImageID,
           createdAt: event.createdAt,
           invitationsSent: false,
         }),
@@ -1849,7 +1721,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
 
   function openGuestAddition() {
     if (!canAddAttendees) return;
-    setGuestDrafts([newGuestDraft()]);
+    setGuestDraft(newGuestDraft());
     setGuestAdditionError("");
     setScreen("add-attendees");
   }
@@ -1857,54 +1729,33 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   function closeGuestAddition() {
     if (guestAdditionPending) return;
     blurActiveControl();
-    setGuestDrafts([]);
+    setGuestDraft(null);
     setGuestAdditionError("");
     setScreen("attendees");
   }
 
   function updateGuestDraft(
-    id: string,
     field: "displayName" | "phoneNumber",
     value: string,
   ) {
-    setGuestDrafts((current) => current.map((guest) =>
-      guest.id === id ? { ...guest, [field]: value } : guest
-    ));
-    setGuestAdditionError("");
-  }
-
-  function addGuestDraft() {
-    if (!activeEvent || activeEvent.invitees.length + guestDrafts.length >= 19) return;
-    setGuestDrafts((current) => [...current, newGuestDraft()]);
-  }
-
-  function removeGuestDraft(id: string) {
-    setGuestDrafts((current) => current.length === 1
-      ? current
-      : current.filter((guest) => guest.id !== id)
-    );
+    setGuestDraft((current) => current ? { ...current, [field]: value } : current);
     setGuestAdditionError("");
   }
 
   async function addEventGuests() {
     const event = activeEvent;
-    if (!event || guestAdditionPending || guestDrafts.length === 0) return;
-    const invitees = guestDrafts.map((guest) => ({
-      id: guest.id,
-      displayName: guest.displayName.trim(),
-      phoneNumber: guest.phoneNumber.trim(),
-    }));
-    if (invitees.some((guest) => !guest.displayName)) {
-      setGuestAdditionError("Enter a name for every guest.");
+    if (!event || guestAdditionPending || !guestDraft) return;
+    const invitee = {
+      id: guestDraft.id,
+      displayName: guestDraft.displayName.trim(),
+      phoneNumber: guestDraft.phoneNumber.trim(),
+    };
+    if (!invitee.displayName) {
+      setGuestAdditionError("Enter the guest’s name.");
       return;
     }
-    if (invitees.some((guest) => !guestPhoneNumberIsReady(guest.phoneNumber))) {
-      setGuestAdditionError("Enter a complete phone number for every guest.");
-      return;
-    }
-    const phoneKeys = invitees.map((guest) => guest.phoneNumber.replace(/\D/g, ""));
-    if (new Set(phoneKeys).size !== phoneKeys.length) {
-      setGuestAdditionError("Each guest needs a different phone number.");
+    if (!guestPhoneNumberIsReady(invitee.phoneNumber)) {
+      setGuestAdditionError("Enter the guest’s complete phone number.");
       return;
     }
 
@@ -1915,7 +1766,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ invitees }),
+        body: JSON.stringify({ invitees: [invitee] }),
       });
       if (response.status === 401) {
         recoverExpiredSession();
@@ -1929,7 +1780,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       const updatedEvent = await verifiedApiEvent(body.event);
       setSelectedEvent(updatedEvent);
       setEvents((current) => upsertHomeEvent(current, updatedEvent));
-      setGuestDrafts([]);
+      setGuestDraft(null);
       setScreen("attendees");
       markEventsUpdated();
     } catch (error) {
@@ -2022,19 +1873,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   async function logOut() {
     await trackedFetch("/api/auth/session", { method: "DELETE", credentials: "include" }).catch(() => undefined);
     resetAuthenticatedExperience();
-  }
-
-  async function switchInviteAccount() {
-    if (authPending) return;
-    setAuthPending(true);
-    await trackedFetch("/api/auth/session", {
-      method: "DELETE",
-      credentials: "include",
-    }).catch(() => undefined);
-    // Start a clean document on the same invitation URL. An account restore
-    // request from this document may already be in flight and must not be able
-    // to re-apply the account that was just signed out.
-    window.location.reload();
   }
 
   async function performAccountDeletion(): Promise<"deleted" | "reauthenticate"> {
@@ -2167,10 +2005,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
   async function requestCode(): Promise<boolean> {
     if (authPending) return false;
     if (codeRequestRetrySeconds > 0) return false;
-    if (inviteToken && !invitationPreview && !selectedEvent) {
-      setAuthError(invitePreviewPending ? "Your invitation is still loading." : invitePreviewError || "This invitation could not be loaded.");
-      return false;
-    }
     if (!phoneNumberIsReady(phoneNumber)) {
       setAuthError("Enter a complete phone number.");
       return false;
@@ -2183,7 +2017,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ phoneNumber, inviteToken }),
+        body: JSON.stringify({ phoneNumber }),
       });
       if (!response.ok) {
         const error = await responseErrorDetails(response, "Couldn’t send a code.");
@@ -2200,8 +2034,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       if ("user" in body) {
         applyUser(body.user);
         setChallenge(null);
-        const openedInvitation = await loadAuthenticatedData();
-        setScreen(openedInvitation ? "event" : "home");
+        await loadAuthenticatedData();
+        setScreen("home");
         return false;
       }
       if (!body.challengeId || !body.phoneNumber || !body.expiresAt || !body.resendAt) {
@@ -2241,8 +2075,8 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       if (!response.ok) throw new Error(await responseError(response, "That code could not be verified."));
       const body = await response.json() as { user: ApiUser };
       applyUser(body.user);
-      const openedInvitation = await loadAuthenticatedData();
-      setScreen(openedInvitation ? "event" : "home");
+      await loadAuthenticatedData();
+      setScreen("home");
     } catch (error) {
       setOtpError(error instanceof Error ? error.message : "That code could not be verified.");
       focusInputAtEnd(otpInputRef.current);
@@ -2411,7 +2245,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
       authPending ||
       privateResponseState === "loading"
     ) return notSaved();
-    const token = activeEvent.inviteToken ?? inviteToken;
+    const token = activeEvent.inviteToken;
     if (!token) {
       const message = "This invitation does not have an active reply link yet.";
       setReplyError(message);
@@ -2484,6 +2318,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
         ),
       );
       setPrivateResponseState("ready");
+      setSuccessPreviewOutcome("confirmed");
       setScreen("success");
       return {
         saved: true,
@@ -2515,58 +2350,31 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
     window.requestAnimationFrame(() => hostDownloadTriggerRef.current?.focus());
   }
 
-  function closeReleaseStatus() {
-    setReleaseStatusOpen(false);
-    window.requestAnimationFrame(() => releaseStatusTriggerRef.current?.focus());
-  }
-
   return (
     <main className="site-stage">
       <div className={`app-shell screen-${screen}`}>
         <div
           className="screen-stack"
-          inert={conditionSheetOpen || releaseStatusOpen || eventDeletionOpen ? true : undefined}
-          aria-hidden={conditionSheetOpen || releaseStatusOpen || undefined}
+          inert={conditionSheetOpen || eventDeletionOpen ? true : undefined}
+          aria-hidden={conditionSheetOpen || undefined}
         >
         {screen === "welcome" ? (
           <section className="onboarding-screen" style={authLayoutStyle}>
-            <div className="onboarding-top">
-              <BrandMark />
-              <button
-                ref={releaseStatusTriggerRef}
-                type="button"
-                className="build-status-pill"
-                aria-haspopup="dialog"
-                aria-expanded={releaseStatusOpen}
-                onClick={() => setReleaseStatusOpen(true)}
-              >
-                <Construction aria-hidden="true" />
-                {AUTH_EXPERIENCE.releaseStatus.label}
-              </button>
-            </div>
+            <Image
+              className="welcome-splash"
+              src="/brand/herd-welcome-splash.png"
+              alt=""
+              width={956}
+              height={725}
+              priority
+              unoptimized
+            />
             <div className="welcome-copy">
-              {inviteToken ? <p className="eyebrow">You’re invited</p> : null}
-              <h1 className={!inviteToken ? "welcome-headline" : undefined}>
-                {inviteAccountMismatch
-                  ? "Switch accounts to open this invitation"
-                  : inviteToken
-                  ? invitationPreview?.title || activeEvent?.title || (invitePreviewPending ? "Loading your invitation…" : "Invitation unavailable")
-                  : AUTH_EXPERIENCE.welcome.title}
-              </h1>
-              <p>
-                {inviteAccountMismatch
-                  ? "This link belongs to a different phone number than the account currently signed in. Your link will stay here while you switch."
-                  : inviteToken
-                  ? invitationPreview || activeEvent
-                    ? `${(invitationPreview?.hostName || activeEvent?.hostName || "Your host").split(" ")[0]} invited you. Confirm your phone number to view and reply.`
-                    : invitePreviewPending
-                      ? "We’re retrieving the invitation details."
-                      : "Check the invitation link and try again."
-                  : AUTH_EXPERIENCE.welcome.body}
-              </p>
+              <h1 className="welcome-headline">{AUTH_EXPERIENCE.welcome.title}</h1>
+              <p>{AUTH_EXPERIENCE.welcome.body}</p>
             </div>
-            {!inviteAccountMismatch ? <label className="phone-entry-group" htmlFor="phone-number">
-              <span className="phone-entry-label">{AUTH_EXPERIENCE.welcome.phoneLabel}</span>
+            <label className="phone-entry-group" htmlFor="phone-number">
+              <span className="visually-hidden">{AUTH_EXPERIENCE.welcome.phoneLabel}</span>
               <input
                 id="phone-number"
                 className="phone-entry-field"
@@ -2587,22 +2395,15 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 aria-label={AUTH_EXPERIENCE.welcome.phoneLabel}
                 autoFocus
               />
-            </label> : null}
-            {!inviteAccountMismatch && invitePreviewError ? <p className="inline-error welcome-error" role="alert">{invitePreviewError}</p> : null}
-            {!inviteAccountMismatch && codeRequestError ? <p className="inline-error welcome-error" role="alert">{codeRequestError}</p> : null}
+            </label>
+            {codeRequestError ? <p className="inline-error welcome-error" role="alert">{codeRequestError}</p> : null}
             <div className="bottom-action onboarding-action">
               <button
                 className="primary-button"
-                disabled={inviteAccountMismatch
-                  ? authPending
-                  : authPending || codeRequestRetrySeconds > 0 || invitePreviewPending || Boolean(inviteToken && !invitationPreview && !selectedEvent) || !phoneNumberIsReady(phoneNumber)}
-                onClick={() => inviteAccountMismatch
-                  ? void switchInviteAccount()
-                  : void requestCode()}
+                disabled={authPending || codeRequestRetrySeconds > 0 || !phoneNumberIsReady(phoneNumber)}
+                onClick={() => void requestCode()}
               >
-                {inviteAccountMismatch
-                  ? authPending ? "Switching…" : "Switch account"
-                  : authPending
+                {authPending
                   ? AUTH_EXPERIENCE.welcome.requestCodePendingButton
                   : AUTH_EXPERIENCE.welcome.requestCodeButton}
               </button>
@@ -2928,7 +2729,19 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               </div>
             </div>
             <div className="bottom-action host-app-action">
-              <button className="primary-button host-app-download" onClick={closeHostDownload}>
+              <div className="host-app-availability" id="host-app-availability" role="status">
+                <strong>{HOME_EXPERIENCE.webCreateEventHandoff.availabilityLabel}</strong>
+                <span>{HOME_EXPERIENCE.webCreateEventHandoff.availabilityBody}</span>
+              </div>
+              <button
+                className="primary-button host-app-download"
+                type="button"
+                aria-describedby="host-app-availability"
+                disabled
+              >
+                {HOME_EXPERIENCE.webCreateEventHandoff.downloadButton}
+              </button>
+              <button className="text-button host-app-back" type="button" onClick={closeHostDownload}>
                 {HOME_EXPERIENCE.webCreateEventHandoff.backButton}
               </button>
             </div>
@@ -3138,6 +2951,14 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
             />
             <div className="screen-scroll event-detail-scroll">
               <section className="event-hero">
+                <Image
+                  className="event-hero-image"
+                  src={eventImagePath(activeEvent.eventImageID)}
+                  alt={`${activeEvent.title || INVITATION_EXPERIENCE.untitledEvent} event image`}
+                  width={512}
+                  height={512}
+                  priority
+                />
                 <div className="event-hero-heading">
                   <span className="status-pill">
                     {eventStatusLabel(activeEvent)}
@@ -3415,18 +3236,15 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <p className="attendees-disclosure">
                   {ATTENDEES_EXPERIENCE.statusDisclosure}
                 </p>
-                <p className="attendees-response-progress">
-                  {activeEvent?.role === "host" || activeEvent?.hasResponse || activeEvent?.hasBallot
-                    ? <Eye size={15} aria-hidden="true" />
-                    : <EyeOff size={15} aria-hidden="true" />}
-                  <span>
-                    {activeEvent?.role === "host" || activeEvent?.hasResponse || activeEvent?.hasBallot
-                      ? ATTENDEES_EXPERIENCE.responseProgressVisible
-                      : ATTENDEES_EXPERIENCE.responseProgressLocked}
-                  </span>
-                </p>
+                {activeEvent?.role === "host" || activeEvent?.hasResponse || activeEvent?.hasBallot
+                  ? null
+                  : (
+                    <p className="attendees-response-progress">
+                      <EyeOff size={15} aria-hidden="true" />
+                      <span>{ATTENDEES_EXPERIENCE.responseProgressLocked}</span>
+                    </p>
+                  )}
               </div>
-              <p className="section-label">{peopleCountLabel(invitedPeople.length + 1)}</p>
               <div className="people-list">
                 <div className="person-row person-row-host">
                   <span
@@ -3491,75 +3309,49 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <h2 id="add-attendees-heading">{ATTENDEES_EXPERIENCE.addGuests.title}</h2>
                 <p>{ATTENDEES_EXPERIENCE.addGuests.body}</p>
               </div>
-              <div className="guest-draft-list">
-                {guestDrafts.map((guest, index) => (
-                  <section className="guest-draft-card" key={guest.id}>
-                    <div className="guest-draft-heading">
-                      <strong>Guest {index + 1}</strong>
-                      {guestDrafts.length > 1 ? (
-                        <button
-                          type="button"
-                          aria-label={`${ATTENDEES_EXPERIENCE.addGuests.removeButton} ${index + 1}`}
-                          onClick={() => removeGuestDraft(guest.id)}
-                        >
-                          <X size={18} aria-hidden="true" />
-                        </button>
-                      ) : null}
-                    </div>
-                    <label className="guest-draft-field">
-                      <span>{ATTENDEES_EXPERIENCE.addGuests.nameLabel}</span>
-                      <input
-                        value={guest.displayName}
-                        onChange={(event) => updateGuestDraft(guest.id, "displayName", event.target.value)}
-                        placeholder={ATTENDEES_EXPERIENCE.addGuests.namePlaceholder}
-                        autoComplete="name"
-                        maxLength={80}
-                        autoFocus={index === 0}
-                      />
-                    </label>
-                    <label className="guest-draft-field">
-                      <span>{ATTENDEES_EXPERIENCE.addGuests.phoneLabel}</span>
-                      <input
-                        type="tel"
-                        inputMode="tel"
-                        value={formatPhoneNumber(guest.phoneNumber)}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          const digits = value.replace(/\D/g, "").slice(0, 15);
-                          updateGuestDraft(
-                            guest.id,
-                            "phoneNumber",
-                            value.trimStart().startsWith("+") ? `+${digits}` : digits,
-                          );
-                        }}
-                        placeholder={ATTENDEES_EXPERIENCE.addGuests.phonePlaceholder}
-                        autoComplete="tel"
-                      />
-                    </label>
-                  </section>
-                ))}
-              </div>
-              {activeEvent && activeEvent.invitees.length + guestDrafts.length < 19 ? (
-                <button type="button" className="add-another-guest-button" onClick={addGuestDraft}>
-                  <Plus size={18} aria-hidden="true" />
-                  {ATTENDEES_EXPERIENCE.addGuests.addAnotherButton}
-                </button>
+              {guestDraft ? (
+                <div className="guest-entry-fields">
+                  <label className="guest-draft-field">
+                    <span>{ATTENDEES_EXPERIENCE.addGuests.nameLabel}</span>
+                    <input
+                      value={guestDraft.displayName}
+                      onChange={(event) => updateGuestDraft("displayName", event.target.value)}
+                      placeholder={ATTENDEES_EXPERIENCE.addGuests.namePlaceholder}
+                      autoComplete="name"
+                      maxLength={80}
+                      autoFocus
+                    />
+                  </label>
+                  <label className="guest-draft-field">
+                    <span>{ATTENDEES_EXPERIENCE.addGuests.phoneLabel}</span>
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={formatPhoneNumber(guestDraft.phoneNumber)}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        const digits = value.replace(/\D/g, "").slice(0, 15);
+                        updateGuestDraft(
+                          "phoneNumber",
+                          value.trimStart().startsWith("+") ? `+${digits}` : digits,
+                        );
+                      }}
+                      placeholder={ATTENDEES_EXPERIENCE.addGuests.phonePlaceholder}
+                      autoComplete="tel"
+                    />
+                  </label>
+                </div>
               ) : null}
               {guestAdditionError ? <p className="inline-error" role="alert">{guestAdditionError}</p> : null}
               <button
                 type="button"
                 className="primary-button add-guests-submit"
-                disabled={guestAdditionPending || guestDrafts.length === 0}
+                disabled={guestAdditionPending || !guestDraft}
                 onClick={() => void addEventGuests()}
               >
                 {guestAdditionPending
                   ? ATTENDEES_EXPERIENCE.addGuests.submittingButton
-                  : guestDrafts.length === 1
-                    ? ATTENDEES_EXPERIENCE.addGuests.submitSingleButton
-                    : ATTENDEES_EXPERIENCE.addGuests.submitMultipleTemplate.replace(
-                        "{count}",
-                        String(guestDrafts.length),
-                      )}
+                  : ATTENDEES_EXPERIENCE.addGuests.submitSingleButton}
               </button>
             </div>
           </section>
@@ -3601,7 +3393,7 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
               </section>
 
               <section className="privacy-architecture">
-                <p className="eyebrow">{PRIVACY_EXPERIENCE.answersEyebrow}</p>
+                <div className="privacy-answers-eyebrow-spacer" aria-hidden="true" />
                 <h3>{PRIVACY_EXPERIENCE.answersTitle}</h3>
                 <div className="accordion-stack">
                   {PRIVACY_EXPERIENCE.sections.map((section) => (
@@ -3669,12 +3461,28 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
                 <span>✓</span>
               </div>
               <h1>{SUCCESS_EXPERIENCE.title}</h1>
-              <p>{SUCCESS_EXPERIENCE.body}</p>
               <div className="success-reply-preview" aria-label="How your reply will appear">
-                <h2>{SUCCESS_EXPERIENCE.replyPreviewTitle}</h2>
+                <p>{SUCCESS_EXPERIENCE.replyPreviewTitle}</p>
+                <div className="success-outcome-toggle" role="group" aria-label="Preview outcome">
+                  <button
+                    type="button"
+                    aria-pressed={successPreviewOutcome === "confirmed"}
+                    onClick={() => setSuccessPreviewOutcome("confirmed")}
+                  >
+                    {SUCCESS_EXPERIENCE.confirmedPreviewOption}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={successPreviewOutcome === "not-confirmed"}
+                    onClick={() => setSuccessPreviewOutcome("not-confirmed")}
+                  >
+                    {SUCCESS_EXPERIENCE.notConfirmedPreviewOption}
+                  </button>
+                </div>
                 <ReplyVisibilityPreview
                   displayName={replyPreviewName}
                   status={reply === "yes" ? "Going" : REPLY_EXPERIENCE.cantCommitTitle}
+                  outcome={successPreviewOutcome}
                 />
               </div>
             </div>
@@ -3687,24 +3495,6 @@ export function HerdApp({ inviteToken }: { inviteToken?: string }) {
           </section>
         ) : null}
         </div>
-
-        {releaseStatusOpen ? (
-          <div className="dialog-backdrop" onClick={closeReleaseStatus}>
-            <section
-              className="release-status-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="release-status-dialog-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h2 id="release-status-dialog-title">{AUTH_EXPERIENCE.releaseStatus.heading}</h2>
-              <p>{AUTH_EXPERIENCE.releaseStatus.body}</p>
-              <button ref={releaseStatusCloseRef} className="primary-button" onClick={closeReleaseStatus}>
-                {AUTH_EXPERIENCE.releaseStatus.dismissButton}
-              </button>
-            </section>
-          </div>
-        ) : null}
 
         {eventDeletionOpen ? (
           <div className="dialog-backdrop" onClick={closeEventDeletion}>

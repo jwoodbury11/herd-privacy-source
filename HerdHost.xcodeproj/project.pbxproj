@@ -26,12 +26,12 @@
 		A00000000000000000000216 /* AccountKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* AccountKeyStore.swift */; };
 		A00000000000000000000217 /* HerdExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* HerdExperience.swift */; };
 		A00000000000000000000218 /* HerdExperience.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* HerdExperience.json */; };
-		E00000000000000000000200 /* InvitationLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000100 /* InvitationLinks.swift */; };
+		A00000000000000000000219 /* EventImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* EventImage.swift */; };
+		E00000000000000000000200 /* InvitationToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000100 /* InvitationToken.swift */; };
 		C00000000000000000000200 /* EvaluatorAttestation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000100 /* EvaluatorAttestation.swift */; };
 		F00000000000000000000200 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000100 /* UITestSupport.swift */; };
 		B00000000000000000000200 /* HerdHostCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000100 /* HerdHostCoreTests.swift */; };
 		B00000000000000000000201 /* private-response-v1-cross-platform-vectors.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */; };
-		E00000000000000000000201 /* InvitationLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000101 /* InvitationLinkTests.swift */; };
 		U00000000000000000000200 /* HerdHostUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = U00000000000000000000100 /* HerdHostUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -74,13 +74,13 @@
 		A00000000000000000000117 /* AccountKeyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountKeyStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000118 /* HerdExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdExperience.swift; sourceTree = "<group>"; };
 		A00000000000000000000119 /* HerdExperience.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = HerdExperience.json; sourceTree = "<group>"; };
-		E00000000000000000000100 /* InvitationLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationLinks.swift; sourceTree = "<group>"; };
+		A00000000000000000000120 /* EventImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventImage.swift; sourceTree = "<group>"; };
+		E00000000000000000000100 /* InvitationToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationToken.swift; sourceTree = "<group>"; };
 		C00000000000000000000100 /* EvaluatorAttestation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvaluatorAttestation.swift; sourceTree = "<group>"; };
 		F00000000000000000000100 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		B00000000000000000000005 /* HerdHostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HerdHostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000100 /* HerdHostCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostCoreTests.swift; sourceTree = "<group>"; };
 		B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "invitee-web/tests/acceptance/private-response-v1-cross-platform-vectors.json"; sourceTree = SOURCE_ROOT; };
-		E00000000000000000000101 /* InvitationLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationLinkTests.swift; sourceTree = "<group>"; };
 		D00000000000000000000100 /* HerdRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = release/HerdRelease.xcconfig; sourceTree = SOURCE_ROOT; };
 		U00000000000000000000005 /* HerdHostUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HerdHostUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U00000000000000000000100 /* HerdHostUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostUITests.swift; sourceTree = "<group>"; };
@@ -160,7 +160,8 @@
 				A00000000000000000000116 /* RSVPCrypto.swift */,
 				A00000000000000000000117 /* AccountKeyStore.swift */,
 				A00000000000000000000118 /* HerdExperience.swift */,
-				E00000000000000000000100 /* InvitationLinks.swift */,
+				A00000000000000000000120 /* EventImage.swift */,
+				E00000000000000000000100 /* InvitationToken.swift */,
 				C00000000000000000000100 /* EvaluatorAttestation.swift */,
 				F00000000000000000000100 /* UITestSupport.swift */,
 				A00000000000000000000115 /* Info.plist */,
@@ -174,7 +175,6 @@
 			isa = PBXGroup;
 			children = (
 				B00000000000000000000100 /* HerdHostCoreTests.swift */,
-				E00000000000000000000101 /* InvitationLinkTests.swift */,
 				B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */,
 			);
 			path = HerdHostTests;
@@ -336,7 +336,8 @@
 				A00000000000000000000215 /* RSVPCrypto.swift in Sources */,
 				A00000000000000000000216 /* AccountKeyStore.swift in Sources */,
 				A00000000000000000000217 /* HerdExperience.swift in Sources */,
-				E00000000000000000000200 /* InvitationLinks.swift in Sources */,
+				A00000000000000000000219 /* EventImage.swift in Sources */,
+				E00000000000000000000200 /* InvitationToken.swift in Sources */,
 				C00000000000000000000200 /* EvaluatorAttestation.swift in Sources */,
 				F00000000000000000000200 /* UITestSupport.swift in Sources */,
 			);
@@ -347,7 +348,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000200 /* HerdHostCoreTests.swift in Sources */,
-				E00000000000000000000201 /* InvitationLinkTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

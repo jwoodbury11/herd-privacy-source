@@ -13,11 +13,13 @@ struct EventEditorView: View {
     @State private var showsSendConfirmation = false
     @State private var showsAbandonDraftConfirmation = false
     @State private var showsDeleteDraftConfirmation = false
+    @State private var previewedImageID: EventImageID?
     @State private var requiredPicker: RequiredPickerContext?
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var saveErrorMessage: String?
     @State private var saveAlertTitle = "Couldn’t save event"
+    @State private var confirmedEditNoticeID: UUID?
     @FocusState private var focusedField: FocusedField?
 
     private enum FocusedField: Hashable {
@@ -26,7 +28,10 @@ struct EventEditorView: View {
     }
 
     init(event: HerdEvent) {
-        _draft = State(initialValue: event)
+        var normalizedEvent = event
+        normalizedEvent.ensureEventImageSelection()
+        _draft = State(initialValue: normalizedEvent)
+        _previewedImageID = State(initialValue: nil)
     }
 
     private var isExistingEvent: Bool {
@@ -38,9 +43,13 @@ struct EventEditorView: View {
             return "Saving…"
         }
         if draft.invitationsSent {
-            return "Done"
+            return "Save"
         }
         return draft.invitationsSent || draft.invitees.isEmpty ? "Save" : "Send"
+    }
+
+    private var isConfirmed: Bool {
+        draft.resolution?.status == .confirmed
     }
 
     var body: some View {
@@ -104,6 +113,100 @@ struct EventEditorView: View {
                         }
                     }
 
+                    EditorGroup(title: "Image") {
+                        ScrollViewReader { imageCarousel in
+                            ScrollView(.horizontal) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    ForEach(EventImageID.allCases, id: \.self) { imageID in
+                                        VStack(spacing: 8) {
+                                            ZStack(alignment: .topTrailing) {
+                                                Button {
+                                                    selectEventImage(imageID)
+                                                } label: {
+                                                    EventSceneImage(id: imageID)
+                                                        .frame(width: 104, height: 104)
+                                                        .padding(6)
+                                                        .background(HerdTheme.canvas, in: .rect(cornerRadius: 14))
+                                                        .overlay {
+                                                            RoundedRectangle(cornerRadius: 14)
+                                                                .stroke(
+                                                                    draft.eventImageID == imageID
+                                                                        ? Color.primary
+                                                                        : HerdTheme.subtleBorder,
+                                                                    lineWidth: draft.eventImageID == imageID ? 2 : 1
+                                                                )
+                                                        }
+                                                }
+                                                .buttonStyle(.plain)
+                                                .accessibilityLabel("Select \(imageID.label) event image")
+                                                .accessibilityValue(draft.eventImageID == imageID ? "Selected" : "")
+                                                .accessibilityIdentifier("event-image-\(imageID.rawValue)")
+
+                                                Button {
+                                                    dismissKeyboard()
+                                                    previewedImageID = imageID
+                                                } label: {
+                                                    Image(systemName: "plus.magnifyingglass")
+                                                        .font(.caption.weight(.bold))
+                                                        .foregroundStyle(.primary)
+                                                        .frame(width: 30, height: 30)
+                                                        .background(.ultraThinMaterial, in: .circle)
+                                                        .overlay {
+                                                            Circle().stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                                                        }
+                                                }
+                                                .buttonStyle(.plain)
+                                                .padding(7)
+                                                .accessibilityLabel("Preview \(imageID.label) image")
+                                                .accessibilityIdentifier("event-image-preview-\(imageID.rawValue)")
+                                            }
+
+                                            Button {
+                                                selectEventImage(imageID)
+                                            } label: {
+                                                Text(imageID.label)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.primary)
+                                                    .lineLimit(1)
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        .frame(width: 118)
+                                        .id(imageID)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 14)
+                            }
+                            .scrollIndicators(.hidden)
+                            .accessibilityIdentifier("event-image-carousel")
+                            .onAppear {
+                                guard let selectedImageID = draft.eventImageID else { return }
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    imageCarousel.scrollTo(selectedImageID, anchor: .center)
+                                }
+                            }
+                            .onChange(of: draft.eventImageID) { _, selectedImageID in
+                                guard let selectedImageID else { return }
+                                withAnimation(.snappy(duration: 0.25)) {
+                                    imageCarousel.scrollTo(selectedImageID, anchor: .center)
+                                }
+                            }
+                            .onChange(of: previewedImageID) { previousImageID, currentImageID in
+                                guard previousImageID != nil,
+                                      currentImageID == nil,
+                                      let selectedImageID = draft.eventImageID else { return }
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    withAnimation(.snappy(duration: 0.25)) {
+                                        imageCarousel.scrollTo(selectedImageID, anchor: .center)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     EditorGroup(title: "Details") {
                         VStack(spacing: 0) {
                             Button {
@@ -124,7 +227,11 @@ struct EventEditorView: View {
 
                             Button {
                                 dismissKeyboard()
-                                showsDeadline = true
+                                if isConfirmed {
+                                    showConfirmedEditNotice()
+                                } else {
+                                    showsDeadline = true
+                                }
                             } label: {
                                 EventEditorRow(
                                     icon: "hourglass",
@@ -132,12 +239,13 @@ struct EventEditorView: View {
                                     value: draft.eventDate == nil
                                         ? "Set the event date first"
                                         : deadlineSummary,
-                                    showsChevron: true
+                                    showsChevron: !isConfirmed,
+                                    isLocked: isConfirmed
                                 )
                             }
                             .buttonStyle(GroupedRowButtonStyle())
-                            .disabled(draft.eventDate == nil)
-                            .opacity(draft.eventDate == nil ? 0.48 : 1)
+                            .disabled(draft.eventDate == nil && !isConfirmed)
+                            .opacity(draft.eventDate == nil && !isConfirmed ? 0.48 : 1)
                             .accessibilityIdentifier("event-rsvp-deadline")
 
                             GroupDivider()
@@ -171,50 +279,65 @@ struct EventEditorView: View {
                         title: "Attendance",
                         footer: "The host counts as one participant."
                     ) {
-                        VStack(spacing: 0) {
-                            Button {
-                                dismissKeyboard()
-                                showsInvitees = true
-                            } label: {
-                                EventEditorRow(
-                                    icon: "person.2",
-                                    title: "Attendees",
-                                    value: inviteeSummary,
-                                    showsChevron: true
-                                )
-                            }
-                            .buttonStyle(GroupedRowButtonStyle())
-                            .accessibilityIdentifier("event-attendees")
+                        ZStack {
+                            VStack(spacing: 0) {
+                                Button {
+                                    dismissKeyboard()
+                                    showsInvitees = true
+                                } label: {
+                                    EventEditorRow(
+                                        icon: "person.2",
+                                        title: "Attendees",
+                                        value: inviteeSummary,
+                                        showsChevron: true
+                                    )
+                                }
+                                .buttonStyle(GroupedRowButtonStyle())
+                                .accessibilityIdentifier("event-attendees")
 
-                            GroupDivider()
+                                GroupDivider()
 
-                            Stepper(value: $draft.minimumParticipants, in: 2...50) {
-                                HStack(spacing: 12) {
-                                    EditorRowIcon(systemName: "person.3")
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text("Minimum attendees")
-                                        Text("\(draft.minimumParticipants) people")
-                                            .font(.footnote.weight(.medium))
-                                            .foregroundStyle(.secondary)
-                                            .monospacedDigit()
+                                Stepper(value: $draft.minimumParticipants, in: 2...50) {
+                                    HStack(spacing: 12) {
+                                        EditorRowIcon(systemName: "person.3")
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text("Minimum attendees")
+                                            Text("\(draft.minimumParticipants) people")
+                                                .font(.footnote.weight(.medium))
+                                                .foregroundStyle(.secondary)
+                                                .monospacedDigit()
+                                        }
                                     }
                                 }
-                            }
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 66)
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 66)
 
-                            GroupDivider()
+                                GroupDivider()
 
-                            Toggle(isOn: $draft.allowsAttendeesToAddGuests) {
-                                HStack(spacing: 12) {
-                                    EditorRowIcon(systemName: "person.badge.plus")
-                                    Text("Allow attendees to add guests")
+                                Toggle(isOn: $draft.allowsAttendeesToAddGuests) {
+                                    HStack(spacing: 12) {
+                                        EditorRowIcon(systemName: "person.badge.plus")
+                                        Text("Allow attendees to add guests")
+                                    }
                                 }
+                                .toggleStyle(HerdMonochromeToggleStyle())
+                                .padding(.horizontal, 16)
+                                .frame(minHeight: 66)
+                                .accessibilityIdentifier("event-allow-attendee-guests")
                             }
-                            .toggleStyle(HerdMonochromeToggleStyle())
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 66)
-                            .accessibilityIdentifier("event-allow-attendee-guests")
+                            .disabled(isConfirmed)
+                            .opacity(isConfirmed ? 0.56 : 1)
+
+                            if isConfirmed {
+                                Button(action: showConfirmedEditNotice) {
+                                    Color.clear
+                                        .contentShape(.rect)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Attendance settings")
+                                .accessibilityValue("Locked after confirmation")
+                                .accessibilityIdentifier("event-attendance-settings-locked")
+                            }
                         }
                     }
 
@@ -223,13 +346,12 @@ struct EventEditorView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, 36)
-                .disabled(draft.invitationsSent)
             }
             .accessibilityIdentifier("event-editor-scroll")
             .scrollDismissesKeyboard(.interactively)
             .background(HerdTheme.canvas)
             .navigationTitle(
-                draft.invitationsSent ? "Event" : (isExistingEvent ? "Edit event" : "New event")
+                isExistingEvent ? "Edit event" : "New event"
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
@@ -271,7 +393,8 @@ struct EventEditorView: View {
             EventDateSheet(
                 eventDate: $draft.eventDate,
                 endDate: $draft.endDate,
-                rsvpDeadline: $draft.rsvpDeadline
+                rsvpDeadline: $draft.rsvpDeadline,
+                locksRSVPDeadline: isConfirmed
             )
         }
         .sheet(isPresented: $showsLocation, onDismiss: dismissKeyboard) {
@@ -309,6 +432,11 @@ struct EventEditorView: View {
                 }
             )
         }
+        .fullScreenCover(item: $previewedImageID) { imageID in
+            EventImagePreviewView(imageID: imageID) { selectedImageID in
+                selectEventImage(selectedImageID)
+            }
+        }
         .onChange(of: draft.invitees) { _, invitees in
             draft.removeInvalidRequiredAttendees()
             draft.minimumParticipants = min(draft.minimumParticipants, max(2, invitees.count + 1))
@@ -338,6 +466,23 @@ struct EventEditorView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(saveErrorMessage ?? "Please try again.")
+        }
+        .overlay(alignment: .bottom) {
+            if confirmedEditNoticeID != nil {
+                Text("Attendance settings and the RSVP deadline can’t be changed after confirmation.")
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial, in: .capsule)
+                    .overlay {
+                        Capsule().stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityIdentifier("confirmed-event-edit-lock-toast")
+            }
         }
     }
 
@@ -405,7 +550,9 @@ struct EventEditorView: View {
                     .font(.headline)
             }
 
-            Text("Sent events are locked so everyone’s private conditions are evaluated against the same plan.")
+            Text(isConfirmed
+                ? "Event details can still be updated, but attendance settings and the RSVP deadline are final."
+                : "Event details and attendance settings can be updated until the event is confirmed.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -431,51 +578,66 @@ struct EventEditorView: View {
     @ViewBuilder
     private var requiredAttendeeSection: some View {
         EditorGroup(title: "Required attendees", footer: requiredAttendeeFooter) {
-            VStack(spacing: 0) {
-                ForEach(Array(draft.requiredGroups.enumerated()), id: \.element.id) { index, group in
-                    if index > 0 {
+            ZStack {
+                VStack(spacing: 0) {
+                    ForEach(Array(draft.requiredGroups.enumerated()), id: \.element.id) { index, group in
+                        if index > 0 {
+                            GroupDivider(leadingInset: 16)
+                        }
+
+                        RequiredRuleRow(
+                            group: group,
+                            invitees: draft.invitees,
+                            onAddAlternative: {
+                                dismissKeyboard()
+                                requiredPicker = .alternative(for: group.id)
+                            },
+                            onRemoveMember: { memberID in
+                                remove(memberID: memberID, from: group.id)
+                            }
+                        )
+                        .padding(16)
+                    }
+
+                    if !draft.requiredGroups.isEmpty {
                         GroupDivider(leadingInset: 16)
                     }
 
-                    RequiredRuleRow(
-                        group: group,
-                        invitees: draft.invitees,
-                        onAddAlternative: {
-                            dismissKeyboard()
-                            requiredPicker = .alternative(for: group.id)
-                        },
-                        onRemoveMember: { memberID in
-                            remove(memberID: memberID, from: group.id)
+                    Button {
+                        dismissKeyboard()
+                        requiredPicker = .newGroup()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32)
+                            Text("Add required attendee")
+                                .font(.body.weight(.medium))
+                            Spacer()
                         }
-                    )
-                    .padding(16)
-                }
-
-                if !draft.requiredGroups.isEmpty {
-                    GroupDivider(leadingInset: 16)
-                }
-
-                Button {
-                    dismissKeyboard()
-                    requiredPicker = .newGroup()
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "plus")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 32)
-                        Text("Add required attendee")
-                            .font(.body.weight(.medium))
-                        Spacer()
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 62)
+                        .contentShape(.rect)
                     }
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 62)
-                    .contentShape(.rect)
+                    .buttonStyle(GroupedRowButtonStyle())
+                    .disabled(draft.invitees.isEmpty || availableForNewGroup.isEmpty)
+                    .opacity(draft.invitees.isEmpty || availableForNewGroup.isEmpty ? 0.48 : 1)
                 }
-                .buttonStyle(GroupedRowButtonStyle())
-                .disabled(draft.invitees.isEmpty || availableForNewGroup.isEmpty)
-                .opacity(draft.invitees.isEmpty || availableForNewGroup.isEmpty ? 0.48 : 1)
+                .disabled(isConfirmed)
+                .opacity(isConfirmed ? 0.56 : 1)
+
+                if isConfirmed {
+                    Button(action: showConfirmedEditNotice) {
+                        Color.clear
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Required attendees")
+                    .accessibilityValue("Locked after confirmation")
+                    .accessibilityIdentifier("event-required-attendees-locked")
+                }
             }
         }
     }
@@ -557,7 +719,7 @@ struct EventEditorView: View {
     private func handlePrimaryAction() {
         dismissKeyboard()
         if draft.invitationsSent {
-            dismiss()
+            save()
         } else if draft.invitees.isEmpty {
             save()
         } else {
@@ -594,6 +756,7 @@ struct EventEditorView: View {
     private func save(markInvitationsSent: Bool = false) {
         dismissKeyboard()
         guard !isSaving else { return }
+        draft.ensureEventImageSelection()
         let wasSent = draft.invitationsSent
         draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if draft.title.isEmpty {
@@ -636,6 +799,28 @@ struct EventEditorView: View {
     private func dismissKeyboard() {
         focusedField = nil
         HerdKeyboard.dismiss()
+    }
+
+    private func showConfirmedEditNotice() {
+        dismissKeyboard()
+        let noticeID = UUID()
+        withAnimation(.snappy(duration: 0.2)) {
+            confirmedEditNoticeID = noticeID
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.8))
+            guard confirmedEditNoticeID == noticeID else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                confirmedEditNoticeID = nil
+            }
+        }
+    }
+
+    private func selectEventImage(_ imageID: EventImageID) {
+        dismissKeyboard()
+        withAnimation(.snappy(duration: 0.2)) {
+            draft.eventImageID = imageID
+        }
     }
 }
 
@@ -796,6 +981,7 @@ private struct EventEditorRow: View {
     let title: String
     let value: String?
     let showsChevron: Bool
+    var isLocked = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -815,7 +1001,11 @@ private struct EventEditorRow: View {
 
             Spacer()
 
-            if showsChevron {
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            } else if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)

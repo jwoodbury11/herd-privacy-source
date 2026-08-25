@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "event-scene-fishing.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

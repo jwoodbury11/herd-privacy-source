@@ -379,7 +379,19 @@ final class EventStore {
         context: OperationContext
     ) throws {
         try requireCurrentOperation(context)
-        events = mergeEvents(syncedEvents, with: pendingLegacyEvents)
+        let existingImageSelections = Dictionary(
+            uniqueKeysWithValues: events.compactMap { event in
+                event.eventImageID.map { (event.id, $0) }
+            }
+        )
+        let eventsWithImages = syncedEvents.map { event in
+            var resolvedEvent = event
+            if resolvedEvent.eventImageID == nil {
+                resolvedEvent.eventImageID = existingImageSelections[event.id] ?? .poker
+            }
+            return resolvedEvent
+        }
+        events = mergeEvents(eventsWithImages, with: pendingLegacyEvents)
         sortEvents()
         persistCache()
         let updatedAt = Date()

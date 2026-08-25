@@ -260,8 +260,7 @@ test("first Send stores an encrypted private link and returns provider-accepted 
     miniflare,
     `/api/invites/${encodeURIComponent(invitationToken)}`,
   );
-  assert.equal(privatePreview.status, 200);
-  assert.equal((await privatePreview.json()).invitationPreview.eventId, event.id);
+  assert.equal(privatePreview.status, 401);
   assert.equal(JSON.stringify(sentEvent.invitationDelivery).includes(invitationToken), false);
   assert.equal(JSON.stringify(sentEvent.invitationDelivery).includes(accountSid), false);
 });

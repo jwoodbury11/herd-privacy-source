@@ -183,6 +183,7 @@ export const events = sqliteTable(
     }).notNull().default(true),
     rsvpDeadline: text("rsvp_deadline"),
     eventDescription: text("event_description").notNull().default(""),
+    eventImageID: text("event_image_id").notNull().default("poker"),
     invitationsSent: integer("invitations_sent", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
