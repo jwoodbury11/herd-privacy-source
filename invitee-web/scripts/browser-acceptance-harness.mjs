@@ -759,16 +759,7 @@ async function seedBrowserScenario(baseUrl, database) {
   const [invitePath] = invitePaths;
   const [inviteApiPath] = inviteApiPaths;
   const anonymous = await apiJson(baseUrl, inviteApiPath);
-  const anonymousBody = await requireStatus(
-    anonymous,
-    200,
-    "Anonymous invitation preview",
-  );
-  ensure(
-    anonymousBody?.invitationPreview?.requiresAuthentication === true &&
-      !Object.hasOwn(anonymousBody, "event"),
-    "The anonymous invitation exposed authenticated event data.",
-  );
+  await requireStatus(anonymous, 401, "Anonymous invitation access");
 
   const correct = await apiJson(baseUrl, inviteApiPath, {
     accessToken: aliases[0].accessToken,

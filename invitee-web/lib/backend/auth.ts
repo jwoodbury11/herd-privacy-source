@@ -181,47 +181,11 @@ async function consumeIpRequestBudget(
   );
 }
 
-async function requireInvitationPhoneBinding(
-  db: D1Database,
-  pepper: string,
-  inviteToken: string,
-  phoneHash: string,
-): Promise<void> {
-  if (
-    inviteToken.length < 8 ||
-    inviteToken.length > 200 ||
-    !/^[A-Za-z0-9_-]+$/u.test(inviteToken)
-  ) {
-    throw new ApiError(
-      400,
-      "invitation_auth_mismatch",
-      "This invitation and phone number don’t match. Open the original link and enter the number it was sent to.",
-    );
-  }
-  const tokenHash = await pepperedHash(pepper, "invite-token", inviteToken);
-  const match = await db
-    .prepare(
-      `SELECT 1 AS matched
-       FROM invitees
-       WHERE token_hash = ? AND phone_hash = ?
-       LIMIT 1`,
-    )
-    .bind(tokenHash, phoneHash)
-    .first<{ matched: number }>();
-  if (match?.matched === 1) return;
-  throw new ApiError(
-    400,
-    "invitation_auth_mismatch",
-    "This invitation and phone number don’t match. Open the original link and enter the number it was sent to.",
-  );
-}
-
 export async function requestAuthCode(
   request: Request,
   phoneInput: unknown,
   db?: D1Database,
   bindings?: HerdBindings,
-  inviteToken?: string,
   currentSession?: AuthenticatedSession | null,
 ) {
   db ??= await getD1();
@@ -271,20 +235,6 @@ export async function requestAuthCode(
     );
   }
 
-  // A carried invitation is an authentication constraint, not UI context.
-  // Perform this lookup only after the network abuse budget has been consumed
-  // and use one response for a missing token or a different phone. The SMS
-  // resend budget is intentionally consumed only for a proven pair, so fixing
-  // a mistyped link does not throttle the legitimate phone. No challenge,
-  // bypass session, or provider SMS exists until the pair is proven.
-  if (inviteToken !== undefined) {
-    await requireInvitationPhoneBinding(
-      db,
-      config.pepper,
-      inviteToken,
-      phoneHash,
-    );
-  }
   // An authenticated test session re-verifies its own canonical fake number
   // during private-key recovery. No SMS is sent, so the SMS resend cooldown
   // must not strand the device-switch flow immediately after login or a switch

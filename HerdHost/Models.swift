@@ -421,6 +421,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     var requiredGroups: [RequiredAttendeeGroup]
     var rsvpDeadline: Date?
     var eventDescription: String
+    var eventImageID: EventImageID?
     let createdAt: Date
     var invitationsSent: Bool
     var role: EventAccessRole
@@ -449,6 +450,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         requiredGroups: [RequiredAttendeeGroup],
         rsvpDeadline: Date?,
         eventDescription: String,
+        eventImageID: EventImageID? = .poker,
         createdAt: Date,
         invitationsSent: Bool = false,
         role: EventAccessRole = .host,
@@ -476,6 +478,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.requiredGroups = requiredGroups
         self.rsvpDeadline = rsvpDeadline
         self.eventDescription = eventDescription
+        self.eventImageID = eventImageID
         self.createdAt = createdAt
         self.invitationsSent = invitationsSent
         self.role = role
@@ -489,6 +492,16 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.privateResponsePolicy = privateResponsePolicy
         self.resolution = resolution
         self.invitationDelivery = invitationDelivery
+    }
+
+    var resolvedEventImageID: EventImageID {
+        eventImageID ?? .poker
+    }
+
+    mutating func ensureEventImageSelection() {
+        if eventImageID == nil {
+            eventImageID = .poker
+        }
     }
 
     static func newDraft(
@@ -514,6 +527,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
                 calendar: calendar
             ),
             eventDescription: "",
+            eventImageID: .poker,
             createdAt: now,
             invitationsSent: false
         )

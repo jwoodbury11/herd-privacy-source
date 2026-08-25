@@ -9,18 +9,9 @@ let harness;
 const authenticatedCookies = [];
 const authenticatedContexts = [];
 const authenticatedPages = [];
-let authenticationBaseline;
 
 test.beforeAll(async () => {
   harness = await startBrowserAcceptanceHarness();
-  authenticationBaseline = await harness.database
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM users) AS userCount,
-         (SELECT COUNT(*) FROM sessions) AS sessionCount,
-         (SELECT COUNT(*) FROM challenges) AS challengeCount`,
-    )
-    .first();
 });
 
 test.afterAll(async () => {
@@ -36,6 +27,14 @@ async function expectInvitation(page) {
     name: "Your reply",
     exact: true,
   })).toBeVisible();
+}
+
+async function openInvitationFromHome(page) {
+  await expect(page.getByRole("heading", { name: "Herd events" })).toBeVisible();
+  await page.getByRole("button", {
+    name: `Open ${harness.scenario.title}`,
+  }).click();
+  await expectInvitation(page);
 }
 
 async function chooseCondition(page, targetAlias) {
@@ -71,44 +70,13 @@ const acceptanceScenarios = [
 ];
 const inviteeAliases = Array.from({ length: 8 }, (_, index) => index + 2);
 
-for (let accountIndex = 0; accountIndex < 9; accountIndex += 1) {
-  test(`signed-out test account ${accountIndex + 1} is denied for another account's invitation`, async ({
-    browser,
-  }) => {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    const accountAlias = accountIndex + 1;
-    const inviteIndex = accountAlias === 1 ? 0 : accountIndex % inviteeAliases.length;
-    const invitation = new URL(
-      harness.scenario.invitePaths[inviteIndex],
-      harness.baseUrl,
-    );
-    await page.goto(invitation.href);
-    await expect(
-      page.getByRole("heading", { name: harness.scenario.title, level: 1 }),
-    ).toBeVisible();
-    await page.getByLabel("Sign in with phone number").fill(String(accountAlias));
-    await page.getByRole("button", { name: "Text me a code" }).click();
-    await expect(page.getByRole("alert")).toHaveText(
-      "This invitation and phone number don’t match. Open the original link and enter the number it was sent to.",
-    );
-    await expect(page).toHaveURL(invitation.href);
-
-    await context.close();
-  });
-}
-
-test("signed-out invitation mismatches create no user, session, or challenge", async () => {
-  const current = await harness.database
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM users) AS userCount,
-         (SELECT COUNT(*) FROM sessions) AS sessionCount,
-         (SELECT COUNT(*) FROM challenges) AS challengeCount`,
-    )
-    .first();
-  expect(current).toEqual(authenticationBaseline);
+test("a signed-out invitation URL shows the standard splash", async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(new URL(harness.scenario.invitePaths[0], harness.baseUrl).href);
+  await expect(page.getByRole("heading", { name: "Make plans happen." })).toBeVisible();
+  await expect(page.getByText(harness.scenario.title, { exact: true })).toBeHidden();
+  await context.close();
 });
 
 test("test account 1 signs in as the host and sees the production-shaped event", async ({
@@ -138,12 +106,10 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
     await page.goto(
       new URL(harness.scenario.invitePaths[index], harness.baseUrl).href,
     );
-    await expect(
-      page.getByRole("heading", { name: harness.scenario.title, level: 1 }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Make plans happen." })).toBeVisible();
     await page.getByLabel("Sign in with phone number").fill(String(alias));
     await page.getByRole("button", { name: "Text me a code" }).click();
-    await expectInvitation(page);
+    await openInvitationFromHome(page);
 
     if (index === 0) {
       await test.step("the reply preview dismisses from the visible edge of OK", async () => {
@@ -200,10 +166,11 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
       scenario.reply === "yes" ? "Going" : "Can’t commit",
       { exact: true },
     )).toBeVisible();
-    await expect(page.getByRole("heading", {
-      name: "This is how your saved reply will show up to others:",
-    })).toBeVisible();
-    await expect(page.getByText("If the event is confirmed:", { exact: true })).toBeVisible();
+    await expect(page.getByText("This is how your reply will appear to others.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Your latest reply is saved.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("If the event is confirmed:", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("This event was not confirmed", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Event not confirmed" }).click();
     await expect(page.getByText("This event was not confirmed", { exact: true })).toBeVisible();
     await expect(page.getByText("Zero information is shown to anybody.", { exact: true })).toBeVisible();
     expect(pageErrors, `browser errors for test account ${alias}`).toEqual([]);
@@ -298,7 +265,7 @@ test("all eight revisions append to the same eight ballots", async () => {
 });
 
 for (let accountIndex = 0; accountIndex < acceptanceScenarios.length; accountIndex += 1) {
-  test(`signed-in test account ${inviteeAliases[accountIndex]} is denied by another account's invitation link`, async ({
+  test(`another account's invitation URL does not alter signed-in account ${inviteeAliases[accountIndex]}`, async ({
     browser,
   }) => {
     const context = await browser.newContext({
@@ -315,15 +282,13 @@ for (let accountIndex = 0; accountIndex < acceptanceScenarios.length; accountInd
     await page.goto(
       new URL(harness.scenario.invitePaths[inviteIndex], harness.baseUrl).href,
     );
-    await expect(page.getByRole("heading", {
-      name: "Switch accounts to open this invitation",
-    })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Switch account" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Herd events" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Switch account" })).toHaveCount(0);
     await context.close();
   });
 }
 
-test("switch account preserves the invitation and opens it with the matching account", async ({
+test("an invitation URL does not customize an existing signed-in session", async ({
   browser,
 }) => {
   await harness.database.batch([
@@ -336,28 +301,10 @@ test("switch account preserves the invitation and opens it with the matching acc
   const page = await context.newPage();
   await page.goto(harness.baseUrl.href);
   await expect(page.getByRole("heading", { name: "Herd events" })).toBeVisible();
-  let delayedSessionRestore = false;
-  await page.route("**/api/me", async (route) => {
-    if (delayedSessionRestore) {
-      await route.continue();
-      return;
-    }
-    delayedSessionRestore = true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await route.continue().catch(() => undefined);
-  });
   const secondInvite = new URL(harness.scenario.invitePaths[1], harness.baseUrl);
   await page.goto(secondInvite.href);
-  await expect(page.getByRole("button", { name: "Switch account" })).toBeVisible();
-  await page.getByRole("button", { name: "Switch account" }).click();
-
-  await expect(page).toHaveURL(secondInvite.href);
-  await expect(
-    page.getByRole("heading", { name: harness.scenario.title, level: 1 }),
-  ).toBeVisible();
-  await page.getByLabel("Sign in with phone number").fill("3");
-  await page.getByRole("button", { name: "Text me a code" }).click();
-  await expectInvitation(page);
+  await expect(page.getByRole("heading", { name: "Herd events" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch account" })).toHaveCount(0);
   await context.close();
 });
 
@@ -375,7 +322,7 @@ test("a fresh browser opens and revises the same account-wide ballot without dev
   );
   await page.getByLabel("Sign in with phone number").fill("2");
   await page.getByRole("button", { name: "Text me a code" }).click();
-  await expectInvitation(page);
+  await openInvitationFromHome(page);
   const saved = page.getByRole("radio", { name: /I’m down if/u });
   await expect(saved).toHaveAttribute("aria-checked", "true");
   const cannotCommit = page.getByRole("radio", { name: /Can’t commit/u });
@@ -416,7 +363,7 @@ test("an expired session returns to sign-in without losing the invitation", asyn
   await page.goto(invitation.href);
   await page.getByLabel("Sign in with phone number").fill("4");
   await page.getByRole("button", { name: "Text me a code" }).click();
-  await expectInvitation(page);
+  await openInvitationFromHome(page);
 
   await harness.database
     .prepare(
@@ -431,10 +378,7 @@ test("an expired session returns to sign-in without losing the invitation", asyn
   await page.getByRole("button", { name: "Update my private reply" }).click();
 
   await expect(page).toHaveURL(invitation.href);
-  await expect(page.getByRole("heading", {
-    name: harness.scenario.title,
-    level: 1,
-  })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Make plans happen." })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveText(
     "Your session expired. Sign in again to continue.",
   );
@@ -444,6 +388,6 @@ test("an expired session returns to sign-in without losing the invitation", asyn
   ]);
   await page.getByLabel("Sign in with phone number").fill("4");
   await page.getByRole("button", { name: "Text me a code" }).click();
-  await expectInvitation(page);
+  await openInvitationFromHome(page);
   await context.close();
 });

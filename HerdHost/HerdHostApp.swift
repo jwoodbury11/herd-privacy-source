@@ -5,7 +5,6 @@ struct HerdHostApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var authStore: AuthStore
     @State private var eventStore: EventStore
-    @State private var invitationCoordinator: InvitationCoordinator
 
     private let startsInCreateFlow = ProcessInfo.processInfo.arguments.contains("--open-create")
 
@@ -15,17 +14,10 @@ struct HerdHostApp: App {
             uiTestEnvironment.prepare()
             let apiClient = uiTestEnvironment.makeAPIClient()
             let accountKeyStore = uiTestEnvironment.accountKeyStore
-            let invitationCoordinator = InvitationCoordinator(
-                trustedWebOrigin: HerdUITestEnvironment.fixtureOrigin,
-                keychainStore: uiTestEnvironment.pendingInvitationStore
-            )
-            if let invitationURL = uiTestEnvironment.pendingInvitationURL {
-                _ = invitationCoordinator.accept(invitationURL)
-            }
             _authStore = State(
                 initialValue: AuthStore(
                     apiClient: apiClient,
-                    sessionStore: uiTestEnvironment.sessionStore,
+                    sessionStore: uiTestEnvironment.makeSessionStore(),
                     accountKeyStore: accountKeyStore
                 )
             )
@@ -36,7 +28,6 @@ struct HerdHostApp: App {
                     accountKeyStore: accountKeyStore
                 )
             )
-            _invitationCoordinator = State(initialValue: invitationCoordinator)
             return
         }
 #endif
@@ -55,9 +46,6 @@ struct HerdHostApp: App {
                 accountKeyStore: accountKeyStore
             )
         )
-        _invitationCoordinator = State(
-            initialValue: InvitationCoordinator(trustedWebOrigin: apiBaseURL)
-        )
     }
 
     var body: some Scene {
@@ -65,7 +53,6 @@ struct HerdHostApp: App {
             AppRootView(startsInCreateFlow: startsInCreateFlow)
                 .environment(authStore)
                 .environment(eventStore)
-                .environment(invitationCoordinator)
                 .preferredColorScheme(.dark)
                 .tint(.white)
                 .overlay {
@@ -88,13 +75,6 @@ struct HerdHostApp: App {
                         eventStore.lockPrivateResponses()
                     }
                 }
-                .onOpenURL { url in
-                    invitationCoordinator.accept(url)
-                }
-                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                    guard let url = activity.webpageURL else { return }
-                    invitationCoordinator.accept(url)
-                }
         }
     }
 }
@@ -102,7 +82,6 @@ struct HerdHostApp: App {
 private struct AppRootView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(EventStore.self) private var eventStore
-    @Environment(InvitationCoordinator.self) private var invitationCoordinator
 
     let startsInCreateFlow: Bool
 
@@ -151,22 +130,6 @@ private struct AppRootView: View {
             eventStore.activate(userID: user.id)
             await eventStore.refresh()
         }
-        .task(
-            id: PendingInvitationResolutionID(
-                userID: authStore.user?.id,
-                generation: invitationCoordinator.requestGeneration
-            )
-        ) {
-            guard
-                let user = authStore.user,
-                invitationCoordinator.pendingToken != nil
-            else { return }
-            eventStore.activate(userID: user.id)
-            await invitationCoordinator.resolve(
-                using: eventStore,
-                accountID: user.id
-            )
-        }
     }
 
     private var initialCreateEvent: HerdEvent? {
@@ -176,9 +139,4 @@ private struct AppRootView: View {
         nil
 #endif
     }
-}
-
-private struct PendingInvitationResolutionID: Hashable {
-    let userID: String?
-    let generation: UInt
 }

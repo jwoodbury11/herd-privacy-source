@@ -31,7 +31,6 @@ final class AuthStore {
     private let accountKeyStore: any AccountKeyStoring
     private var session: AuthSession?
     private var desiredSession: AuthSession?
-    private var challengeInviteToken: String?
     private var sessionGeneration: UInt = 0
     private var accountDeletionCleanupHandler: ((String) -> Void)?
 
@@ -96,10 +95,7 @@ final class AuthStore {
         }
     }
 
-    func requestCode(
-        phoneNumber: String,
-        inviteToken: String? = nil
-    ) async -> Bool {
+    func requestCode(phoneNumber: String) async -> Bool {
         if let codeRequestRetryAt, codeRequestRetryAt > .now {
             return false
         }
@@ -108,25 +104,16 @@ final class AuthStore {
             errorMessage = "Enter a complete phone number, including the country code if outside the U.S."
             return false
         }
-        if inviteToken != nil, InvitationToken.normalize(inviteToken) == nil {
-            errorMessage = "Open the original invitation link and try again."
-            return false
-        }
-
         let generation = beginOperation(isBusy: true)
         errorMessage = nil
         defer { finishOperation(generation) }
 
         do {
-            let result = try await apiClient.requestCode(
-                phoneNumber: requestPhoneNumber,
-                inviteToken: inviteToken
-            )
+            let result = try await apiClient.requestCode(phoneNumber: requestPhoneNumber)
             guard operationIsCurrent(generation) else { return false }
             switch result {
             case let .challenge(challenge):
                 self.challenge = challenge
-                challengeInviteToken = inviteToken
             case let .session(authenticatedSession):
                 guard try await commit(authenticatedSession, for: generation) else {
                     return false
@@ -134,7 +121,6 @@ final class AuthStore {
                 session = authenticatedSession
                 user = authenticatedSession.user
                 challenge = nil
-                challengeInviteToken = nil
             }
             codeRequestRetryAt = nil
             return true
@@ -153,10 +139,7 @@ final class AuthStore {
     func resendCode() async -> Bool {
         guard let challenge else { return false }
         guard challenge.resendAt <= .now else { return false }
-        return await requestCode(
-            phoneNumber: challenge.phoneNumber,
-            inviteToken: challengeInviteToken
-        )
+        return await requestCode(phoneNumber: challenge.phoneNumber)
     }
 
     func verifyCode(_ code: String) async -> Bool {
@@ -187,7 +170,6 @@ final class AuthStore {
             session = verifiedSession
             user = verifiedSession.user
             self.challenge = nil
-            challengeInviteToken = nil
             return true
         } catch {
             guard operationIsCurrent(generation) else { return false }
@@ -250,7 +232,6 @@ final class AuthStore {
         await clearLocalSession(for: generation)
         guard operationIsCurrent(generation) else { return }
         challenge = nil
-        challengeInviteToken = nil
     }
 
     func deleteAccount() async -> AccountDeletionOutcome {
@@ -274,7 +255,6 @@ final class AuthStore {
             await clearLocalSession(for: generation)
             guard operationIsCurrent(generation) else { return .failed }
             challenge = nil
-            challengeInviteToken = nil
             if localCleanupFailed {
                 errorMessage = "Your account was deleted, but this iPhone could not remove its local private key. Delete and reinstall Herd before sharing the device."
             }
@@ -304,7 +284,6 @@ final class AuthStore {
         user = nil
         try? sessionStore.delete()
         challenge = nil
-        challengeInviteToken = nil
         isBusy = false
         errorMessage = APIError.unauthorized.localizedDescription
 
@@ -320,7 +299,6 @@ final class AuthStore {
     func changePhoneNumber() {
         invalidatePendingOperations()
         challenge = nil
-        challengeInviteToken = nil
         isBusy = false
         errorMessage = nil
         codeRequestRetryAt = nil

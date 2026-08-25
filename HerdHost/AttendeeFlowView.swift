@@ -134,16 +134,6 @@ struct AttendeeFlowView: View {
                     .disabled(selectedIDs.isEmpty)
                 }
             }
-
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button {
-                    isSearchFocused = false
-                } label: {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                }
-                .accessibilityLabel("Dismiss keyboard")
-            }
         }
     }
 
@@ -822,6 +812,7 @@ private struct InviteeReviewView: View {
                 }
                 .accessibilityLabel("Dismiss keyboard")
             }
+
         }
         .onAppear {
             for index in invitees.indices {

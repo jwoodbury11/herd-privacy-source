@@ -164,10 +164,7 @@ test(
     const anonymous = await fetch(
       new URL(harness.scenario.inviteApiPath, harness.baseUrl),
     );
-    assert.equal(anonymous.status, 200);
-    const anonymousBody = await anonymous.json();
-    assert.equal(anonymousBody.invitationPreview.requiresAuthentication, true);
-    assert.equal(Object.hasOwn(anonymousBody, "event"), false);
+    assert.equal(anonymous.status, 401);
 
     const aliasOne = await authenticate(harness.baseUrl, "2");
     const eventList = await fetch(new URL("/api/events", harness.baseUrl), {

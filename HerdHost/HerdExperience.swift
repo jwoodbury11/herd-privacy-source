@@ -89,6 +89,9 @@ struct HerdExperience: Decodable {
         struct WebCreateEventHandoff: Decodable {
             let heading: String
             let body: String
+            let availabilityLabel: String
+            let availabilityBody: String
+            let downloadButton: String
             let backButton: String
         }
 
@@ -196,6 +199,7 @@ struct HerdExperience: Decodable {
 
         struct EventActions: Decodable {
             let moreLabel: String
+            let editButton: String
             let deleteButton: String
             let deletionTitle: String
             let deletionBody: String
@@ -343,8 +347,9 @@ struct HerdExperience: Decodable {
 
     struct Success: Decodable {
         let title: String
-        let body: String
         let replyPreviewTitle: String
+        let confirmedPreviewOption: String
+        let notConfirmedPreviewOption: String
         let changeWithDeadlinePrefix: String
         let changeWithoutDeadline: String
         let viewInvitationButton: String

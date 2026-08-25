@@ -5,6 +5,43 @@ import test from "node:test";
 const source = async (name) =>
   readFile(new URL(`../HerdHost/${name}`, import.meta.url), "utf8");
 
+test("response success previews one outcome at a time with equal cards", async () => {
+  const [home, experience] = await Promise.all([
+    source("HomeView.swift"),
+    readFile(new URL("../invitee-web/shared/HerdExperience.json", import.meta.url), "utf8"),
+  ]);
+  assert.match(experience, /"replyPreviewTitle": "This is how your reply will appear to others\."/u);
+  assert.match(experience, /"confirmedPreviewOption": "Event confirmed"/u);
+  assert.match(experience, /"notConfirmedPreviewOption": "Event not confirmed"/u);
+  assert.doesNotMatch(experience, /"Your latest reply is saved\."/u);
+  assert.match(home, /Picker\("Preview outcome", selection: \$previewOutcome\)/u);
+  assert.match(home, /accessibilityIdentifier\("success-outcome-picker"\)/u);
+  assert.match(home, /mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
+  assert.match(home, /background\(attendeeAvatarTone\(1\), in: \.circle\)/u);
+  assert.match(home, /accessibilityIdentifier\("reply-preview-confirmed-card"\)/u);
+  assert.match(home, /accessibilityIdentifier\("reply-preview-not-confirmed-card"\)/u);
+  assert.match(home, /frame\(minHeight: 68\)/u);
+});
+
+test("privacy proof omits the essentials label without collapsing its spacing", async () => {
+  const home = await source("HomeView.swift");
+  assert.match(
+    home,
+    /HStack\(alignment: \.center, spacing: 14\) \{[\s\S]*Image\(systemName: "eye\.slash\.fill"\)[\s\S]*Text\(experience\.flowPrivacyLabel\)/u,
+  );
+  assert.match(
+    home,
+    /eyebrow\(experience\.answersEyebrow\)[\s\S]*?\.hidden\(\)[\s\S]*?Text\(experience\.answersTitle\)/u,
+  );
+  assert.match(
+    home,
+    /onScrollGeometryChange\(for: Bool\.self\)[\s\S]*?contentOffset\.y \+ geometry\.contentInsets\.top > 55[\s\S]*?showsCollapsedTitle = shouldShowTitle/u,
+  );
+  assert.match(home, /accessibilityIdentifier\("privacy-navigation-divider"\)/u);
+  assert.match(home, /toolbarBackground\(\.visible, for: \.navigationBar\)/u);
+  assert.doesNotMatch(home, /InvitationTitleBottomPreferenceKey/u);
+});
+
 test("host drafts reopen in the editor and are labeled as drafts", async () => {
   const home = await source("HomeView.swift");
   assert.match(
@@ -89,6 +126,10 @@ test("contact search provides an in-field clear action without dropping focus", 
     /if !searchText\.isEmpty[\s\S]*searchText = ""[\s\S]*isSearchFocused = true/u,
   );
   assert.match(attendeeFlow, /accessibilityIdentifier\("clear-contact-search"\)/u);
+  assert.match(
+    attendeeFlow,
+    /TextField\("Search contacts"[\s\S]*?\.submitLabel\(\.return\)[\s\S]*?\.onSubmit \{\s*isSearchFocused = false/u,
+  );
 });
 
 test("contact groups use static list labels instead of floating section headers", async () => {
@@ -110,11 +151,29 @@ test("contact groups use static list labels instead of floating section headers"
   );
 });
 
+test("home event cards stack status, title, and date without location", async () => {
+  const home = await source("HomeView.swift");
+  assert.match(
+    home,
+    /Text\(statusLabel\)[\s\S]*Text\(event\.title\.isEmpty[\s\S]*Text\(formattedCardDate\)/u,
+  );
+  assert.doesNotMatch(
+    home,
+    /Label\(event\.locationName, systemImage: "mappin\.and\.ellipse"\)/u,
+  );
+});
+
 test("response progress unlocks only after the current guest replies", async () => {
   const [home, models] = await Promise.all([
     source("HomeView.swift"),
     source("Models.swift"),
   ]);
+  const attendeeView = home.match(
+    /private struct InvitationAttendees[\s\S]*?private struct InvitationConditionPicker/u,
+  )?.[0] ?? "";
+  const attendeeStatus = attendeeView.match(
+    /if let status \{[\s\S]*?\} else if let lockedStatusGuestID/u,
+  )?.[0] ?? "";
   assert.match(models, /var hasResponded: Bool\?/u);
   assert.match(models, /var respondedParticipantCount: Int[\s\S]*\.count \+ 1/u);
   assert.match(home, /role == \.host \|\| hasResponse/u);
@@ -122,10 +181,24 @@ test("response progress unlocks only after the current guest replies", async () 
   assert.match(home, /invitee\.hasResponded == true \? "Responded" : "Not responded"/u);
   assert.match(home, /Image\(systemName: "eye\.slash\.fill"\)/u);
   assert.match(home, /experience\.responseProgressLocked/u);
+  assert.match(attendeeView, /if !event\.canViewResponseProgress/u);
+  assert.doesNotMatch(attendeeView, /responseProgressVisible|responseProgressDisclosure/u);
+  assert.match(home, /lineLimit\(1\)[\s\S]*minimumScaleFactor\(0\.86\)/u);
+  assert.match(home, /accessibilityIdentifier\("locked-guest-status-tooltip"\)/u);
+  assert.match(home, /responseProgressRefreshInterval = Duration\.seconds\(2\)/u);
+  assert.match(home, /private func submitResponse[\s\S]*guard !isSubmitting/u);
+  assert.doesNotMatch(attendeeView, /lockedStatusNoticeID|participantLabel/u);
+  assert.match(attendeeView, /lineLimit\(2\)[\s\S]*frame\(maxWidth: 152, alignment: \.trailing\)/u);
+  assert.doesNotMatch(attendeeStatus, /fixedSize\(horizontal: true, vertical: false\)/u);
+  assert.match(home, /history\.totalConfirmedEvents > 0[\s\S]*"No response"/u);
   assert.doesNotMatch(home, /Text\("Guest status"\)[\s\S]*?\.blur\(radius:/u);
   assert.match(
     home,
     /private struct InvitationDetailView[\s\S]*?\.task\(id: eventID\)[\s\S]*?await store\.refresh\(\)[\s\S]*?responseProgressRefreshInterval/u,
+  );
+  assert.match(
+    home,
+    /private struct InvitationDetailView[\s\S]*?accessibilityIdentifier\("invitation-detail-scroll"\)[\s\S]*?\.refreshable \{\s*await store\.refresh\(\)/u,
   );
   assert.match(
     home,
@@ -179,6 +252,23 @@ test("hosted event details expose deletion only behind confirmation", async () =
   assert.match(client, /path: "\/api\/events\/\\\(id\.uuidString\.lowercased\(\)\)"[\s\S]*?method: "DELETE"/u);
 });
 
+test("confirmed hosts can reopen event details while attendance rules stay locked", async () => {
+  const [home, editor, backend] = await Promise.all([
+    source("HomeView.swift"),
+    source("EventEditorView.swift"),
+    readFile(new URL("../invitee-web/lib/backend/events.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(home, /eventActions\.editButton[\s\S]*?edit-hosted-event[\s\S]*?EventEditorView\(event: event\)/u);
+  assert.match(editor, /event-rsvp-deadline[\s\S]*?showConfirmedEditNotice/u);
+  assert.match(editor, /event-attendance-settings-locked/u);
+  assert.match(editor, /event-required-attendees-locked/u);
+  assert.match(editor, /locksRSVPDeadline: isConfirmed/u);
+  assert.match(editor, /Attendance settings and the RSVP deadline can’t be changed after confirmation\./u);
+  assert.doesNotMatch(editor, /\.disabled\(draft\.invitationsSent\)/u);
+  assert.match(backend, /confirmed_event_attendance_locked/u);
+  assert.match(backend, /if \(!isConfirmed\) \{[\s\S]*?DELETE FROM event_resolutions/u);
+});
+
 test("private replies are account-wide and never expose device-transfer ownership", async () => {
   const [home, store, client] = await Promise.all([
     source("HomeView.swift"),
@@ -187,7 +277,10 @@ test("private replies are account-wide and never expose device-transfer ownershi
   ]);
   assert.match(client, /func fetchSimplifiedBallot\(inviteToken: String\)/u);
   assert.match(client, /func submitSimplifiedBallot\([\s\S]*?inviteToken: String/u);
-  assert.match(store, /submitSimplifiedBallot\([\s\S]*?events\[index\]\.hasBallot = true/u);
+  assert.match(
+    store,
+    /submitSimplifiedBallot\([\s\S]*?events\[index\]\.hasBallot = true[\s\S]*?hasResponded = true/u,
+  );
   assert.doesNotMatch(home, /deviceSwitch|switchPrivateRepliesToThisDevice/u);
   assert.doesNotMatch(store, /deviceSwitch|switchPrivateRepliesToThisDevice/u);
 });
@@ -286,50 +379,45 @@ test("iOS relays participant evaluations without exposing app credentials", asyn
   assert.match(store, /catch \{[\s\S]*?leave the resolution pending/u);
 });
 
-test("iOS invitation links survive authentication and open only the exact event", async () => {
-  const [links, app, auth, client, store, home, entitlements, info] = await Promise.all([
-    source("InvitationLinks.swift"),
+test("iOS invitation links never customize sign-in or auto-open an event", async () => {
+  const [app, auth, client, home, entitlements, info] = await Promise.all([
     source("HerdHostApp.swift"),
     source("AuthenticationView.swift"),
     source("APIClient.swift"),
-    source("EventStore.swift"),
     source("HomeView.swift"),
     source("HerdHost.entitlements"),
     source("Info.plist"),
   ]);
-  assert.match(links, /kSecAttrAccessibleWhenUnlockedThisDeviceOnly/u);
-  assert.match(links, /InvitationToken\.normalize/u);
-  assert.match(links, /components\.percentEncodedQuery == nil/u);
-  assert.match(links, /components\.host\?\.lowercased\(\) == trustedHost/u);
-  assert.match(app, /\.onOpenURL/u);
-  assert.match(app, /NSUserActivityTypeBrowsingWeb/u);
-  assert.match(auth, /inviteToken: invitationCoordinator\.pendingToken/u);
+  assert.doesNotMatch(app, /InvitationCoordinator|\.onOpenURL|NSUserActivityTypeBrowsingWeb/u);
+  assert.doesNotMatch(auth, /InvitationCoordinator|pendingToken|inviteToken/u);
   assert.match(
     auth,
     /automaticallySubmittedCode != digits[\s\S]*?authStore\.verifyCode\(digits\)/u,
   );
-  assert.match(client, /let inviteToken: String\?/u);
-  assert.match(client, /case inviteForDifferentAccount/u);
-  assert.match(store, /func openInvitation\(inviteToken: String\)/u);
-  assert.match(home, /Switch account/u);
-  assert.match(home, /presentation = \.detail\(eventID, invitationGeneration: generation\)/u);
-  assert.match(home, /acknowledgePresentation\([\s\S]*?of: eventID,[\s\S]*?generation:/u);
+  assert.match(client, /func requestCode\(phoneNumber: String\)/u);
+  assert.doesNotMatch(client, /func requestCode\(\s*phoneNumber: String,\s*inviteToken/u);
+  assert.doesNotMatch(home, /Switch account|pendingInvitation|invitationGeneration/u);
   assert.match(entitlements, /com\.apple\.developer\.associated-domains/u);
   assert.match(entitlements, /applinks:\$\(HERD_ASSOCIATED_DOMAIN\)/u);
   assert.doesNotMatch(info, /CFBundleURLSchemes|<string>herd<\/string>/u);
-  assert.doesNotMatch(links, /print\(|NSLog|os_log/u);
 });
 
-test("pending invitations keep the normal sign-in screen and keyboard backdrop", async () => {
-  const [auth, app, attendeeFlow] = await Promise.all([
+test("pending invitations keep the normal sign-in screen and native iOS design", async () => {
+  const [auth, app, attendeeFlow, info] = await Promise.all([
     source("AuthenticationView.swift"),
     source("HerdHostApp.swift"),
     source("AttendeeFlowView.swift"),
+    source("Info.plist"),
   ]);
   assert.doesNotMatch(auth, /Your invitation is ready|pending-invitation-notice/u);
   assert.match(app, /ZStack \{\s*HerdTheme\.canvas\s*\.ignoresSafeArea\(\)/u);
   assert.doesNotMatch(attendeeFlow, /Color\.black/u);
   assert.match(attendeeFlow, /toolbarBackground\(HerdTheme\.canvas/u);
+  assert.doesNotMatch(
+    info,
+    /UIDesignRequiresCompatibility/u,
+    "Herd must not opt the whole app out of the current iOS design.",
+  );
 });
 
 test("leaving an invitation always relocks its encrypted reply", async () => {

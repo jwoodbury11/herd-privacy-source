@@ -3,6 +3,7 @@ import type {
   StoredPrivateResponseEnvelopeV1,
 } from "@/lib/privacy/protocol";
 import type { InvitationDeliverySummary } from "./invitation-delivery";
+import type { EventImageID } from "@/lib/event-images";
 
 export type HerdUser = {
   id: string;
@@ -38,6 +39,7 @@ export type CanonicalEvent = {
   requiredGroups: CanonicalRequiredGroup[];
   rsvpDeadline: string | null;
   eventDescription: string;
+  eventImageID: EventImageID;
   createdAt: string;
   invitationsSent: boolean;
   privateResponsePolicy: PrivateResponsePolicyV1 | null;

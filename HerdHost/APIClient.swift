@@ -157,28 +157,14 @@ actor APIClient {
         self.accessToken = accessToken
     }
 
-    func requestCode(
-        phoneNumber: String,
-        inviteToken: String? = nil
-    ) async throws -> AuthStartResult {
+    func requestCode(phoneNumber: String) async throws -> AuthStartResult {
         struct Body: Encodable {
             let phoneNumber: String
-            let inviteToken: String?
-        }
-
-        let normalizedInviteToken: String?
-        if let inviteToken {
-            guard let token = InvitationToken.normalize(inviteToken) else {
-                throw APIError.invalidResponse
-            }
-            normalizedInviteToken = token
-        } else {
-            normalizedInviteToken = nil
         }
 
         var request = try makeRequest(path: "/api/auth/request-code", method: "POST")
         request.httpBody = try HerdJSON.makeEncoder().encode(
-            Body(phoneNumber: phoneNumber, inviteToken: normalizedInviteToken)
+            Body(phoneNumber: phoneNumber)
         )
         return try await perform(request, as: AuthStartResult.self)
     }
@@ -367,7 +353,12 @@ actor APIClient {
         )
         request.httpBody = try HerdJSON.makeEncoder().encode(HostEventPayload(event))
         let response = try await perform(request, as: Response.self)
-        return EventResolutionVerifier.failClosed(response.event.herdEvent)
+        var savedEvent = response.event.herdEvent
+        // Older servers can omit the newly added image field in their response
+        // even after accepting the rest of an event update. Never replace the
+        // host's explicit selection with a fallback in that compatibility case.
+        savedEvent.eventImageID = response.event.eventImageID ?? event.resolvedEventImageID
+        return EventResolutionVerifier.failClosed(savedEvent)
     }
 
     func deleteEvent(id: UUID) async throws {
@@ -1220,6 +1211,7 @@ private struct RemoteEvent: Decodable, Sendable {
     var requiredGroups: [RequiredAttendeeGroup]
     var rsvpDeadline: Date?
     var eventDescription: String
+    var eventImageID: EventImageID?
     let createdAt: Date
     var invitationsSent: Bool
     var role: EventAccessRole?
@@ -1249,6 +1241,7 @@ private struct RemoteEvent: Decodable, Sendable {
             requiredGroups: requiredGroups,
             rsvpDeadline: rsvpDeadline,
             eventDescription: eventDescription,
+            eventImageID: eventImageID,
             createdAt: createdAt,
             invitationsSent: invitationsSent,
             role: role ?? .host,
@@ -1292,6 +1285,7 @@ private struct HostEventPayload: Encodable, Sendable {
     let requiredGroups: [RequiredAttendeeGroup]
     let rsvpDeadline: Date?
     let eventDescription: String
+    let eventImageID: EventImageID
     let createdAt: Date
     let invitationsSent: Bool
 
@@ -1309,6 +1303,7 @@ private struct HostEventPayload: Encodable, Sendable {
         case requiredGroups
         case rsvpDeadline
         case eventDescription
+        case eventImageID
         case createdAt
         case invitationsSent
     }
@@ -1327,6 +1322,7 @@ private struct HostEventPayload: Encodable, Sendable {
         requiredGroups = event.requiredGroups
         rsvpDeadline = event.rsvpDeadline
         eventDescription = event.eventDescription
+        eventImageID = event.resolvedEventImageID
         createdAt = event.createdAt
         invitationsSent = event.invitationsSent
     }
@@ -1358,6 +1354,7 @@ private struct HostEventPayload: Encodable, Sendable {
             try container.encodeNil(forKey: .rsvpDeadline)
         }
         try container.encode(eventDescription, forKey: .eventDescription)
+        try container.encode(eventImageID, forKey: .eventImageID)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(invitationsSent, forKey: .invitationsSent)
     }

@@ -12,6 +12,11 @@ import {
 import { createSealedInviteToken, openSealedInviteToken } from "./invite-tokens";
 import { normalizePhoneNumber } from "./phone";
 import {
+  DEFAULT_EVENT_IMAGE_ID,
+  EVENT_IMAGE_IDS,
+  type EventImageID,
+} from "@/lib/event-images";
+import {
   getPrivateResponsePolicies,
 } from "./policy";
 import type {
@@ -101,6 +106,7 @@ type EventRow = {
   allowsAttendeesToAddGuests: number | boolean;
   rsvpDeadline: string | null;
   eventDescription: string;
+  eventImageID: EventImageID;
   invitationsSent: number | boolean;
   createdAt: string;
   updatedAt: string;
@@ -143,6 +149,7 @@ const EVENT_SELECT = `SELECT
   allows_attendees_to_add_guests AS allowsAttendeesToAddGuests,
   rsvp_deadline AS rsvpDeadline,
   event_description AS eventDescription,
+  event_image_id AS eventImageID,
   invitations_sent AS invitationsSent,
   created_at AS createdAt,
   updated_at AS updatedAt
@@ -212,6 +219,13 @@ export function validateCanonicalEvent(
     "event.eventDescription",
     { max: 2_000, allowEmpty: true },
   );
+  const eventImageID = input.eventImageID ?? DEFAULT_EVENT_IMAGE_ID;
+  if (
+    typeof eventImageID !== "string" ||
+    !EVENT_IMAGE_IDS.includes(eventImageID as EventImageID)
+  ) {
+    throw new ApiError(400, "invalid_event", "event.eventImageID is not supported.");
+  }
   const eventDate = normalizeIsoDate(input.eventDate, "event.eventDate", {
     nullable: true,
   });
@@ -380,6 +394,7 @@ export function validateCanonicalEvent(
     requiredGroups,
     rsvpDeadline,
     eventDescription,
+    eventImageID: eventImageID as EventImageID,
     createdAt,
     invitationsSent: input.invitationsSent,
   };
@@ -461,6 +476,7 @@ async function hydrateEvents(
     requiredGroups: [...(groupsByEvent.get(event.id)?.values() ?? [])],
     rsvpDeadline: event.rsvpDeadline,
     eventDescription: event.eventDescription,
+    eventImageID: event.eventImageID ?? DEFAULT_EVENT_IMAGE_ID,
     createdAt: event.createdAt,
     invitationsSent: Boolean(event.invitationsSent),
     privateResponsePolicy: policiesByEvent.get(event.id) ?? null,
@@ -815,26 +831,48 @@ export async function putHostedEvent(
       "Sent invitations cannot be returned to draft status.",
     );
   }
-  if (event.invitationsSent && event.rsvpDeadline! <= nowIso) {
+  if (isSending) assertInvitationDeliveryReady(bindings, event);
+  let isConfirmed = false;
+  if (existing) {
+    const resolution = await db
+      .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
+      .bind(eventId)
+      .first<{ status: string }>();
+    isConfirmed = resolution?.status === "confirmed";
+    if (isConfirmed) {
+      const stored = await getEventById(db, eventId);
+      if (!stored || stored.hostUserId !== hostUserId) {
+        throw new ApiError(404, "event_not_found", "The event was not found.");
+      }
+      const attendanceSettingsChanged =
+        event.minimumParticipants !== stored.minimumParticipants ||
+        event.rsvpDeadline !== stored.rsvpDeadline ||
+        event.allowsAttendeesToAddGuests !== stored.allowsAttendeesToAddGuests ||
+        JSON.stringify(event.invitees) !== JSON.stringify(stored.invitees) ||
+        JSON.stringify(event.requiredGroups) !== JSON.stringify(stored.requiredGroups);
+      if (attendanceSettingsChanged) {
+        throw new ApiError(
+          409,
+          "confirmed_event_attendance_locked",
+          "Attendance settings and the RSVP deadline can’t be changed after confirmation.",
+        );
+      }
+    }
+  }
+  if (!isConfirmed && event.invitationsSent && event.rsvpDeadline! <= nowIso) {
     throw new ApiError(
       400,
       "invalid_event",
       "A sent event must have a future reply deadline.",
     );
   }
-  if (isSending) assertInvitationDeliveryReady(bindings, event);
-  if (existing) {
-    const resolution = await db
-      .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
-      .bind(eventId)
-      .first<{ status: string }>();
-    if (resolution?.status === "confirmed") {
-      throw new ApiError(
-        409,
-        "event_already_confirmed",
-        "Confirmed events can’t be changed.",
-      );
-    }
+
+  if (isConfirmed && !event.invitationsSent) {
+    throw new ApiError(
+      409,
+      "event_already_confirmed",
+      "A confirmed event can’t return to draft status.",
+    );
   }
 
   if (event.invitees.length > 0) {
@@ -860,12 +898,16 @@ export async function putHostedEvent(
   const createdAt = existing ? null : event.createdAt ?? nowIso;
   const statements: D1PreparedStatement[] = [];
   if (existing) {
+    if (!isConfirmed) {
+      statements.push(
+        // Protocol-v2 ballots are independent of the old frozen evaluator
+        // policy. Converting a legacy event removes only that obsolete policy
+        // and its cached result; it never deletes a private ballot.
+        db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(event.id),
+        db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(event.id),
+      );
+    }
     statements.push(
-      // Protocol-v2 ballots are independent of the old frozen evaluator
-      // policy. Converting a legacy event removes only that obsolete policy
-      // and its cached result; it never deletes a private ballot.
-      db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(event.id),
-      db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(event.id),
       db
         .prepare(
           `UPDATE events SET
@@ -879,12 +921,13 @@ export async function putHostedEvent(
              allows_attendees_to_add_guests = ?,
              rsvp_deadline = ?,
              event_description = ?,
+             event_image_id = ?,
              invitations_sent = ?,
              updated_at = ?
            WHERE id = ? AND host_user_id = ?
-             AND NOT EXISTS (
+             ${isConfirmed ? "" : `AND NOT EXISTS (
                SELECT 1 FROM event_policies WHERE event_policies.event_id = events.id
-             )`,
+             )`}`,
         )
         .bind(
           event.title,
@@ -897,6 +940,7 @@ export async function putHostedEvent(
           event.allowsAttendeesToAddGuests ? 1 : 0,
           event.rsvpDeadline,
           event.eventDescription,
+          event.eventImageID,
           event.invitationsSent ? 1 : 0,
           nowIso,
           event.id,
@@ -910,9 +954,9 @@ export async function putHostedEvent(
           `INSERT INTO events
             (id, host_user_id, title, event_date, end_date, host_name, location_name,
              location_address, minimum_participants, allows_attendees_to_add_guests,
-             rsvp_deadline, event_description,
+             rsvp_deadline, event_description, event_image_id,
              invitations_sent, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           event.id,
@@ -927,63 +971,65 @@ export async function putHostedEvent(
           event.allowsAttendeesToAddGuests ? 1 : 0,
           event.rsvpDeadline,
           event.eventDescription,
+          event.eventImageID,
           event.invitationsSent ? 1 : 0,
           createdAt,
           nowIso,
         ),
     );
   }
-  statements.push(
-    db
-      .prepare(
-        `DELETE FROM groups
+  if (!isConfirmed) {
+    statements.push(
+      db
+        .prepare(
+          `DELETE FROM groups
          WHERE event_id = ?
            AND NOT EXISTS (
              SELECT 1 FROM event_policies WHERE event_policies.event_id = groups.event_id
            )`,
-      )
-      .bind(event.id),
-  );
-  if (event.invitees.length === 0) {
-    statements.push(
-      db
-        .prepare(
-          `DELETE FROM invitees
+        )
+        .bind(event.id),
+    );
+    if (event.invitees.length === 0) {
+      statements.push(
+        db
+          .prepare(
+            `DELETE FROM invitees
            WHERE event_id = ?
              AND NOT EXISTS (
                SELECT 1 FROM event_policies
                WHERE event_policies.event_id = invitees.event_id
              )`,
-        )
-        .bind(event.id),
-    );
-  } else {
-    const placeholders = event.invitees.map(() => "?").join(", ");
-    statements.push(
-      db
-        .prepare(
-          `DELETE FROM invitees
+          )
+          .bind(event.id),
+      );
+    } else {
+      const placeholders = event.invitees.map(() => "?").join(", ");
+      statements.push(
+        db
+          .prepare(
+            `DELETE FROM invitees
            WHERE event_id = ? AND id NOT IN (${placeholders})
              AND NOT EXISTS (
                SELECT 1 FROM event_policies
                WHERE event_policies.event_id = invitees.event_id
              )`,
-        )
-        .bind(event.id, ...event.invitees.map((invitee) => invitee.id)),
-    );
-  }
+          )
+          .bind(event.id, ...event.invitees.map((invitee) => invitee.id)),
+      );
+    }
 
-  for (const invitee of event.invitees) {
-    const phoneHash = await pepperedHash(config.pepper, "phone", invitee.phoneNumber);
-    const inviteToken = await createSealedInviteToken(
-      config.pepper,
-      event.id,
-      invitee.id,
-    );
-    statements.push(
-      db
-        .prepare(
-          `INSERT INTO invitees
+    for (const invitee of event.invitees) {
+      const phoneHash = await pepperedHash(config.pepper, "phone", invitee.phoneNumber);
+      const inviteToken = await createSealedInviteToken(
+        config.pepper,
+        event.id,
+        invitee.id,
+      );
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO invitees
             (id, event_id, user_id, display_name, phone_number, phone_hash, token_hash,
              token_ciphertext, token_nonce, token_storage_version, created_at, updated_at)
            SELECT
@@ -1008,46 +1054,46 @@ export async function putHostedEvent(
                SELECT 1 FROM event_policies
                WHERE event_policies.event_id = invitees.event_id
              )`,
-        )
-        .bind(
-          invitee.id,
-          event.id,
-          phoneHash,
-          invitee.displayName,
-          invitee.phoneNumber,
-          phoneHash,
-          inviteToken.tokenHash,
-          inviteToken.tokenCiphertext,
-          inviteToken.tokenNonce,
-          inviteToken.tokenStorageVersion,
-          nowIso,
-          nowIso,
-          event.id,
-        ),
-    );
-  }
-  if (isSending) {
-    statements.push(
-      ...prepareInvitationDeliveryStatements(db, bindings, event, nowIso),
-    );
-  }
-  event.requiredGroups.forEach((group, groupPosition) => {
-    statements.push(
-      db
-        .prepare(
-          `INSERT INTO groups (id, event_id, position)
+          )
+          .bind(
+            invitee.id,
+            event.id,
+            phoneHash,
+            invitee.displayName,
+            invitee.phoneNumber,
+            phoneHash,
+            inviteToken.tokenHash,
+            inviteToken.tokenCiphertext,
+            inviteToken.tokenNonce,
+            inviteToken.tokenStorageVersion,
+            nowIso,
+            nowIso,
+            event.id,
+          ),
+      );
+    }
+    if (isSending) {
+      statements.push(
+        ...prepareInvitationDeliveryStatements(db, bindings, event, nowIso),
+      );
+    }
+    event.requiredGroups.forEach((group, groupPosition) => {
+      statements.push(
+        db
+          .prepare(
+            `INSERT INTO groups (id, event_id, position)
            SELECT ?, ?, ?
            WHERE NOT EXISTS (
              SELECT 1 FROM event_policies WHERE event_policies.event_id = ?
            )`,
-        )
-        .bind(group.id, event.id, groupPosition, event.id),
-    );
-    group.memberIDs.forEach((inviteeId, memberPosition) => {
-      statements.push(
-        db
-          .prepare(
-            `INSERT INTO group_members (group_id, invitee_id, position)
+          )
+          .bind(group.id, event.id, groupPosition, event.id),
+      );
+      group.memberIDs.forEach((inviteeId, memberPosition) => {
+        statements.push(
+          db
+            .prepare(
+              `INSERT INTO group_members (group_id, invitee_id, position)
              SELECT ?, ?, ?
              WHERE EXISTS (
                SELECT 1 FROM groups
@@ -1057,11 +1103,12 @@ export async function putHostedEvent(
                    WHERE event_policies.event_id = groups.event_id
                  )
              )`,
-          )
-          .bind(group.id, inviteeId, memberPosition, group.id),
-      );
+            )
+            .bind(group.id, inviteeId, memberPosition, group.id),
+        );
+      });
     });
-  });
+  }
   await db.batch(statements);
 
   if (isSending) {

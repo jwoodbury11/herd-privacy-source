@@ -10,15 +10,18 @@ struct EventDateSheet: View {
     @State private var workingDate: Date
     @State private var includesEndDate: Bool
     @State private var workingEndDate: Date
+    private let locksRSVPDeadline: Bool
 
     init(
         eventDate: Binding<Date?>,
         endDate: Binding<Date?>,
-        rsvpDeadline: Binding<Date?>
+        rsvpDeadline: Binding<Date?>,
+        locksRSVPDeadline: Bool = false
     ) {
         _eventDate = eventDate
         _endDate = endDate
         _rsvpDeadline = rsvpDeadline
+        self.locksRSVPDeadline = locksRSVPDeadline
 
         let defaultStart = eventDate.wrappedValue ?? EventDraftDefaults.eventDate()
         _workingDate = State(initialValue: defaultStart)
@@ -35,7 +38,7 @@ struct EventDateSheet: View {
                     DatePicker(
                         "Event date and time",
                         selection: $workingDate,
-                        in: Date.now...,
+                        in: minimumStartDate...,
                         displayedComponents: [.date, .hourAndMinute]
                     )
                     .datePickerStyle(.graphical)
@@ -62,11 +65,13 @@ struct EventDateSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Clear") {
-                        eventDate = nil
-                        endDate = nil
-                        rsvpDeadline = nil
-                        dismiss()
+                    if !locksRSVPDeadline {
+                        Button("Clear") {
+                            eventDate = nil
+                            endDate = nil
+                            rsvpDeadline = nil
+                            dismiss()
+                        }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -74,9 +79,9 @@ struct EventDateSheet: View {
                         eventDate = workingDate
                         endDate = includesEndDate ? max(workingEndDate, minimumEndDate) : nil
 
-                        if rsvpDeadline == nil ||
+                        if !locksRSVPDeadline && (rsvpDeadline == nil ||
                             rsvpDeadline! >= workingDate ||
-                            !EventDeadlineRules.canSubmit(deadline: rsvpDeadline!) {
+                            !EventDeadlineRules.canSubmit(deadline: rsvpDeadline!)) {
                             rsvpDeadline = Self.testReplyDeadline(before: workingDate)
                                 ?? EventDeadlineRules.suggestedReplyDeadline(before: workingDate)
                         }
@@ -90,6 +95,11 @@ struct EventDateSheet: View {
 
     private var minimumEndDate: Date {
         workingDate.addingTimeInterval(EventDeadlineRules.minimumEventSeparation)
+    }
+
+    private var minimumStartDate: Date {
+        guard locksRSVPDeadline, let rsvpDeadline else { return .now }
+        return max(.now, rsvpDeadline.addingTimeInterval(60))
     }
 
     private static func testReplyDeadline(before eventDate: Date) -> Date? {

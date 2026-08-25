@@ -11,7 +11,7 @@
       "title": "Make plans happen.",
       "body": "Unlock more fun events with completely confidential conditional replies.",
       "phoneLabel": "Sign in with phone number",
-      "phonePlaceholder": "+1 (555) 555-5555",
+      "phonePlaceholder": "Sign in with phone",
       "requestCodeButton": "Text me a code",
       "requestCodePendingButton": "Sending…"
     },
@@ -77,13 +77,16 @@
       "sectionGap": 36,
       "cardCornerRadius": 18,
       "cardPadding": 16,
-      "cardMinimumHeight": 140,
-      "webCardMinimumHeight": 180,
+      "cardMinimumHeight": 228,
+      "webCardMinimumHeight": 240,
       "profileAvatarDiameter": 44
     },
     "webCreateEventHandoff": {
-      "heading": "Download Herd to host an event",
-      "body": "Open Herd on your iPhone and sign in with the same phone number. Events you host there sync back to this home screen.",
+      "heading": "Download Herd",
+      "body": "The iPhone app is required to choose guests from your contacts and host an event. Events you host there will appear here too.",
+      "availabilityLabel": "iPhone app coming soon",
+      "availabilityBody": "The app is awaiting approval from Apple before it can be downloaded.",
+      "downloadButton": "Download app",
       "backButton": "Back to Herd events"
     }
   },
@@ -182,6 +185,7 @@
     },
     "eventActions": {
       "moreLabel": "More event actions",
+      "editButton": "Edit this event",
       "deleteButton": "Delete this event",
       "deletionTitle": "Delete this event?",
       "deletionBody": "This permanently deletes the event for you and everyone invited. This can’t be undone.",
@@ -207,7 +211,7 @@
     "navigationTitle": "Attendees",
     "title": "Attendees",
     "statusDisclosure": "Each guest’s decision to attend stays private until the event is confirmed.",
-    "responseProgressLocked": "Send your private reply to see who has already responded.",
+    "responseProgressLocked": "Reply privately to see who has responded.",
     "responseProgressVisible": "You can see who has already responded.",
     "hostLabel": "Host",
     "hostingLabel": "Hosting",
@@ -335,8 +339,9 @@
   },
   "success": {
     "title": "Thanks for responding",
-    "body": "Your latest reply is saved.",
-    "replyPreviewTitle": "This is how your saved reply will show up to others:",
+    "replyPreviewTitle": "This is how your reply will appear to others.",
+    "confirmedPreviewOption": "Event confirmed",
+    "notConfirmedPreviewOption": "Event not confirmed",
     "changeWithDeadlinePrefix": "The accountability deadline is",
     "changeWithoutDeadline": "You can change your reply at any time.",
     "viewInvitationButton": "View invitation",

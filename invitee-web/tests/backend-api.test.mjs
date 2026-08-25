@@ -201,7 +201,7 @@ async function createHarness(options = {}) {
   };
 }
 
-test("authentication accepts only canonical pending invitation tokens", async (t) => {
+test("authentication ignores invitation-link presentation data", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
@@ -210,11 +210,11 @@ test("authentication accepts only canonical pending invitation tokens", async (t
     "/api/auth/request-code",
     jsonRequest("POST", { phoneNumber: "1", inviteToken: "bad/token" }),
   );
-  assert.equal(response.status, 400);
-  assert.equal((await response.json()).error?.code, "invalid_invite_token");
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).user.phoneNumber, "+14155550101");
   assert.equal(
     await database.prepare("SELECT COUNT(*) AS count FROM sessions").first("count"),
-    0,
+    1,
   );
 });
 
@@ -223,7 +223,6 @@ test("a full test-account phone number still starts a real Twilio challenge", as
   const verifyServiceSid = `VA${"7".repeat(32)}`;
   const providerSid = `VE${"8".repeat(32)}`;
   const realPhone = "+14155550101";
-  const wrongPhone = "+14155550996";
   const inviteToken = "Real_invite-token-123";
   const fetchMock = createFetchMock();
   fetchMock.disableNetConnect();
@@ -243,77 +242,6 @@ test("a full test-account phone number still starts a real Twilio challenge", as
     },
   });
   t.after(() => miniflare.dispose());
-
-  const nowIso = new Date().toISOString();
-  await database.batch([
-    database
-      .prepare(
-        `INSERT INTO users
-          (id, phone_number, phone_hash, name, address, created_at, updated_at)
-         VALUES (?, ?, ?, '', '', ?, ?)`,
-      )
-      .bind(
-        "invite-auth-host",
-        "+14155550994",
-        pepperedTestHash("phone", "+14155550994"),
-        nowIso,
-        nowIso,
-      ),
-    database
-      .prepare(
-        `INSERT INTO events
-          (id, host_user_id, title, event_date, end_date, host_name,
-           location_name, location_address, minimum_participants,
-           rsvp_deadline, event_description, invitations_sent, created_at, updated_at)
-         VALUES (?, ?, 'Bound auth', NULL, NULL, 'Host', '', '', 2,
-                 NULL, '', 1, ?, ?)`,
-      )
-      .bind(
-        "76000000-0000-4000-8000-000000000001",
-        "invite-auth-host",
-        nowIso,
-        nowIso,
-      ),
-    database
-      .prepare(
-        `INSERT INTO invitees
-          (id, event_id, user_id, display_name, phone_number, phone_hash,
-           token_hash, created_at, updated_at)
-         VALUES (?, ?, NULL, 'Real invitee', ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        "76100000-0000-4000-8000-000000000001",
-        "76000000-0000-4000-8000-000000000001",
-        realPhone,
-        pepperedTestHash("phone", realPhone),
-        pepperedTestHash("invite-token", inviteToken),
-        nowIso,
-        nowIso,
-      ),
-  ]);
-
-  const mismatch = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", { phoneNumber: wrongPhone, inviteToken }),
-  );
-  assert.equal(mismatch.status, 400);
-  const mismatchError = (await mismatch.json()).error;
-  assert.equal(mismatchError.code, "invitation_auth_mismatch");
-  const missing = await api(
-    miniflare,
-    "/api/auth/request-code",
-    jsonRequest("POST", {
-      phoneNumber: realPhone,
-      inviteToken: "Missing_invite-token-456",
-    }),
-  );
-  assert.equal(missing.status, 400);
-  assert.deepEqual((await missing.json()).error, mismatchError);
-  assert.equal(
-    await database.prepare("SELECT COUNT(*) AS count FROM challenges").first("count"),
-    0,
-  );
 
   const accepted = await api(
     miniflare,
@@ -577,6 +505,7 @@ test("a host event appears for every invited test account after invitations are 
     requiredGroups: [],
     rsvpDeadline: new Date(Date.now() + 12 * 86_400_000).toISOString(),
     eventDescription: "Verifies host-to-invitee backend synchronization.",
+    eventImageID: "skiing",
     createdAt: new Date().toISOString(),
     invitationsSent: false,
   };
@@ -587,11 +516,21 @@ test("a host event appears for every invited test account after invitations are 
     authorizedJsonRequest("PUT", event, sessions.get("1")),
   );
   assert.equal(draftResponse.status, 200);
+  assert.equal((await draftResponse.json()).event.eventImageID, "skiing");
+  assert.equal(
+    await database
+      .prepare("SELECT event_image_id AS eventImageID FROM events WHERE id = ?")
+      .bind(eventId)
+      .first("eventImageID"),
+    "skiing",
+  );
 
   const hostDraftEvents = await api(miniflare, "/api/events", {
     headers: { authorization: `Bearer ${sessions.get("1")}` },
   });
-  assert.equal((await hostDraftEvents.json()).events[0].role, "host");
+  const hostDraftEvent = (await hostDraftEvents.json()).events[0];
+  assert.equal(hostDraftEvent.role, "host");
+  assert.equal(hostDraftEvent.eventImageID, "skiing");
   for (const digit of ["2", "3", "4", "5", "6", "7", "8", "9"]) {
     const hiddenDraftResponse = await api(miniflare, "/api/events", {
       headers: { authorization: `Bearer ${sessions.get(digit)}` },
@@ -620,6 +559,7 @@ test("a host event appears for every invited test account after invitations are 
     const invitedEvents = (await invitedEventsResponse.json()).events;
     const invitedEvent = invitedEvents.find((candidate) => candidate.id === eventId);
     assert.equal(invitedEvent.role, "invitee");
+    assert.equal(invitedEvent.eventImageID, "skiing");
     assert.equal(invitedEvent.invitees.filter((invitee) => invitee.isCurrentUser).length, 1);
     assert.ok(invitedEvent.inviteToken);
     invitedEventsByDigit.set(digit, invitedEvent);
@@ -868,6 +808,67 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
   );
   assert.equal(confirmedAttendeeAddition.status, 409);
   assert.equal((await confirmedAttendeeAddition.json()).error.code, "event_already_confirmed");
+
+  const confirmedHostEvents = await api(miniflare, "/api/events", {
+    headers: { authorization: `Bearer ${sessions.get("1")}` },
+  });
+  assert.equal(confirmedHostEvents.status, 200);
+  const confirmedHostEvent = (await confirmedHostEvents.json()).events.find(
+    (candidate) => candidate.id === eventId,
+  );
+  assert.ok(confirmedHostEvent);
+
+  const confirmedMetadataEdit = await api(
+    miniflare,
+    `/api/events/${eventId}`,
+    authorizedJsonRequest("PUT", {
+      ...confirmedHostEvent,
+      title: "Edited after confirmation",
+      locationName: "Updated location",
+      eventDescription: "Ordinary event details remain editable.",
+    }, sessions.get("1")),
+  );
+  assert.equal(confirmedMetadataEdit.status, 200, await confirmedMetadataEdit.clone().text());
+  const editedConfirmedEvent = (await confirmedMetadataEdit.json()).event;
+  assert.equal(editedConfirmedEvent.title, "Edited after confirmation");
+  assert.equal(editedConfirmedEvent.locationName, "Updated location");
+  assert.equal(
+    await database
+      .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
+      .bind(eventId)
+      .first("status"),
+    "confirmed",
+  );
+
+  const lockedConfirmedChanges = [
+    {
+      ...editedConfirmedEvent,
+      minimumParticipants: editedConfirmedEvent.minimumParticipants + 1,
+    },
+    {
+      ...editedConfirmedEvent,
+      rsvpDeadline: new Date(Date.parse(editedConfirmedEvent.rsvpDeadline) - 60_000).toISOString(),
+    },
+    {
+      ...editedConfirmedEvent,
+      requiredGroups: [{
+        id: "75000000-0000-4000-8000-000000000005",
+        memberIDs: [editedConfirmedEvent.invitees[0].id],
+      }],
+    },
+  ];
+  for (const lockedChange of lockedConfirmedChanges) {
+    const response = await api(
+      miniflare,
+      `/api/events/${eventId}`,
+      authorizedJsonRequest("PUT", lockedChange, sessions.get("1")),
+    );
+    assert.equal(response.status, 409);
+    assert.equal(
+      (await response.json()).error.code,
+      "confirmed_event_attendance_locked",
+    );
+  }
 
   // A protocol-v2 roster can expand after replies begin. The existing
   // pseudonymous ballot stays intact and the cached result is recalculated.
@@ -1646,9 +1647,9 @@ test("the authentication cutover revokes every legacy session", async () => {
   assert.match(migration, /WHERE `revoked_at` IS NULL/);
 });
 
-test("removed demo invitation fixtures are not exposed by the production API", async (t) => {
+test("signed-out callers cannot probe removed invitation fixtures", async (t) => {
   const { miniflare } = await createHarness();
   t.after(() => miniflare.dispose());
   const response = await api(miniflare, "/api/invites/poker-party");
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 401);
 });
