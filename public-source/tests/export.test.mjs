@@ -298,6 +298,7 @@ test("repository policy includes the executable privacy contracts and acceptance
     "HerdClip/PrivacyInfo.xcprivacy",
     "release/HerdRelease.xcconfig",
     "HerdHost/Assets.xcassets/AppIcon.appiconset/HerdAppIcon.png",
+    "HerdHost/Assets.xcassets/HerdBrandIcon.imageset/HerdAppIcon.png",
     "HerdHost/Assets.xcassets/HerdWelcomeSplash.imageset/herd-welcome-splash.png",
     "HerdHost/Assets.xcassets/EventScenes/event-scene-poker.imageset/event-scene-poker.png",
     "invitee-web/app/globals.css",
