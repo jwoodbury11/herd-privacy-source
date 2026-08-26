@@ -364,18 +364,31 @@ test("an expired session returns to sign-in without losing the invitation", asyn
   await page.getByLabel("Sign in with phone number").fill("4");
   await page.getByRole("button", { name: "Text me a code" }).click();
   await openInvitationFromHome(page);
+  const going = page.getByRole("radio", { name: /I’m down if/u });
+  const cannotCommit = page.getByRole("radio", { name: /Can’t commit/u });
+  if (await going.getAttribute("aria-checked") === "true") {
+    await cannotCommit.click();
+  } else {
+    await going.click();
+  }
 
-  await harness.database
-    .prepare(
-      `UPDATE sessions
-       SET revoked_at = datetime('now')
-       WHERE user_id = (
-         SELECT id FROM users WHERE phone_number = '+14155550104'
-       ) AND revoked_at IS NULL`,
-    )
-    .run();
-  await page.getByRole("radio", { name: /I’m down if/u }).click();
-  await page.getByRole("button", { name: "Update my private reply" }).click();
+  await page.route("**/api/invites/*/ballot", async (route) => {
+    if (route.request().method() === "PUT") {
+      await harness.database
+        .prepare(
+          `UPDATE sessions
+           SET revoked_at = datetime('now')
+           WHERE user_id = (
+             SELECT id FROM users WHERE phone_number = '+14155550104'
+           ) AND revoked_at IS NULL`,
+        )
+        .run();
+    }
+    await route.continue();
+  });
+  await page.getByRole("button", {
+    name: /(?:Send|Update) my private reply/u,
+  }).click();
 
   await expect(page).toHaveURL(invitation.href);
   await expect(page.getByRole("heading", { name: "Make plans happen." })).toBeVisible();
