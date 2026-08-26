@@ -780,8 +780,9 @@ test("production config generation and artifact preflight bind web and iOS build
     build: manifestInput.artifacts.ios.build,
     developmentTeam: "R4UPN8ZDV8",
     appIdentifier: `R4UPN8ZDV8.${manifestInput.artifacts.ios.bundleIdentifier}`,
+    appClipBundleIdentifier: `${manifestInput.artifacts.ios.bundleIdentifier}.Clip`,
+    appClipIdentifier: `R4UPN8ZDV8.${manifestInput.artifacts.ios.bundleIdentifier}.Clip`,
     associatedDomain: "app.herdprivacy.com",
-    keychainAccessGroup: `R4UPN8ZDV8.${manifestInput.artifacts.ios.bundleIdentifier}`,
   });
   assert.equal(
     generated.iosBuildSettings.PRODUCT_BUNDLE_IDENTIFIER,
@@ -790,6 +791,10 @@ test("production config generation and artifact preflight bind web and iOS build
   assert.equal(
     generated.iosBuildSettings.HERD_ASSOCIATED_DOMAIN,
     "app.herdprivacy.com",
+  );
+  assert.equal(
+    generated.iosBuildSettings.HERD_APP_CLIP_BUNDLE_IDENTIFIER,
+    `${manifestInput.artifacts.ios.bundleIdentifier}.Clip`,
   );
   assert.equal(generated.iosBuildSettings.DEVELOPMENT_TEAM, "R4UPN8ZDV8");
   assert.equal(generated.iosBuildSettings.MARKETING_VERSION, manifestInput.artifacts.ios.version);
@@ -948,7 +953,29 @@ test("production config generation and artifact preflight bind web and iOS build
     "com.apple.developer.associated-domains": [
       `applinks:${generated.contract.ios.associatedDomain}`,
     ],
-    "keychain-access-groups": [generated.contract.ios.keychainAccessGroup],
+    "com.apple.developer.associated-appclip-app-identifiers": [
+      generated.contract.ios.appClipIdentifier,
+    ],
+    "get-task-allow": false,
+  };
+  const appClipInfo = {
+    ...generated.iosInfoValues,
+    CFBundleIdentifier: generated.contract.ios.appClipBundleIdentifier,
+    CFBundleExecutable: "HerdClip",
+    NSAppClip: {
+      NSAppClipRequestEphemeralUserNotification: false,
+      NSAppClipRequestLocationConfirmation: false,
+    },
+  };
+  const appClipEntitlements = {
+    "application-identifier": generated.contract.ios.appClipIdentifier,
+    "com.apple.developer.team-identifier": generated.contract.ios.developmentTeam,
+    "com.apple.developer.associated-domains": [
+      `appclips:${generated.contract.ios.associatedDomain}`,
+    ],
+    "com.apple.developer.parent-application-identifiers": [
+      generated.contract.ios.appIdentifier,
+    ],
     "get-task-allow": false,
   };
 
@@ -995,6 +1022,8 @@ test("production config generation and artifact preflight bind web and iOS build
     normalizedIosBinaryPath,
     iosInfo: { ...generated.iosInfoValues, CFBundleExecutable: "HerdHost" },
     iosEntitlements,
+    appClipInfo,
+    appClipEntitlements,
     cosign: cosignStub,
   });
   assert.equal(result.configurationSha256, manifest.productionPolicy.configurationSha256);
@@ -1016,6 +1045,8 @@ test("production config generation and artifact preflight bind web and iOS build
       normalizedIosBinaryPath,
       iosInfo: wrongInfo,
       iosEntitlements,
+      appClipInfo,
+      appClipEntitlements,
       cosign: cosignStub,
     }),
     /HERD_API_BASE_URL does not match/u,
@@ -1043,6 +1074,8 @@ test("production config generation and artifact preflight bind web and iOS build
         normalizedIosBinaryPath,
         iosInfo: wrongIdentity,
         iosEntitlements,
+        appClipInfo,
+        appClipEntitlements,
         cosign: cosignStub,
       }),
       new RegExp(`${key} does not match`, "u"),
@@ -1063,8 +1096,12 @@ test("production config generation and artifact preflight bind web and iOS build
       /associated domains/u,
     ],
     [
+      (value) => { value["com.apple.developer.associated-appclip-app-identifiers"] = ["R4UPN8ZDV8.com.herd.wrong.Clip"]; },
+      /embedded App Clip/u,
+    ],
+    [
       (value) => { value["keychain-access-groups"] = ["R4UPN8ZDV8.com.herd.other"]; },
-      /Keychain access group/u,
+      /unexpected capability/u,
     ],
     [
       (value) => { value["get-task-allow"] = true; },
@@ -1089,6 +1126,8 @@ test("production config generation and artifact preflight bind web and iOS build
         normalizedIosBinaryPath,
         iosInfo: { ...generated.iosInfoValues, CFBundleExecutable: "HerdHost" },
         iosEntitlements: changedEntitlements,
+        appClipInfo,
+        appClipEntitlements,
         cosign: cosignStub,
       }),
       expected,
@@ -1111,6 +1150,8 @@ test("production config generation and artifact preflight bind web and iOS build
     rootCertificate: path.join(root, "attestation-root.pem"),
     iosInfo: path.join(root, "Info.plist.json"),
     iosEntitlements: path.join(root, "Entitlements.plist.json"),
+    appClipInfo: path.join(root, "AppClip.Info.plist.json"),
+    appClipEntitlements: path.join(root, "AppClip.Entitlements.plist.json"),
   };
   await Promise.all([
     writeFile(paths.manifest, manifestBytes),
@@ -1119,6 +1160,8 @@ test("production config generation and artifact preflight bind web and iOS build
     writeFile(paths.rootCertificate, TEST_ROOT_CERTIFICATE),
     writeFile(paths.iosInfo, canonicalJson({ ...generated.iosInfoValues, CFBundleExecutable: "HerdHost" })),
     writeFile(paths.iosEntitlements, canonicalJson(iosEntitlements)),
+    writeFile(paths.appClipInfo, canonicalJson(appClipInfo)),
+    writeFile(paths.appClipEntitlements, canonicalJson(appClipEntitlements)),
   ]);
   await command([
     "release/preflight-production-artifacts.mjs",
@@ -1134,6 +1177,8 @@ test("production config generation and artifact preflight bind web and iOS build
     "--normalized-ios-binary", normalizedIosBinaryPath,
     "--ios-info-json", paths.iosInfo,
     "--ios-entitlements-json", paths.iosEntitlements,
+    "--app-clip-info-json", paths.appClipInfo,
+    "--app-clip-entitlements-json", paths.appClipEntitlements,
     "--cosign", cosignStub,
   ]);
 });

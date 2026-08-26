@@ -350,6 +350,7 @@ struct HerdExperience: Decodable {
         let replyPreviewTitle: String
         let confirmedPreviewOption: String
         let notConfirmedPreviewOption: String
+        let appClipDownloadButton: String
         let changeWithDeadlinePrefix: String
         let changeWithoutDeadline: String
         let viewInvitationButton: String

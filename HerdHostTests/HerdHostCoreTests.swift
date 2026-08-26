@@ -3,6 +3,33 @@ import Security
 import XCTest
 @testable import HerdHost
 
+final class HerdRuntimeTests: XCTestCase {
+    func testInvitationURLAcceptsOnlyExactHTTPSInviteRoute() {
+        XCTAssertEqual(
+            HerdRuntime.invitationToken(
+                from: URL(string: "https://app.herdprivacy.com/invite/AbC_123-xyz")
+            ),
+            "AbC_123-xyz"
+        )
+    }
+
+    func testInvitationURLRejectsUntrustedOrAmbiguousRoutes() {
+        let rejected = [
+            "http://app.herdprivacy.com/invite/abc",
+            "https://herdprivacy.com/invite/abc",
+            "https://app.herdprivacy.com.evil.example/invite/abc",
+            "https://app.herdprivacy.com/invite/abc/extra",
+            "https://app.herdprivacy.com/invite/abc?redirect=evil",
+            "https://app.herdprivacy.com/invite/abc#fragment",
+            "https://app.herdprivacy.com/events/abc",
+        ]
+
+        for value in rejected {
+            XCTAssertNil(HerdRuntime.invitationToken(from: URL(string: value)), value)
+        }
+    }
+}
+
 final class AccountKeyDeletionTests: XCTestCase {
     func testDeletingAnAccountRemovesEveryLocalRootSecretItem() async throws {
         let service = "com.herd.tests.account-deletion.\(UUID().uuidString.lowercased())"

@@ -56,12 +56,21 @@ budget is consumed before this comparison; the phone/SMS resend budget is
 consumed only after a valid pair, so correcting a bad link does not throttle the
 legitimate number.
 
-If an authenticated phone number does not own the invitation, both renderers
+If an authenticated phone number does not own the invitation, every renderer
 offer an explicit account switch and preserve the link while the current
 session is removed. The iPhone target declares the associated domain, and the
 web origin serves `/.well-known/apple-app-site-association` directly without a
 redirect. Production release configuration derives that domain from the signed
 web origin and publishes the signed app identifier to the web runtime.
+
+The App Clip uses the native guest experience, including authentication,
+invitation detail, private replies, attendee visibility, refresh, and profile
+management. Hosting entry points lead to the full-app download handoff because
+App Clips cannot use Contacts. Its reply-success screen has one `Get Herd`
+action. It stores sessions and protected reply material in its own default
+Keychain; on iOS 15.4 and later the system makes those items available to the
+corresponding full app through the signed parent/App Clip association. Neither
+target declares a custom Keychain-sharing group.
 
 ## Intentional differences
 

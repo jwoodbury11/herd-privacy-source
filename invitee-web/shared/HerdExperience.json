@@ -86,7 +86,7 @@
       "body": "The iPhone app is required to choose guests from your contacts and host an event. Events you host there will appear here too.",
       "availabilityLabel": "iPhone app coming soon",
       "availabilityBody": "The app is awaiting approval from Apple before it can be downloaded.",
-      "downloadButton": "Download app",
+      "downloadButton": "Get Herd",
       "backButton": "Back to Herd events"
     }
   },
@@ -340,8 +340,9 @@
   "success": {
     "title": "Thanks for responding",
     "replyPreviewTitle": "This is how your reply will appear to others.",
-    "confirmedPreviewOption": "Event confirmed",
-    "notConfirmedPreviewOption": "Event not confirmed",
+    "confirmedPreviewOption": "If confirmed",
+    "notConfirmedPreviewOption": "If never confirmed",
+    "appClipDownloadButton": "Get Herd",
     "changeWithDeadlinePrefix": "The accountability deadline is",
     "changeWithoutDeadline": "You can change your reply at any time.",
     "viewInvitationButton": "View invitation",

@@ -33,6 +33,34 @@
 		B00000000000000000000200 /* HerdHostCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000100 /* HerdHostCoreTests.swift */; };
 		B00000000000000000000201 /* private-response-v1-cross-platform-vectors.json in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000101 /* private-response-v1-cross-platform-vectors.json */; };
 		U00000000000000000000200 /* HerdHostUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = U00000000000000000000100 /* HerdHostUITests.swift */; };
+		P00000000000000000000200 /* HerdHostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000100 /* HerdHostApp.swift */; };
+		P00000000000000000000201 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000101 /* Models.swift */; };
+		P00000000000000000000202 /* EventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000102 /* EventStore.swift */; };
+		P00000000000000000000203 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000103 /* Theme.swift */; };
+		P00000000000000000000204 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000104 /* HomeView.swift */; };
+		P00000000000000000000205 /* DateTimeSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000105 /* DateTimeSheets.swift */; };
+		P00000000000000000000206 /* EventEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000106 /* EventEditorView.swift */; };
+		P00000000000000000000207 /* ContactStoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000107 /* ContactStoreService.swift */; };
+		P00000000000000000000208 /* AttendeeFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000108 /* AttendeeFlowView.swift */; };
+		P00000000000000000000209 /* LocationSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000109 /* LocationSearchView.swift */; };
+		P00000000000000000000210 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* Assets.xcassets */; };
+		P00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000103 /* PrivacyInfo.xcprivacy */; };
+		P00000000000000000000212 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000112 /* APIClient.swift */; };
+		P00000000000000000000213 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000113 /* AuthStore.swift */; };
+		P00000000000000000000214 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000114 /* AuthenticationView.swift */; };
+		P00000000000000000000215 /* RSVPCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000116 /* RSVPCrypto.swift */; };
+		P00000000000000000000216 /* AccountKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000117 /* AccountKeyStore.swift */; };
+		P00000000000000000000217 /* HerdExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000118 /* HerdExperience.swift */; };
+		P00000000000000000000218 /* HerdExperience.json in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000119 /* HerdExperience.json */; };
+		P00000000000000000000219 /* EventImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* EventImage.swift */; };
+		P00000000000000000000220 /* InvitationToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E00000000000000000000100 /* InvitationToken.swift */; };
+		P00000000000000000000221 /* EvaluatorAttestation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C00000000000000000000100 /* EvaluatorAttestation.swift */; };
+		P00000000000000000000222 /* HerdRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000104 /* HerdRuntime.swift */; };
+		A00000000000000000000222 /* HerdRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000104 /* HerdRuntime.swift */; };
+		P00000000000000000000223 /* HerdClipApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000100 /* HerdClipApp.swift */; };
+		P00000000000000000000224 /* HerdClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = P00000000000000000000005 /* HerdClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		P00000000000000000000225 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000100 /* UITestSupport.swift */; };
+		P00000000000000000000226 /* AppClipHostStubs.swift in Sources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000105 /* AppClipHostStubs.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,7 +78,28 @@
 			remoteGlobalIDString = A00000000000000000000013;
 			remoteInfo = HerdHost;
 		};
+		P00000000000000000000020 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = P00000000000000000000013;
+			remoteInfo = HerdClip;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		P00000000000000000000030 /* Embed App Clips */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/AppClips";
+			dstSubfolderSpec = 16;
+			files = (
+				P00000000000000000000224 /* HerdClip.app in Embed App Clips */,
+			);
+			name = "Embed App Clips";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000005 /* HerdHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HerdHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -84,6 +133,13 @@
 		D00000000000000000000100 /* HerdRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = release/HerdRelease.xcconfig; sourceTree = SOURCE_ROOT; };
 		U00000000000000000000005 /* HerdHostUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HerdHostUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		U00000000000000000000100 /* HerdHostUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdHostUITests.swift; sourceTree = "<group>"; };
+		P00000000000000000000005 /* HerdClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HerdClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		P00000000000000000000100 /* HerdClipApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdClipApp.swift; sourceTree = "<group>"; };
+		P00000000000000000000101 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		P00000000000000000000102 /* HerdClip.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HerdClip.entitlements; sourceTree = "<group>"; };
+		P00000000000000000000103 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		P00000000000000000000104 /* HerdRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdRuntime.swift; sourceTree = "<group>"; };
+		P00000000000000000000105 /* AppClipHostStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppClipHostStubs.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +164,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		P00000000000000000000011 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -115,6 +178,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000004 /* HerdHost */,
+				P00000000000000000000004 /* HerdClip */,
 				B00000000000000000000004 /* HerdHostTests */,
 				U00000000000000000000004 /* HerdHostUITests */,
 				A00000000000000000000006 /* Shared */,
@@ -135,6 +199,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000005 /* HerdHost.app */,
+				P00000000000000000000005 /* HerdClip.app */,
 				B00000000000000000000005 /* HerdHostTests.xctest */,
 				U00000000000000000000005 /* HerdHostUITests.xctest */,
 			);
@@ -164,11 +229,24 @@
 				E00000000000000000000100 /* InvitationToken.swift */,
 				C00000000000000000000100 /* EvaluatorAttestation.swift */,
 				F00000000000000000000100 /* UITestSupport.swift */,
+				P00000000000000000000104 /* HerdRuntime.swift */,
 				A00000000000000000000115 /* Info.plist */,
 				A00000000000000000000110 /* Assets.xcassets */,
 				A00000000000000000000111 /* PrivacyInfo.xcprivacy */,
 			);
 			path = HerdHost;
+			sourceTree = "<group>";
+		};
+		P00000000000000000000004 /* HerdClip */ = {
+			isa = PBXGroup;
+			children = (
+				P00000000000000000000100 /* HerdClipApp.swift */,
+				P00000000000000000000101 /* Info.plist */,
+				P00000000000000000000102 /* HerdClip.entitlements */,
+				P00000000000000000000103 /* PrivacyInfo.xcprivacy */,
+				P00000000000000000000105 /* AppClipHostStubs.swift */,
+			);
+			path = HerdClip;
 			sourceTree = "<group>";
 		};
 		B00000000000000000000004 /* HerdHostTests */ = {
@@ -198,15 +276,34 @@
 				A00000000000000000000010 /* Sources */,
 				A00000000000000000000011 /* Frameworks */,
 				A00000000000000000000012 /* Resources */,
+				P00000000000000000000030 /* Embed App Clips */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				P00000000000000000000021 /* PBXTargetDependency */,
 			);
 			name = HerdHost;
 			productName = HerdHost;
 			productReference = A00000000000000000000005 /* HerdHost.app */;
 			productType = "com.apple.product-type.application";
+		};
+		P00000000000000000000013 /* HerdClip */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = P00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdClip" */;
+			buildPhases = (
+				P00000000000000000000010 /* Sources */,
+				P00000000000000000000011 /* Frameworks */,
+				P00000000000000000000012 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HerdClip;
+			productName = HerdClip;
+			productReference = P00000000000000000000005 /* HerdClip.app */;
+			productType = "com.apple.product-type.application.on-demand-install-capable";
 		};
 		B00000000000000000000013 /* HerdHostTests */ = {
 			isa = PBXNativeTarget;
@@ -257,6 +354,9 @@
 					A00000000000000000000013 = {
 						CreatedOnToolsVersion = 26.6;
 					};
+					P00000000000000000000013 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					B00000000000000000000013 = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = A00000000000000000000013;
@@ -281,6 +381,7 @@
 			projectRoot = "";
 			targets = (
 				A00000000000000000000013 /* HerdHost */,
+				P00000000000000000000013 /* HerdClip */,
 				B00000000000000000000013 /* HerdHostTests */,
 				U00000000000000000000013 /* HerdHostUITests */,
 			);
@@ -313,6 +414,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		P00000000000000000000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				P00000000000000000000210 /* Assets.xcassets in Resources */,
+				P00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */,
+				P00000000000000000000218 /* HerdExperience.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -340,6 +451,7 @@
 				E00000000000000000000200 /* InvitationToken.swift in Sources */,
 				C00000000000000000000200 /* EvaluatorAttestation.swift in Sources */,
 				F00000000000000000000200 /* UITestSupport.swift in Sources */,
+				A00000000000000000000222 /* HerdRuntime.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -359,6 +471,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		P00000000000000000000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				P00000000000000000000200 /* HerdHostApp.swift in Sources */,
+				P00000000000000000000201 /* Models.swift in Sources */,
+				P00000000000000000000202 /* EventStore.swift in Sources */,
+				P00000000000000000000203 /* Theme.swift in Sources */,
+				P00000000000000000000204 /* HomeView.swift in Sources */,
+				P00000000000000000000205 /* DateTimeSheets.swift in Sources */,
+				P00000000000000000000206 /* EventEditorView.swift in Sources */,
+				P00000000000000000000209 /* LocationSearchView.swift in Sources */,
+				P00000000000000000000212 /* APIClient.swift in Sources */,
+				P00000000000000000000213 /* AuthStore.swift in Sources */,
+				P00000000000000000000214 /* AuthenticationView.swift in Sources */,
+				P00000000000000000000215 /* RSVPCrypto.swift in Sources */,
+				P00000000000000000000216 /* AccountKeyStore.swift in Sources */,
+				P00000000000000000000217 /* HerdExperience.swift in Sources */,
+				P00000000000000000000219 /* EventImage.swift in Sources */,
+				P00000000000000000000220 /* InvitationToken.swift in Sources */,
+				P00000000000000000000221 /* EvaluatorAttestation.swift in Sources */,
+				P00000000000000000000222 /* HerdRuntime.swift in Sources */,
+				P00000000000000000000223 /* HerdClipApp.swift in Sources */,
+				P00000000000000000000225 /* UITestSupport.swift in Sources */,
+				P00000000000000000000226 /* AppClipHostStubs.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -371,6 +511,11 @@
 			isa = PBXTargetDependency;
 			target = A00000000000000000000013 /* HerdHost */;
 			targetProxy = U00000000000000000000020 /* PBXContainerItemProxy */;
+		};
+		P00000000000000000000021 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = P00000000000000000000013 /* HerdClip */;
+			targetProxy = P00000000000000000000020 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -498,6 +643,10 @@
 				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				HERD_API_BASE_URL = "https://app.herdprivacy.com";
+				HERD_APP_CLIP_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototype.Clip;
+				HERD_ASSOCIATED_DOMAIN = app.herdprivacy.com;
+				HERD_PARENT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototype;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = HerdHost/Info.plist;
@@ -553,6 +702,86 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		P00000000000000000000018 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000100 /* HerdRelease.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HerdClip/HerdClip.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HERD_API_BASE_URL = "https://app.herdprivacy.com";
+				HERD_APP_CLIP_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototype.Clip;
+				HERD_ASSOCIATED_DOMAIN = app.herdprivacy.com;
+				HERD_PARENT_BUNDLE_IDENTIFIER = com.jameswoodbury.HerdPrototype;
+				INFOPLIST_FILE = HerdClip/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Herd;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(HERD_APP_CLIP_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = HerdClip;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) APPCLIP";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		P00000000000000000000019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D00000000000000000000100 /* HerdRelease.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = HerdClip/HerdClip.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = R4UPN8ZDV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HerdClip/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Herd;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(HERD_APP_CLIP_BUNDLE_IDENTIFIER)";
+				PRODUCT_NAME = HerdClip;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) APPCLIP";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = minimal;
 				SWIFT_VERSION = 5.0;
@@ -685,6 +914,15 @@
 			buildConfigurations = (
 				A00000000000000000000018 /* Debug */,
 				A00000000000000000000019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		P00000000000000000000015 /* Build configuration list for PBXNativeTarget "HerdClip" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				P00000000000000000000018 /* Debug */,
+				P00000000000000000000019 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

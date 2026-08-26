@@ -29,8 +29,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "Herd — private event replies",
-    description:
-      "A private, low-pressure way to find out whether the group is really in.",
+    description: "Reply privately. Plan honestly.",
     manifest: "/site.webmanifest",
     icons: {
       icon: [
@@ -44,7 +43,7 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     openGraph: {
       title: "Herd",
-      description: "Private replies. Real plans.",
+      description: "Reply privately. Plan honestly.",
       type: "website",
       url: origin,
       images: [{ url: imageUrl, width: 1200, height: 630, alt: "Herd — Private replies. Real plans." }],
@@ -52,7 +51,7 @@ export async function generateMetadata(): Promise<Metadata> {
     twitter: {
       card: "summary_large_image",
       title: "Herd",
-      description: "Private replies. Real plans.",
+      description: "Reply privately. Plan honestly.",
       images: [imageUrl],
     },
   };

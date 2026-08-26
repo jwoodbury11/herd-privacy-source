@@ -1,10 +1,12 @@
 import SwiftUI
 
+#if !APPCLIP
 @main
 struct HerdHostApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var authStore: AuthStore
     @State private var eventStore: EventStore
+    @State private var invitationToken: String?
 
     private let startsInCreateFlow = ProcessInfo.processInfo.arguments.contains("--open-create")
 
@@ -50,11 +52,17 @@ struct HerdHostApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppRootView(startsInCreateFlow: startsInCreateFlow)
+            AppRootView(
+                startsInCreateFlow: startsInCreateFlow,
+                invitationToken: invitationToken
+            )
                 .environment(authStore)
                 .environment(eventStore)
                 .preferredColorScheme(.dark)
                 .tint(.white)
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    invitationToken = HerdRuntime.invitationToken(from: activity)
+                }
                 .overlay {
                     if scenePhase != .active {
                         ZStack {
@@ -78,12 +86,14 @@ struct HerdHostApp: App {
         }
     }
 }
+#endif
 
-private struct AppRootView: View {
+struct AppRootView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(EventStore.self) private var eventStore
 
     let startsInCreateFlow: Bool
+    let invitationToken: String?
 
     var body: some View {
         ZStack {
@@ -100,7 +110,8 @@ private struct AppRootView: View {
                 } else if authStore.isAuthenticated {
                     HomeView(
                         startsInCreateFlow: startsInCreateFlow,
-                        initialCreateEvent: initialCreateEvent
+                        initialCreateEvent: initialCreateEvent,
+                        invitationToken: invitationToken
                     )
                 } else {
                     AuthenticationView()

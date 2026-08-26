@@ -241,12 +241,14 @@ test("fails when signed live AASA bytes authorize the wrong app or invite path",
         apps: [],
         details: [{ appID: "R4UPN8ZDV8.com.herd.wrong", paths: ["/invite/*"] }],
       },
+      appclips: { apps: ["R4UPN8ZDV8.com.herd.host.Clip"] },
     },
     {
       applinks: {
         apps: [],
         details: [{ appID: "R4UPN8ZDV8.com.herd.host", paths: ["/*"] }],
       },
+      appclips: { apps: ["R4UPN8ZDV8.com.herd.host.Clip"] },
     },
   ]) {
     const fixture = monitoredFixture({ appleAppSiteAssociationValue });
@@ -255,6 +257,22 @@ test("fails when signed live AASA bytes authorize the wrong app or invite path",
       /exact production app and invitation path/u,
     );
   }
+});
+
+test("fails when signed live AASA bytes authorize the wrong App Clip", async () => {
+  const fixture = monitoredFixture({
+    appleAppSiteAssociationValue: {
+      applinks: {
+        apps: [],
+        details: [{ appID: "R4UPN8ZDV8.com.herd.host", paths: ["/invite/*"] }],
+      },
+      appclips: { apps: ["R4UPN8ZDV8.com.herd.wrong.Clip"] },
+    },
+  });
+  await assert.rejects(
+    verifyMonitoredTarget(fixture, { fetchImpl: mockFetch(fixture.responses) }),
+    /exact production App Clip/u,
+  );
 });
 
 test("fails when the public pointer replaces the independently configured signing key", async () => {

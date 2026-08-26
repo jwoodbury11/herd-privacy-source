@@ -20,6 +20,7 @@ function iosAppIdentifier(value: string | undefined): string {
 
 export function appleAppSiteAssociationResponse(bindings: HerdBindings): Response {
   const appID = iosAppIdentifier(bindings.HERD_IOS_APP_ID);
+  const appClipID = `${appID}.Clip`;
   return new Response(
     JSON.stringify({
       applinks: {
@@ -30,6 +31,9 @@ export function appleAppSiteAssociationResponse(bindings: HerdBindings): Respons
             paths: ["/invite/*"],
           },
         ],
+      },
+      appclips: {
+        apps: [appClipID],
       },
     }),
     {

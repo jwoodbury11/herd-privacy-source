@@ -309,9 +309,9 @@ export function SmsConsentDocument({
 
       <Section title="Production invitation format">
         <blockquote className={classNames.messageFormat}>
-          Herd: [Host name] invited you to [Event title] — [event date and time]. View details and respond privately: [unique
-          invitation link]. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg &amp; data rates
-          may apply.
+          A plan is taking shape on Herd: [Event title] — [event date and time]. [Host name] included you. Open the invitation
+          and reply privately. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg &amp; data
+          rates may apply. [Unique invitation link]
         </blockquote>
       </Section>
 

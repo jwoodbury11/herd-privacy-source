@@ -170,7 +170,7 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
     await expect(page.getByText("Your latest reply is saved.", { exact: true })).toHaveCount(0);
     await expect(page.getByText("If the event is confirmed:", { exact: true })).toHaveCount(0);
     await expect(page.getByText("This event was not confirmed", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Event not confirmed" }).click();
+    await page.getByRole("button", { name: "If never confirmed" }).click();
     await expect(page.getByText("This event was not confirmed", { exact: true })).toBeVisible();
     await expect(page.getByText("Zero information is shown to anybody.", { exact: true })).toBeVisible();
     expect(pageErrors, `browser errors for test account ${alias}`).toEqual([]);

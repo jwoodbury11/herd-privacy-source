@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 import UIKit
 
 struct HomeView: View {
@@ -15,26 +16,33 @@ struct HomeView: View {
     private enum Presentation: Identifiable {
         case create(HerdEvent)
         case detail(UUID)
+        case fullApp
 
         var id: String {
             switch self {
             case let .create(event): "create-\(event.id.uuidString)"
             case let .detail(eventID):
                 "detail-\(eventID.uuidString)"
+            case .fullApp:
+                "full-app"
             }
         }
     }
 
     init(
         startsInCreateFlow: Bool = false,
-        initialCreateEvent: HerdEvent? = nil
+        initialCreateEvent: HerdEvent? = nil,
+        invitationToken: String? = nil
     ) {
+        self.invitationToken = invitationToken
         _presentation = State(
-            initialValue: startsInCreateFlow
+            initialValue: startsInCreateFlow && !HerdRuntime.isAppClip
                 ? .create(initialCreateEvent ?? .newDraft())
                 : nil
         )
     }
+
+    private let invitationToken: String?
 
     var body: some View {
         NavigationStack {
@@ -106,6 +114,8 @@ struct HomeView: View {
                 EventEditorView(event: event)
             case let .detail(eventID):
                 InvitationDetailView(eventID: eventID)
+            case .fullApp:
+                FullAppHandoffView()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -195,6 +205,14 @@ struct HomeView: View {
                 await store.refresh()
             }
         }
+        .task(id: invitationToken) {
+            guard let invitationToken else { return }
+            if case let .loaded(eventID) = await store.openInvitation(
+                inviteToken: invitationToken
+            ) {
+                presentation = .detail(eventID)
+            }
+        }
     }
 
     private var nextResolutionDeadline: Date? {
@@ -210,7 +228,9 @@ struct HomeView: View {
 
     private func eventButton(for event: HerdEvent) -> some View {
         Button {
-            if event.isHosted && !event.invitationsSent {
+            if HerdRuntime.isAppClip && event.isHosted && !event.invitationsSent {
+                presentation = .fullApp
+            } else if event.isHosted && !event.invitationsSent {
                 presentation = .create(event)
             } else {
                 presentation = .detail(event.id)
@@ -266,7 +286,11 @@ struct HomeView: View {
 
             if showsCreateAction {
                 CreateEventCard(experience: experience) {
-                    presentation = .create(.newDraft(hostName: profileName))
+                    if HerdRuntime.isAppClip {
+                        presentation = .fullApp
+                    } else {
+                        presentation = .create(.newDraft(hostName: profileName))
+                    }
                 }
             }
         }
@@ -484,7 +508,84 @@ private struct CreateEventCard: View {
         }
         .buttonStyle(PlainPressButtonStyle())
         .accessibilityIdentifier("create-event-card")
-        .accessibilityHint("Opens the event creation form")
+        .accessibilityHint(
+            HerdRuntime.isAppClip
+                ? "Opens the full app download"
+                : "Opens the event creation form"
+        )
+    }
+}
+
+private struct FullAppHandoffView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var showsAppStoreOverlay = false
+    private let experience = HerdExperience.shared.home.webCreateEventHandoff
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                VStack(spacing: 24) {
+                    ZStack {
+                        Circle()
+                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                            .frame(width: 150, height: 150)
+                        Circle()
+                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                            .frame(width: 104, height: 104)
+                        Image(systemName: "iphone.gen3")
+                            .font(.system(size: 46, weight: .regular))
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.system(size: 26, weight: .medium))
+                            .padding(8)
+                            .background(HerdTheme.raisedSurface, in: .circle)
+                            .offset(x: 42, y: 42)
+                    }
+
+                    VStack(spacing: 10) {
+                        Text(experience.heading)
+                            .font(.largeTitle.weight(.bold))
+                            .multilineTextAlignment(.center)
+                        Text(experience.body)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 30)
+
+                Button {
+                    showsAppStoreOverlay = true
+                } label: {
+                    Text(experience.downloadButton)
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(.white, in: .rect(cornerRadius: 14))
+                }
+                .buttonStyle(PlainPressButtonStyle())
+                .accessibilityIdentifier("full-app-download")
+                .padding(20)
+            }
+            .background(HerdTheme.canvas)
+            .navigationTitle(HerdExperience.shared.home.createEventTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel(experience.backButton)
+                }
+            }
+        }
+        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
+            SKOverlay.AppClipConfiguration(position: .bottom)
+        }
     }
 }
 
@@ -1488,6 +1589,7 @@ private struct InvitationDetailView: View {
     @State private var showsCollapsedEventTitle = false
     @State private var showsEventDeletionConfirmation = false
     @State private var eventBeingEdited: HerdEvent?
+    @State private var showsFullAppHandoff = false
     @State private var eventDeletionError: String?
     @State private var confirmedReplyNoticeID: UUID?
     @State private var addressCopiedNoticeID: UUID?
@@ -1541,12 +1643,6 @@ private struct InvitationDetailView: View {
                     .refreshable {
                         await store.refresh()
                     }
-                    .coordinateSpace(name: "invitation-detail-scroll")
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        geometry.contentOffset.y + geometry.contentInsets.top > 210
-                    } action: { _, shouldShowTitle in
-                        showsCollapsedEventTitle = shouldShowTitle
-                    }
                 } else {
                     ContentUnavailableView(
                         invitationExperience.unavailableTitle,
@@ -1595,24 +1691,37 @@ private struct InvitationDetailView: View {
                         Menu {
                             if let event {
                                 Button {
-                                    eventBeingEdited = event
+                                    if HerdRuntime.isAppClip {
+                                        showsFullAppHandoff = true
+                                    } else {
+                                        eventBeingEdited = event
+                                    }
                                 } label: {
-                                    Label(invitationExperience.eventActions.editButton, systemImage: "pencil")
+                                    Label(
+                                        HerdRuntime.isAppClip
+                                            ? "Manage in Herd app"
+                                            : invitationExperience.eventActions.editButton,
+                                        systemImage: HerdRuntime.isAppClip
+                                            ? "arrow.down.app"
+                                            : "pencil"
+                                    )
                                 }
                                 .accessibilityIdentifier("edit-hosted-event")
                             }
 
-                            Button(role: .destructive) {
-                                showsEventDeletionConfirmation = true
-                            } label: {
-                                Label {
-                                    Text(invitationExperience.eventActions.deleteButton)
-                                        .foregroundStyle(.red)
-                                } icon: {
-                                    Image(uiImage: Self.destructiveTrashImage)
+                            if !HerdRuntime.isAppClip {
+                                Button(role: .destructive) {
+                                    showsEventDeletionConfirmation = true
+                                } label: {
+                                    Label {
+                                        Text(invitationExperience.eventActions.deleteButton)
+                                            .foregroundStyle(.red)
+                                    } icon: {
+                                        Image(uiImage: Self.destructiveTrashImage)
+                                    }
                                 }
+                                .accessibilityIdentifier("delete-hosted-event")
                             }
-                            .accessibilityIdentifier("delete-hosted-event")
                         } label: {
                             Image(systemName: "ellipsis")
                         }
@@ -1648,6 +1757,9 @@ private struct InvitationDetailView: View {
         }
         .fullScreenCover(item: $eventBeingEdited) { event in
             EventEditorView(event: event)
+        }
+        .fullScreenCover(isPresented: $showsFullAppHandoff) {
+            FullAppHandoffView()
         }
         .sheet(isPresented: $showsConditionPicker) {
             if let event {
@@ -1796,6 +1908,10 @@ private struct InvitationDetailView: View {
                 .lineSpacing(-3)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 14)
+                .accessibilityIdentifier("event-detail-expanded-title")
+                .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+                    showsCollapsedEventTitle = !isVisible
+                }
 
             if !event.eventDescription.isEmpty {
                 Text(event.eventDescription)
@@ -3679,6 +3795,7 @@ private struct InvitationResponseSuccess: View {
     let onHome: () -> Void
     private let experience = HerdExperience.shared.success
     @State private var previewOutcome = ReplyPreviewOutcome.confirmed
+    @State private var showsAppStoreOverlay = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -3693,21 +3810,16 @@ private struct InvitationResponseSuccess: View {
                     Text(experience.title)
                         .font(.largeTitle.weight(.bold))
 
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Text(experience.replyPreviewTitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .minimumScaleFactor(0.82)
+                            .accessibilityIdentifier("success-reply-preview-title")
 
-                        Picker("Preview outcome", selection: $previewOutcome) {
-                            Text(experience.confirmedPreviewOption)
-                                .tag(ReplyPreviewOutcome.confirmed)
-                            Text(experience.notConfirmedPreviewOption)
-                                .tag(ReplyPreviewOutcome.notConfirmed)
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("success-outcome-picker")
+                        outcomeSelector
+                        .padding(.top, 34)
 
                         ReplyVisibilityPreview(
                             displayName: displayName,
@@ -3716,6 +3828,7 @@ private struct InvitationResponseSuccess: View {
                                 : HerdExperience.shared.reply.cantCommitTitle,
                             mode: previewOutcome == .confirmed ? .confirmed : .notConfirmed
                         )
+                        .padding(.top, 18)
                         .accessibilityIdentifier("success-outcome-preview")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -3724,38 +3837,107 @@ private struct InvitationResponseSuccess: View {
             }
 
             VStack(spacing: 12) {
-                Button(action: onViewInvitation) {
-                    Text(experience.viewInvitationButton)
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .contentShape(.rect(cornerRadius: 14))
-                        .background(.white, in: .rect(cornerRadius: 14))
-                }
-                .buttonStyle(PlainPressButtonStyle())
-                .accessibilityIdentifier("success-view-invitation")
+                if HerdRuntime.isAppClip {
+                    Button {
+                        showsAppStoreOverlay = true
+                    } label: {
+                        Text(experience.appClipDownloadButton)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .contentShape(.rect(cornerRadius: 14))
+                            .background(.white, in: .rect(cornerRadius: 14))
+                    }
+                    .buttonStyle(PlainPressButtonStyle())
+                    .accessibilityIdentifier("success-download-herd")
+                } else {
+                    Button(action: onViewInvitation) {
+                        Text(experience.viewInvitationButton)
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .contentShape(.rect(cornerRadius: 14))
+                            .background(.white, in: .rect(cornerRadius: 14))
+                    }
+                    .buttonStyle(PlainPressButtonStyle())
+                    .accessibilityIdentifier("success-view-invitation")
 
-                Button(action: onHome) {
-                    Text(experience.homeButton)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 15)
-                        .contentShape(.rect(cornerRadius: 14))
-                        .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14)
-                                .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                        }
+                    Button(action: onHome) {
+                        Text(experience.homeButton)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .contentShape(.rect(cornerRadius: 14))
+                            .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(PlainPressButtonStyle())
+                    .accessibilityIdentifier("success-back-to-events")
                 }
-                .buttonStyle(PlainPressButtonStyle())
-                .accessibilityIdentifier("success-back-to-events")
             }
             .padding(20)
             .background(HerdTheme.canvas)
         }
         .background(HerdTheme.canvas)
+        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
+            SKOverlay.AppClipConfiguration(position: .bottom)
+        }
+    }
+
+    private var outcomeSelector: some View {
+        HStack(spacing: 0) {
+            outcomeButton(
+                experience.confirmedPreviewOption,
+                outcome: .confirmed
+            )
+            outcomeButton(
+                experience.notConfirmedPreviewOption,
+                outcome: .notConfirmed
+            )
+        }
+        .padding(3)
+        .frame(height: 58)
+        .background(HerdTheme.raisedSurface, in: .capsule)
+        .overlay {
+            Capsule()
+                .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("success-outcome-picker")
+    }
+
+    private func outcomeButton(
+        _ title: String,
+        outcome: ReplyPreviewOutcome
+    ) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                previewOutcome = outcome
+            }
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    previewOutcome == outcome
+                        ? Color(uiColor: .systemGray2)
+                        : Color.clear,
+                    in: .capsule
+                )
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PlainPressButtonStyle())
+        .accessibilityAddTraits(
+            previewOutcome == outcome ? [.isSelected] : []
+        )
     }
 }
 

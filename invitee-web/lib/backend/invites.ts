@@ -56,6 +56,35 @@ async function findInviteAccess(
     .first<InviteAccess>();
 }
 
+export type InvitationLinkPreview = {
+  title: string;
+  hostName: string;
+  eventImageID: string;
+};
+
+export async function getInvitationLinkPreview(
+  db: D1Database,
+  bindings: HerdBindings,
+  rawToken: string,
+): Promise<InvitationLinkPreview | null> {
+  const token = requireString(rawToken, "invite token", { min: 8, max: 200 });
+  if (!/^[A-Za-z0-9_-]+$/u.test(token)) return null;
+  const config = getAuthConfig(bindings);
+  const tokenHash = await pepperedHash(config.pepper, "invite-token", token);
+  return db
+    .prepare(
+      `SELECT events.title AS title,
+              events.host_name AS hostName,
+              events.event_image_id AS eventImageID
+       FROM invitees
+       JOIN events ON events.id = invitees.event_id
+       WHERE invitees.token_hash = ?
+         AND events.invitations_sent = 1`,
+    )
+    .bind(tokenHash)
+    .first<InvitationLinkPreview>();
+}
+
 async function responseCertificationStatus(
   db: D1Database,
   envelopeId: string,

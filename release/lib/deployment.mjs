@@ -31,7 +31,7 @@ export function verifyAppleAppSiteAssociation(bytes, appIdentifier) {
   } catch {
     throw new TypeError("Apple app-site association is not valid JSON.");
   }
-  exactKeys(value, ["applinks"], "Apple app-site association");
+  exactKeys(value, ["applinks", "appclips"], "Apple app-site association");
   exactKeys(value.applinks, ["apps", "details"], "Apple app-site association applinks");
   if (!Array.isArray(value.applinks.apps) || value.applinks.apps.length !== 0) {
     throw new TypeError("Apple app-site association applinks.apps must be empty.");
@@ -48,6 +48,14 @@ export function verifyAppleAppSiteAssociation(bytes, appIdentifier) {
     detail.paths[0] !== "/invite/*"
   ) {
     throw new TypeError("Apple app-site association does not bind the exact production app and invitation path.");
+  }
+  exactKeys(value.appclips, ["apps"], "Apple app-site association appclips");
+  if (
+    !Array.isArray(value.appclips.apps) ||
+    value.appclips.apps.length !== 1 ||
+    value.appclips.apps[0] !== `${appIdentifier}.Clip`
+  ) {
+    throw new TypeError("Apple app-site association does not bind the exact production App Clip.");
   }
   return value;
 }

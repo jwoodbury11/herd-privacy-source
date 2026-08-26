@@ -43,7 +43,7 @@ actor AccountKeyStore: AccountKeyStoring {
 
     private let service: String
 
-    init(service: String = (Bundle.main.bundleIdentifier ?? "com.herd.app") + ".private-response") {
+    init(service: String = HerdRuntime.parentApplicationBundleIdentifier + ".private-response") {
         self.service = service
     }
 
@@ -242,7 +242,7 @@ actor AccountKeyStore: AccountKeyStoring {
     }
 
     private func saveDeviceKey(_ data: Data, userID: String, deviceKeyID: UUID) throws {
-#if targetEnvironment(simulator)
+#if targetEnvironment(simulator) || APPCLIP
         try upsertData(
             data,
             account: deviceAccount(userID, deviceKeyID),
@@ -276,12 +276,20 @@ actor AccountKeyStore: AccountKeyStoring {
     }
 
     private func loadDeviceKey(userID: String, deviceKeyID: UUID) throws -> Data {
+#if APPCLIP
+        let data = try loadData(
+            account: deviceAccount(userID, deviceKeyID),
+            authenticationContext: nil
+        )
+#else
         let context = LAContext()
         context.localizedReason = "Unlock your private Herd reply"
-        guard let data = try loadData(
+        let data = try loadData(
             account: deviceAccount(userID, deviceKeyID),
             authenticationContext: context
-        ) else {
+        )
+#endif
+        guard let data else {
             throw AccountKeyStoreError.missingKey
         }
         guard data.count == 32 else { throw AccountKeyStoreError.invalidRecord }

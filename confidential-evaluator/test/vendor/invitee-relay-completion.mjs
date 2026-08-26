@@ -2866,7 +2866,24 @@ function prepareInsertPendingEventResolution(db, eventId, policyHash, nowIso) {
 }
 async function ensurePendingResolution(db, eventId, policyHash, nowIso) {
   await prepareInsertPendingEventResolution(db, eventId, policyHash, nowIso).run();
-  const row = await loadResolutionRow(db, eventId);
+  let row = await loadResolutionRow(db, eventId);
+  if (row && row.policyHash !== policyHash && row.status === "pending" && row.batchHash === null && row.attendingMemberIds === null && row.resolvedAt === null && row.evaluationLeaseId === null && row.evaluationLeaseExpiresAt === null && row.evaluationRequestHash === null && row.resultAttestationProtocolVersion === null && row.resultAttestationSigningKeyId === null && row.resultAttestationEvaluatedAt === null && row.resultAttestationCanonicalDocument === null && row.resultAttestationSignature === null) {
+    await db.prepare(
+      `DELETE FROM event_resolutions
+          WHERE event_id = ? AND policy_hash = ? AND status = 'pending'
+            AND batch_hash IS NULL AND attending_member_ids IS NULL
+            AND resolved_at IS NULL AND evaluation_lease_id IS NULL
+            AND evaluation_lease_expires_at IS NULL
+            AND evaluation_request_hash IS NULL
+            AND result_attestation_protocol_version IS NULL
+            AND result_attestation_signing_key_id IS NULL
+            AND result_attestation_evaluated_at IS NULL
+            AND result_attestation_canonical_document IS NULL
+            AND result_attestation_signature IS NULL`
+    ).bind(eventId, row.policyHash).run();
+    await prepareInsertPendingEventResolution(db, eventId, policyHash, nowIso).run();
+    row = await loadResolutionRow(db, eventId);
+  }
   if (!row) {
     throw new ApiError(
       500,
@@ -4064,6 +4081,15 @@ async function attachEventResolutions(db, bindings, events) {
           resolution
         };
       } catch (error) {
+        if (error instanceof ApiError && ["event_policy_corrupt", "event_resolution_corrupt"].includes(
+          error.code
+        )) {
+          reportEvaluationFailure(event.id, error);
+          return {
+            ...event,
+            resolution: { status: "verification_unavailable" }
+          };
+        }
         if (error instanceof ApiError && [
           "event_evaluation_unavailable",
           "invalid_evaluator_response",

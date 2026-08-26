@@ -217,9 +217,9 @@ export function invitationMessageBody(
   options: { replyReset?: boolean } = {},
 ): string {
   if (options.replyReset) {
-    return `Herd: ${event.hostName} added guests to ${event.title}. The private guest list changed, so please send your reply again: ${invitationUrl}. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
+    return `The guest list changed for ${event.title}. Open Herd to review the updated plan and send your private reply again. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl}`;
   }
-  return `Herd: ${event.hostName} invited you to ${event.title} — ${invitationDate(event.eventDate)}. View details and respond privately: ${invitationUrl}. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
+  return `A plan is taking shape on Herd: ${event.title} — ${invitationDate(event.eventDate)}. ${event.hostName} included you. Open the invitation and reply privately. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl}`;
 }
 
 async function updateDispatchResult(
