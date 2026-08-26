@@ -1691,10 +1691,15 @@ private struct InvitationDetailView: View {
                         Menu {
                             if let event {
                                 Button {
-                                    if HerdRuntime.isAppClip {
-                                        showsFullAppHandoff = true
-                                    } else {
-                                        eventBeingEdited = event
+                                    Task { @MainActor in
+                                        // Let the Menu finish dismissing before presenting a cover.
+                                        // Presenting both in the same transaction is dropped on iOS 26.
+                                        try? await Task.sleep(for: .milliseconds(150))
+                                        if HerdRuntime.isAppClip {
+                                            showsFullAppHandoff = true
+                                        } else {
+                                            eventBeingEdited = event
+                                        }
                                     }
                                 } label: {
                                     Label(
