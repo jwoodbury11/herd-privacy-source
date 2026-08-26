@@ -29,6 +29,7 @@ export type CanonicalEvent = {
   id: string;
   title: string;
   eventDate: string | null;
+  eventTimeZone: string | null;
   endDate: string | null;
   hostName: string;
   locationName: string;

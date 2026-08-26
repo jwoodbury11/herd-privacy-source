@@ -173,6 +173,7 @@ export const events = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     eventDate: text("event_date"),
+    eventTimeZone: text("event_time_zone"),
     endDate: text("end_date"),
     hostName: text("host_name").notNull(),
     locationName: text("location_name").notNull().default(""),

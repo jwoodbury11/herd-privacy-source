@@ -401,6 +401,7 @@ struct EventEditorView: View {
             LocationSearchView(
                 locationName: $draft.locationName,
                 locationAddress: $draft.locationAddress,
+                eventTimeZone: $draft.eventTimeZone,
                 profileAddress: authStore.user?.address ?? ""
             )
         }

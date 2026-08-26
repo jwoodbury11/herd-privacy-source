@@ -1201,6 +1201,7 @@ private struct RemoteEvent: Decodable, Sendable {
     let id: UUID
     var title: String
     var eventDate: Date?
+    var eventTimeZone: String?
     var endDate: Date?
     var hostName: String
     var locationName: String
@@ -1231,6 +1232,7 @@ private struct RemoteEvent: Decodable, Sendable {
             id: id,
             title: title,
             eventDate: eventDate,
+            eventTimeZone: eventTimeZone ?? TimeZone.autoupdatingCurrent.identifier,
             endDate: endDate,
             hostName: hostName,
             locationName: locationName,
@@ -1275,6 +1277,7 @@ private struct HostEventPayload: Encodable, Sendable {
     let id: UUID
     let title: String
     let eventDate: Date?
+    let eventTimeZone: String
     let endDate: Date?
     let hostName: String
     let locationName: String
@@ -1293,6 +1296,7 @@ private struct HostEventPayload: Encodable, Sendable {
         case id
         case title
         case eventDate
+        case eventTimeZone
         case endDate
         case hostName
         case locationName
@@ -1312,6 +1316,7 @@ private struct HostEventPayload: Encodable, Sendable {
         id = event.id
         title = event.title
         eventDate = event.eventDate
+        eventTimeZone = event.eventTimeZone
         endDate = event.endDate
         hostName = event.hostName
         locationName = event.locationName
@@ -1336,6 +1341,7 @@ private struct HostEventPayload: Encodable, Sendable {
         } else {
             try container.encodeNil(forKey: .eventDate)
         }
+        try container.encode(eventTimeZone, forKey: .eventTimeZone)
         if let endDate {
             try container.encode(endDate, forKey: .endDate)
         } else {

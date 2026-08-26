@@ -44,6 +44,7 @@ type DeliveryDispatchRow = {
   hostName: string;
   title: string;
   eventDate: string | null;
+  eventTimeZone: string | null;
   rsvpDeadline: string | null;
 };
 
@@ -202,24 +203,24 @@ export async function getInvitationDeliverySummary(
   return (await getInvitationDeliverySummaries(db, [eventId])).get(eventId) ?? null;
 }
 
-function invitationDate(value: string | null): string {
+function invitationDate(value: string | null, timeZone: string | null): string {
   if (!value) return "date to be announced";
-  return `${new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: "UTC",
-  }).format(new Date(value))} UTC`;
+    timeZone: timeZone ?? "UTC",
+  }).format(new Date(value));
 }
 
 export function invitationMessageBody(
-  event: Pick<CanonicalEvent, "hostName" | "title" | "eventDate">,
+  event: Pick<CanonicalEvent, "hostName" | "title" | "eventDate" | "eventTimeZone">,
   invitationUrl: string,
   options: { replyReset?: boolean } = {},
 ): string {
   if (options.replyReset) {
-    return `The guest list changed for ${event.title}. Open Herd to review the updated plan and send your private reply again. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl}`;
+    return `${invitationUrl}\n${event.hostName} updated ${event.title}. Open Herd to review the guest list change and send your private reply again. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
   }
-  return `A plan is taking shape on Herd: ${event.title} — ${invitationDate(event.eventDate)}. ${event.hostName} included you. Open the invitation and reply privately. One-time message sent at the host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl}`;
+  return `${invitationUrl}\n${event.hostName} invited you to ${event.title} — ${invitationDate(event.eventDate, event.eventTimeZone)}. Open the invitation and reply privately. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
 }
 
 async function updateDispatchResult(
@@ -425,6 +426,7 @@ export async function dispatchEventInvitations(
               events.host_name AS hostName,
               events.title,
               events.event_date AS eventDate,
+              events.event_time_zone AS eventTimeZone,
               events.rsvp_deadline AS rsvpDeadline
        FROM invitation_deliveries
        JOIN invitees ON invitees.id = invitation_deliveries.invitee_id

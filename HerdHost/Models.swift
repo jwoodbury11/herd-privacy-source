@@ -411,6 +411,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
     var title: String
     var eventDate: Date?
+    var eventTimeZone: String
     var endDate: Date?
     var hostName: String
     var locationName: String
@@ -440,6 +441,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         id: UUID,
         title: String,
         eventDate: Date?,
+        eventTimeZone: String = TimeZone.autoupdatingCurrent.identifier,
         endDate: Date?,
         hostName: String,
         locationName: String,
@@ -468,6 +470,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         self.id = id
         self.title = title
         self.eventDate = eventDate
+        self.eventTimeZone = eventTimeZone
         self.endDate = endDate
         self.hostName = hostName
         self.locationName = locationName
@@ -643,6 +646,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         case id
         case title
         case eventDate
+        case eventTimeZone
         case endDate
         case hostName
         case locationName
@@ -672,6 +676,8 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         id = try container.decode(UUID.self, forKey: .id)
         title = try container.decode(String.self, forKey: .title)
         eventDate = try container.decodeIfPresent(Date.self, forKey: .eventDate)
+        eventTimeZone = try container.decodeIfPresent(String.self, forKey: .eventTimeZone)
+            ?? TimeZone.autoupdatingCurrent.identifier
         endDate = try container.decodeIfPresent(Date.self, forKey: .endDate)
         hostName = try container.decode(String.self, forKey: .hostName)
         locationName = try container.decode(String.self, forKey: .locationName)
@@ -710,6 +716,7 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
         try container.encodeIfPresent(eventDate, forKey: .eventDate)
+        try container.encode(eventTimeZone, forKey: .eventTimeZone)
         try container.encodeIfPresent(endDate, forKey: .endDate)
         try container.encode(hostName, forKey: .hostName)
         try container.encode(locationName, forKey: .locationName)
