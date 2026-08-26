@@ -976,6 +976,7 @@ test("production config generation and artifact preflight bind web and iOS build
     "com.apple.developer.parent-application-identifiers": [
       generated.contract.ios.appIdentifier,
     ],
+    "com.apple.developer.on-demand-install-capable": true,
     "get-task-allow": false,
   };
 
@@ -1133,6 +1134,27 @@ test("production config generation and artifact preflight bind web and iOS build
       expected,
     );
   }
+
+  const missingOnDemandCapability = structuredClone(appClipEntitlements);
+  delete missingOnDemandCapability["com.apple.developer.on-demand-install-capable"];
+  await assert.rejects(
+    preflightProductionArtifacts({
+      manifest,
+      evaluatorUrl,
+      rootCertificate: TEST_ROOT_CERTIFICATE,
+      configDirectory,
+      artifactRoot: root,
+      webArchivePath,
+      iosArchivePath,
+      normalizedIosBinaryPath,
+      iosInfo: { ...generated.iosInfoValues, CFBundleExecutable: "HerdHost" },
+      iosEntitlements,
+      appClipInfo,
+      appClipEntitlements: missingOnDemandCapability,
+      cosign: cosignStub,
+    }),
+    /on-demand install capability/u,
+  );
 
   const manifestBytes = Buffer.from(canonicalJson(manifest));
   const signature = signCanonicalArtifact({
