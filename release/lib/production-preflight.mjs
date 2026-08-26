@@ -328,6 +328,7 @@ export function verifyAppClipEntitlements(entitlements, result) {
     "application-identifier",
     "beta-reports-active",
     "com.apple.developer.associated-domains",
+    "com.apple.developer.on-demand-install-capable",
     "com.apple.developer.parent-application-identifiers",
     "com.apple.developer.team-identifier",
     "get-task-allow",
@@ -356,6 +357,9 @@ export function verifyAppClipEntitlements(entitlements, result) {
     entitlements["com.apple.developer.parent-application-identifiers"][0] !== expected.appIdentifier
   ) {
     throw new TypeError("Signed App Clip does not identify the exact parent application.");
+  }
+  if (entitlements["com.apple.developer.on-demand-install-capable"] !== true) {
+    throw new TypeError("Signed App Clip does not declare the required on-demand install capability.");
   }
   if (entitlements["get-task-allow"] !== undefined && entitlements["get-task-allow"] !== false) {
     throw new TypeError("Signed production App Clip entitlements enable get-task-allow.");
