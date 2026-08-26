@@ -1719,7 +1719,7 @@ private struct InvitationDetailView: View {
                                     Task { @MainActor in
                                         // Let the Menu finish dismissing before presenting the alert.
                                         // Presenting both in the same transaction is dropped on iOS 26.
-                                        try? await Task.sleep(for: .milliseconds(350))
+                                        try? await Task.sleep(for: .milliseconds(750))
                                         showsEventDeletionConfirmation = true
                                     }
                                 } label: {
