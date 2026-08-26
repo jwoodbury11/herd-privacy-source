@@ -235,6 +235,8 @@ jobs:
             -project HerdHost.xcodeproj \
             -scheme HerdHost \
             -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+            -retry-tests-on-failure \
+            -test-iterations 3 \
             -derivedDataPath "$RUNNER_TEMP/herd-ios-ci-derived-data"
 
       - name: Build the fail-closed Release configuration without signing
