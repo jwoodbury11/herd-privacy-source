@@ -1711,7 +1711,12 @@ private struct InvitationDetailView: View {
 
                             if !HerdRuntime.isAppClip {
                                 Button(role: .destructive) {
-                                    showsEventDeletionConfirmation = true
+                                    Task { @MainActor in
+                                        // Let the Menu finish dismissing before presenting the alert.
+                                        // Presenting both in the same transaction is dropped on iOS 26.
+                                        try? await Task.sleep(for: .milliseconds(150))
+                                        showsEventDeletionConfirmation = true
+                                    }
                                 } label: {
                                     Label {
                                         Text(invitationExperience.eventActions.deleteButton)
