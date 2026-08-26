@@ -182,7 +182,7 @@ jobs:
     needs: release-evidence
     if: ${{ needs.release-evidence.result == 'success' && (github.event_name == 'workflow_dispatch' || github.repository == 'jwoodbury11/herd-privacy-source') }}
     runs-on: ${{ inputs.runner_mode == 'self-hosted' && fromJSON('["self-hosted","herd-release-macos"]') || 'macos-26' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
