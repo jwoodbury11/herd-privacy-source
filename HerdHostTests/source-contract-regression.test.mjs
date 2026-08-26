@@ -494,11 +494,16 @@ test("every iOS build requires hardware evaluator attestation", async () => {
 });
 
 test("the App Clip is embedded without making the archive generic", async () => {
-  const project = await readFile(
-    new URL("../HerdHost.xcodeproj/project.pbxproj", import.meta.url),
-    "utf8",
-  );
+  const [project, hostInfo, clipInfo] = await Promise.all([
+    readFile(new URL("../HerdHost.xcodeproj/project.pbxproj", import.meta.url), "utf8"),
+    source("Info.plist"),
+    readFile(new URL("../HerdClip/Info.plist", import.meta.url), "utf8"),
+  ]);
   const clipConfigurations = project.match(/PRODUCT_NAME = HerdClip;\s+SKIP_INSTALL = YES;/gu) ?? [];
   assert.equal(clipConfigurations.length, 2);
   assert.doesNotMatch(project, /PRODUCT_NAME = HerdClip;\s+SKIP_INSTALL = NO;/u);
+  for (const info of [hostInfo, clipInfo]) {
+    assert.match(info, /<key>HERD_APP_CLIP_BUNDLE_IDENTIFIER<\/key>/u);
+    assert.match(info, /<key>HERD_PARENT_BUNDLE_IDENTIFIER<\/key>/u);
+  }
 });
