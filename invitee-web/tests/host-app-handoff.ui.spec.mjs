@@ -24,7 +24,7 @@ test("hosting on web explains the iPhone requirement without offering an unavail
     await expect(page.getByText(/choose guests from your contacts and host an event/u)).toBeVisible();
     await expect(page.getByRole("status")).toContainText("iPhone app coming soon");
     await expect(page.getByRole("status")).toContainText("awaiting approval from Apple");
-    await expect(page.getByRole("button", { name: "Download app" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Get Herd" })).toBeDisabled();
     await expect(page.locator(".host-app-back")).toBeEnabled();
   } finally {
     await context.close();

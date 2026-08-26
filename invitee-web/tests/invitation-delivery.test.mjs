@@ -194,6 +194,7 @@ test("first Send stores an encrypted private link and returns provider-accepted 
       },
     ],
   });
+  event.eventImageID = "camping";
 
   assert.equal((await saveEvent(miniflare, hostToken, event)).status, 200);
   const sentResponse = await saveEvent(miniflare, hostToken, {
@@ -236,10 +237,10 @@ test("first Send stores an encrypted private link and returns provider-accepted 
   assert.equal(providerBody.get("To"), event.invitees[0].phoneNumber);
   assert.equal(providerBody.get("MessagingServiceSid"), messagingServiceSid);
   const message = providerBody.get("Body") ?? "";
-  assert.match(message, /^Herd: Herd test Host invited you to Delivery reliability dinner — /u);
+  assert.match(message, /^A plan is taking shape on Herd: Delivery reliability dinner — /u);
   assert.match(
     message,
-    /\. View details and respond privately: https:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}\. One-time message sent at the host’s request\. Reply STOP to opt out; HELP for help\. Msg & data rates may apply\.$/u,
+    /\. Herd test Host included you\. Open the invitation and reply privately\. One-time message sent at the host’s request\. Reply STOP to opt out; HELP for help\. Msg & data rates may apply\.\nhttps:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}$/u,
   );
   const invitationToken = message.match(/\/invite\/([A-Za-z0-9_-]{43})\./u)?.[1];
   assert.ok(invitationToken);
@@ -261,6 +262,22 @@ test("first Send stores an encrypted private link and returns provider-accepted 
     `/api/invites/${encodeURIComponent(invitationToken)}`,
   );
   assert.equal(privatePreview.status, 401);
+  const richPreview = await api(
+    miniflare,
+    `/invite/${encodeURIComponent(invitationToken)}`,
+  );
+  assert.equal(richPreview.status, 200);
+  const richPreviewHTML = await richPreview.text();
+  assert.match(richPreviewHTML, /Delivery reliability dinner/u);
+  assert.match(richPreviewHTML, /Reply privately\. Plan honestly\./u);
+  assert.match(
+    richPreviewHTML,
+    /https:\/\/herd\.example\.test\/link-previews\/camping\.png/u,
+  );
+  assert.doesNotMatch(richPreviewHTML, /Real delivery guest/u);
+  assert.doesNotMatch(richPreviewHTML, /\+16505559001/u);
+  assert.doesNotMatch(richPreviewHTML, /Transactional invitation delivery test/u);
+  assert.doesNotMatch(richPreviewHTML, /91100000-0000-4000-8000-000000000001/u);
   assert.equal(JSON.stringify(sentEvent.invitationDelivery).includes(invitationToken), false);
   assert.equal(JSON.stringify(sentEvent.invitationDelivery).includes(accountSid), false);
 });

@@ -623,6 +623,113 @@ async function createSingleInviteeEvent(
   return { event: saved, invited, inviteeId };
 }
 
+test("a stale empty result self-heals and a corrupt result cannot hide the event list", async (t) => {
+  const { miniflare, database } = await createHarness();
+  t.after(() => miniflare.dispose());
+
+  const epochActivatedAt = new Date().toISOString();
+  await database
+    .prepare(
+      `INSERT INTO evaluator_epoch_state
+        (singleton_id, generation, mode, evaluator_key_epoch_id,
+         epoch_descriptor_sha256, transparency_identity_sha256,
+         workload_image_digest, response_decryption_key_id,
+         evaluation_result_signing_key_id, policy_signing_key_id,
+         response_transparency_signing_key_id, activated_at, drain_started_at,
+         updated_at)
+       VALUES (1, 1, 'active', 'test-release', ?, ?, 'test-image',
+        'test-response-key', 'test-result-key', 'test-policy-key',
+        'test-transparency-key', ?, NULL, ?)`,
+    )
+    .bind("a".repeat(64), "b".repeat(64), epochActivatedAt, epochActivatedAt)
+    .run();
+
+  const host = await authenticate(miniflare, testPhone);
+  const invitee = await authenticate(miniflare, "1");
+  const deadline = new Date(Date.now() + 30_000).toISOString();
+  const recoverableEventId = "82000000-0000-4000-8000-000000000081";
+  const corruptEventId = "82000000-0000-4000-8000-000000000082";
+  await createSingleInviteeEvent(
+    miniflare,
+    host,
+    invitee,
+    recoverableEventId,
+    deadline,
+  );
+  await createSingleInviteeEvent(
+    miniflare,
+    host,
+    invitee,
+    corruptEventId,
+    deadline,
+  );
+
+  const nowIso = new Date().toISOString();
+  const insertPolicy = (eventId, policyHash) =>
+    database
+      .prepare(
+        `INSERT INTO event_policies
+          (event_id, protocol_version, cipher_suite, policy_hash,
+           canonical_document, evaluator_key_id, evaluator_public_key,
+           evaluator_measurement, release_id, padded_plaintext_bytes, frozen_at,
+           evaluator_epoch_descriptor_sha256)
+         SELECT ?, 1, 'P256_HKDF_SHA256_AES256_GCM', ?, '{}',
+          'test-evaluator-v1', 'test-public-key', 'test-measurement',
+          evaluator_key_epoch_id, 4096, ?, epoch_descriptor_sha256
+         FROM evaluator_epoch_state WHERE singleton_id = 1`,
+      )
+      .bind(eventId, policyHash, nowIso);
+  const insertResolution = (eventId, policyHash, status) =>
+    database
+      .prepare(
+        `UPDATE event_resolutions
+         SET policy_hash = ?, status = ?, batch_hash = ?,
+             attending_member_ids = NULL, resolved_at = ?, updated_at = ?
+         WHERE event_id = ?`,
+      )
+      .bind(
+        policyHash,
+        status,
+        status === "pending" ? null : "historical-result",
+        status === "pending" ? null : nowIso,
+        nowIso,
+        eventId,
+      );
+  await database.batch([
+    insertPolicy(recoverableEventId, "current-policy-recoverable"),
+    insertResolution(recoverableEventId, "stale-policy-recoverable", "pending"),
+    insertPolicy(corruptEventId, "current-policy-corrupt"),
+    insertResolution(corruptEventId, "stale-policy-corrupt", "confirmed"),
+  ]);
+
+  const listing = await api(
+    miniflare,
+    "/api/events",
+    authorizedRequest(invitee.accessToken),
+  );
+  assert.equal(listing.status, 200);
+  const events = (await listing.json()).events;
+  assert.deepEqual(
+    events.find(({ id }) => id === recoverableEventId).resolution,
+    { status: "pending" },
+  );
+  assert.deepEqual(
+    events.find(({ id }) => id === corruptEventId).resolution,
+    { status: "verification_unavailable" },
+  );
+
+  const recovered = await database
+    .prepare("SELECT policy_hash AS policyHash FROM event_resolutions WHERE event_id = ?")
+    .bind(recoverableEventId)
+    .first();
+  assert.equal(recovered.policyHash, "current-policy-recoverable");
+  const preserved = await database
+    .prepare("SELECT policy_hash AS policyHash FROM event_resolutions WHERE event_id = ?")
+    .bind(corruptEventId)
+    .first();
+  assert.equal(preserved.policyHash, "stale-policy-corrupt");
+});
+
 test("ten accounts share one durable confirmed/failure outcome without leaking failed RSVP details", async (t) => {
   const requests = [];
   const fetchMock = evaluatorMock();

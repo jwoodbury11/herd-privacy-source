@@ -57,6 +57,11 @@ async function main() {
   if (infoEntries.length !== 1) {
     throw new TypeError("iOS archive must contain exactly one top-level application Info.plist.");
   }
+  const appClipInfoEntries = entries.filter((entry) =>
+    /^Payload\/[^/]+\.app\/AppClips\/[^/]+\.app\/Info\.plist$/u.test(entry));
+  if (appClipInfoEntries.length !== 1) {
+    throw new TypeError("iOS archive must contain exactly one embedded App Clip Info.plist.");
+  }
   await mkdir(outputDirectory, { recursive: true });
   const plistPath = path.join(outputDirectory, "Info.plist");
   const infoJsonPath = path.join(outputDirectory, "Info.plist.json");
@@ -65,6 +70,17 @@ async function main() {
     maxBuffer: 1024 * 1024,
   });
   const info = JSON.parse(await readFile(infoJsonPath, "utf8"));
+  const appClipPlistPath = path.join(outputDirectory, "AppClip.Info.plist");
+  const appClipInfoJsonPath = path.join(outputDirectory, "AppClip.Info.plist.json");
+  await writeFile(
+    appClipPlistPath,
+    await unzipSmallEntry(archive, appClipInfoEntries[0]),
+    { mode: 0o600 },
+  );
+  await run("/usr/bin/plutil", [
+    "-convert", "json", "-o", appClipInfoJsonPath, appClipPlistPath,
+  ], { maxBuffer: 1024 * 1024 });
+  const appClipInfo = JSON.parse(await readFile(appClipInfoJsonPath, "utf8"));
   if (
     typeof info.CFBundleExecutable !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u.test(info.CFBundleExecutable)
@@ -74,6 +90,17 @@ async function main() {
   const appPrefix = infoEntries[0].slice(0, -"Info.plist".length);
   const executableEntry = `${appPrefix}${info.CFBundleExecutable}`;
   if (!entries.includes(executableEntry)) throw new TypeError("iOS application executable is missing.");
+  if (
+    typeof appClipInfo.CFBundleExecutable !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$/u.test(appClipInfo.CFBundleExecutable)
+  ) {
+    throw new TypeError("iOS archive has an invalid App Clip CFBundleExecutable.");
+  }
+  const appClipPrefix = appClipInfoEntries[0].slice(0, -"Info.plist".length);
+  const appClipExecutableEntry = `${appClipPrefix}${appClipInfo.CFBundleExecutable}`;
+  if (!entries.includes(appClipExecutableEntry)) {
+    throw new TypeError("iOS App Clip executable is missing.");
+  }
   const extractionRoot = path.join(outputDirectory, "bundle");
   await mkdir(extractionRoot);
   await run("/usr/bin/unzip", ["-qq", archive, "-d", extractionRoot], {
@@ -81,6 +108,7 @@ async function main() {
   });
   await rejectExtractedLinks(extractionRoot);
   const appPath = path.join(extractionRoot, appPrefix);
+  const appClipPath = path.join(extractionRoot, appClipPrefix);
   try {
     await run("/usr/bin/codesign", ["--verify", "--strict", appPath], {
       maxBuffer: 1024 * 1024,
@@ -88,6 +116,15 @@ async function main() {
   } catch (error) {
     throw new TypeError(
       `The iOS application signature is invalid: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+  try {
+    await run("/usr/bin/codesign", ["--verify", "--strict", appClipPath], {
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    throw new TypeError(
+      `The iOS App Clip signature is invalid: ${error instanceof Error ? error.message : error}`,
     );
   }
   const executablePath = path.join(outputDirectory, "HerdHost.executable");
@@ -115,6 +152,30 @@ async function main() {
   await run("/usr/bin/plutil", ["-convert", "json", "-o", entitlementsJsonPath, entitlementsPlistPath], {
     maxBuffer: 1024 * 1024,
   });
+  const appClipExecutablePath = path.join(outputDirectory, "HerdClip.executable");
+  await copyFile(path.join(extractionRoot, appClipExecutableEntry), appClipExecutablePath);
+  await chmod(appClipExecutablePath, 0o700);
+  const appClipEntitlementsPlistPath = path.join(outputDirectory, "AppClip.Entitlements.plist");
+  const appClipEntitlementsJsonPath = path.join(outputDirectory, "AppClip.Entitlements.plist.json");
+  let signedAppClipEntitlements;
+  try {
+    ({ stdout: signedAppClipEntitlements } = await run(
+      "/usr/bin/codesign",
+      ["-d", "--entitlements", ":-", appClipExecutablePath],
+      { encoding: "buffer", maxBuffer: 4 * 1024 * 1024 },
+    ));
+  } catch (error) {
+    throw new TypeError(
+      `Signed App Clip entitlements could not be extracted: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+  if (!signedAppClipEntitlements?.byteLength) {
+    throw new TypeError("The signed App Clip executable contains no entitlements.");
+  }
+  await writeFile(appClipEntitlementsPlistPath, signedAppClipEntitlements, { mode: 0o600 });
+  await run("/usr/bin/plutil", [
+    "-convert", "json", "-o", appClipEntitlementsJsonPath, appClipEntitlementsPlistPath,
+  ], { maxBuffer: 1024 * 1024 });
   const temporary = `${normalizedPath}.tmp-${process.pid}`;
   await copyFile(executablePath, temporary);
   await chmod(temporary, 0o700);
@@ -134,6 +195,8 @@ async function main() {
       verified: true,
       infoJson: infoJsonPath,
       entitlementsJson: entitlementsJsonPath,
+      appClipInfoJson: appClipInfoJsonPath,
+      appClipEntitlementsJson: appClipEntitlementsJsonPath,
       normalizedExecutable: normalizedPath,
     })}\n`,
   );

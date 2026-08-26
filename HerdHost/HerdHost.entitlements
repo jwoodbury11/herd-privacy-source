@@ -6,9 +6,9 @@
 	<array>
 		<string>applinks:$(HERD_ASSOCIATED_DOMAIN)</string>
 	</array>
-	<key>keychain-access-groups</key>
+	<key>com.apple.developer.associated-appclip-app-identifiers</key>
 	<array>
-		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(AppIdentifierPrefix)$(HERD_APP_CLIP_BUNDLE_IDENTIFIER)</string>
 	</array>
 </dict>
 </plist>

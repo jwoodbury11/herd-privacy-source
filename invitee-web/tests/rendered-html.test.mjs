@@ -39,6 +39,9 @@ test("publishes the non-redirecting iOS universal-link association", async () =>
         },
       ],
     },
+    appclips: {
+      apps: ["R4UPN8ZDV8.com.jameswoodbury.HerdPrototype.Clip"],
+    },
   });
 });
 
@@ -764,11 +767,13 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(experience.profile.accountDeletion.body, /permanently deletes your profile, hosted events, sessions, and private replies/i);
   assert.equal(experience.success.body, undefined);
   assert.equal(experience.success.replyPreviewTitle, "This is how your reply will appear to others.");
-  assert.equal(experience.success.confirmedPreviewOption, "Event confirmed");
-  assert.equal(experience.success.notConfirmedPreviewOption, "Event not confirmed");
+  assert.equal(experience.success.confirmedPreviewOption, "If confirmed");
+  assert.equal(experience.success.notConfirmedPreviewOption, "If never confirmed");
   assert.match(page, /SUCCESS_EXPERIENCE\.replyPreviewTitle[\s\S]*success-outcome-toggle[\s\S]*outcome=\{successPreviewOutcome\}/u);
   assert.doesNotMatch(page, /SUCCESS_EXPERIENCE\.(?:savedReply|visibility|goingPrivacy|cantCommitPrivacy)/u);
-  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*Picker\("Preview outcome"[\s\S]*mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
+  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*outcomeSelector/u);
+  assert.match(swiftHome, /private var outcomeSelector: some View[\s\S]*HStack\(spacing: 0\)/u);
+  assert.match(swiftHome, /mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
   assert.match(swiftHome, /background\(attendeeAvatarTone\(1\), in: \.circle\)/u);
   assert.match(swiftHome, /accessibilityIdentifier\("reply-preview-confirmed-card"\)[\s\S]*accessibilityIdentifier\("reply-preview-not-confirmed-card"\)/u);
   assert.match(css, /\.success-outcome-toggle \{[^}]*grid-template-columns: 1fr 1fr/u);
@@ -921,7 +926,7 @@ test("hosting handoff explains contact access and honestly marks the unavailable
   assert.match(experience.home.webCreateEventHandoff.body, /appear here too/u);
   assert.equal(experience.home.webCreateEventHandoff.availabilityLabel, "iPhone app coming soon");
   assert.match(experience.home.webCreateEventHandoff.availabilityBody, /awaiting approval from Apple/u);
-  assert.equal(experience.home.webCreateEventHandoff.downloadButton, "Download app");
+  assert.equal(experience.home.webCreateEventHandoff.downloadButton, "Get Herd");
   assert.match(page, /className="host-app-availability"[\s\S]*role="status"/u);
   assert.match(page, /className="primary-button host-app-download"[\s\S]*disabled/u);
   assert.doesNotMatch(page, /apps\.apple\.com|APP_STORE_URL/);

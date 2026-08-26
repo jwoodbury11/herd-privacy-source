@@ -19,18 +19,19 @@ pinned Cosign verifier. It rehashes each descriptor and cryptographically checks
 every provenance bundle against the statement, GitHub OIDC issuer, and exact
 protected-workflow identity recorded in the signed manifest.
 
-The generated iOS xcconfig owns the Release app's bundle identifier, marketing
-version, build number, development team, associated domain, and Keychain access
-group. Debug retains its development settings; Release falls back to an
+The generated iOS xcconfig owns the Release app and App Clip bundle identifiers,
+marketing version, build number, development team, and associated domain. Debug
+retains its development settings; Release falls back to an
 intentionally invalid identity until a signed production manifest generates
 the production values. Preflight verifies the submitted executable signature,
-extracts its signed entitlements, and compares both the processed plist and
+extracts the full app and embedded App Clip entitlements, rejects custom
+Keychain-sharing capabilities, and compares both processed plists and
 capabilities back to that manifest-derived contract.
 
 Deployment signing and `.well-known` generation require the exact live Apple
 app-site association file. The deployment statement binds it as a monitored
 resource, and both release tooling and the independent monitor require it to
-authorize only the signed production app and `/invite/*`.
+authorize only the signed production app and App Clip for `/invite/*`.
 
 The tools deliberately fail on unknown fields, non-canonical JSON, reused trust
 keys, inconsistent artifact hashes, unsafe URLs, permissive production flags,

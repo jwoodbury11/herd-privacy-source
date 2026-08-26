@@ -11,10 +11,12 @@ test("response success previews one outcome at a time with equal cards", async (
     readFile(new URL("../invitee-web/shared/HerdExperience.json", import.meta.url), "utf8"),
   ]);
   assert.match(experience, /"replyPreviewTitle": "This is how your reply will appear to others\."/u);
-  assert.match(experience, /"confirmedPreviewOption": "Event confirmed"/u);
-  assert.match(experience, /"notConfirmedPreviewOption": "Event not confirmed"/u);
+  assert.match(experience, /"confirmedPreviewOption": "If confirmed"/u);
+  assert.match(experience, /"notConfirmedPreviewOption": "If never confirmed"/u);
   assert.doesNotMatch(experience, /"Your latest reply is saved\."/u);
-  assert.match(home, /Picker\("Preview outcome", selection: \$previewOutcome\)/u);
+  assert.match(home, /private var outcomeSelector: some View/u);
+  assert.match(home, /HStack\(spacing: 0\)/u);
+  assert.match(home, /\.frame\(height: 58\)/u);
   assert.match(home, /accessibilityIdentifier\("success-outcome-picker"\)/u);
   assert.match(home, /mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
   assert.match(home, /background\(attendeeAvatarTone\(1\), in: \.circle\)/u);
@@ -379,16 +381,23 @@ test("iOS relays participant evaluations without exposing app credentials", asyn
   assert.match(store, /catch \{[\s\S]*?leave the resolution pending/u);
 });
 
-test("iOS invitation links never customize sign-in or auto-open an event", async () => {
-  const [app, auth, client, home, entitlements, info] = await Promise.all([
+test("iOS invitation links use only the exact HTTPS Herd invitation route", async () => {
+  const [app, runtime, auth, client, home, entitlements, info] = await Promise.all([
     source("HerdHostApp.swift"),
+    source("HerdRuntime.swift"),
     source("AuthenticationView.swift"),
     source("APIClient.swift"),
     source("HomeView.swift"),
     source("HerdHost.entitlements"),
     source("Info.plist"),
   ]);
-  assert.doesNotMatch(app, /InvitationCoordinator|\.onOpenURL|NSUserActivityTypeBrowsingWeb/u);
+  assert.match(app, /\.onContinueUserActivity\(NSUserActivityTypeBrowsingWeb\)/u);
+  assert.match(app, /HerdRuntime\.invitationToken\(from: activity\)/u);
+  assert.match(runtime, /url\.scheme\?\.lowercased\(\) == "https"/u);
+  assert.match(runtime, /host == associatedDomain/u);
+  assert.match(runtime, /url\.query == nil[\s\S]*url\.fragment == nil/u);
+  assert.match(runtime, /components\.count == 2, components\[0\] == "invite"/u);
+  assert.match(runtime, /InvitationToken\.normalize\(components\[1\]\)/u);
   assert.doesNotMatch(auth, /InvitationCoordinator|pendingToken|inviteToken/u);
   assert.match(
     auth,
@@ -396,7 +405,7 @@ test("iOS invitation links never customize sign-in or auto-open an event", async
   );
   assert.match(client, /func requestCode\(phoneNumber: String\)/u);
   assert.doesNotMatch(client, /func requestCode\(\s*phoneNumber: String,\s*inviteToken/u);
-  assert.doesNotMatch(home, /Switch account|pendingInvitation|invitationGeneration/u);
+  assert.doesNotMatch(home, /Switch account|invitationGeneration/u);
   assert.match(entitlements, /com\.apple\.developer\.associated-domains/u);
   assert.match(entitlements, /applinks:\$\(HERD_ASSOCIATED_DOMAIN\)/u);
   assert.doesNotMatch(info, /CFBundleURLSchemes|<string>herd<\/string>/u);

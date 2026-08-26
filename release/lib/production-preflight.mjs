@@ -243,9 +243,9 @@ export function verifyIosEntitlements(entitlements, result) {
     "application-identifier",
     "beta-reports-active",
     "com.apple.developer.associated-domains",
+    "com.apple.developer.associated-appclip-app-identifiers",
     "com.apple.developer.team-identifier",
     "get-task-allow",
-    "keychain-access-groups",
   ]);
   const unexpected = Object.keys(entitlements).filter((key) => !allowed.has(key));
   if (unexpected.length > 0) {
@@ -266,11 +266,11 @@ export function verifyIosEntitlements(entitlements, result) {
     throw new TypeError("Signed iOS associated domains do not contain the exact production universal-link domain.");
   }
   if (
-    !Array.isArray(entitlements["keychain-access-groups"]) ||
-    entitlements["keychain-access-groups"].length !== 1 ||
-    entitlements["keychain-access-groups"][0] !== expected.keychainAccessGroup
+    !Array.isArray(entitlements["com.apple.developer.associated-appclip-app-identifiers"]) ||
+    entitlements["com.apple.developer.associated-appclip-app-identifiers"].length !== 1 ||
+    entitlements["com.apple.developer.associated-appclip-app-identifiers"][0] !== expected.appClipIdentifier
   ) {
-    throw new TypeError("Signed iOS Keychain access group does not match the production app identity.");
+    throw new TypeError("Signed iOS entitlements do not identify the exact embedded App Clip.");
   }
   if (entitlements["get-task-allow"] !== undefined && entitlements["get-task-allow"] !== false) {
     throw new TypeError("Signed production iOS entitlements enable get-task-allow.");
@@ -280,6 +280,85 @@ export function verifyIosEntitlements(entitlements, result) {
     typeof entitlements["beta-reports-active"] !== "boolean"
   ) {
     throw new TypeError("Signed iOS beta-reports-active entitlement is invalid.");
+  }
+}
+
+export function verifyAppClipInfo(info, result) {
+  if (!info || typeof info !== "object" || Array.isArray(info)) {
+    throw new TypeError("Processed App Clip Info.plist JSON must be an object.");
+  }
+  const expected = result.contract.ios;
+  const expectedInfo = {
+    ...result.iosInfoValues,
+    CFBundleIdentifier: expected.appClipBundleIdentifier,
+  };
+  for (const [key, value] of Object.entries(expectedInfo)) {
+    if (info[key] !== value) {
+      throw new TypeError(`Processed App Clip Info.plist ${key} does not match the signed manifest.`);
+    }
+  }
+  if (
+    !info.NSAppClip ||
+    typeof info.NSAppClip !== "object" ||
+    Array.isArray(info.NSAppClip) ||
+    info.NSAppClip.NSAppClipRequestEphemeralUserNotification !== false ||
+    info.NSAppClip.NSAppClipRequestLocationConfirmation !== false
+  ) {
+    throw new TypeError("Processed App Clip Info.plist does not declare the exact privacy-preserving App Clip configuration.");
+  }
+  if (info.NSContactsUsageDescription !== undefined || info.NSFaceIDUsageDescription !== undefined) {
+    throw new TypeError("Processed App Clip Info.plist declares an unavailable privacy permission.");
+  }
+  const serialized = canonicalJson(info);
+  if (/\$\([^)]+\)/u.test(serialized)) {
+    throw new TypeError("Processed App Clip Info.plist contains an unresolved build setting.");
+  }
+  for (const { pattern, label } of FORBIDDEN_BUILD_PATTERNS) {
+    if (pattern.test(serialized)) {
+      throw new TypeError(`Processed App Clip Info.plist contains a ${label}.`);
+    }
+  }
+}
+
+export function verifyAppClipEntitlements(entitlements, result) {
+  if (!entitlements || typeof entitlements !== "object" || Array.isArray(entitlements)) {
+    throw new TypeError("Signed App Clip entitlements must be a dictionary.");
+  }
+  const allowed = new Set([
+    "application-identifier",
+    "beta-reports-active",
+    "com.apple.developer.associated-domains",
+    "com.apple.developer.parent-application-identifiers",
+    "com.apple.developer.team-identifier",
+    "get-task-allow",
+  ]);
+  const unexpected = Object.keys(entitlements).filter((key) => !allowed.has(key));
+  if (unexpected.length > 0) {
+    throw new TypeError(`Signed App Clip entitlements contain an unexpected capability: ${unexpected[0]}.`);
+  }
+  const expected = result.contract.ios;
+  if (entitlements["application-identifier"] !== expected.appClipIdentifier) {
+    throw new TypeError("Signed App Clip application-identifier does not match the production identity.");
+  }
+  if (entitlements["com.apple.developer.team-identifier"] !== expected.developmentTeam) {
+    throw new TypeError("Signed App Clip team identifier does not match the production team.");
+  }
+  if (
+    !Array.isArray(entitlements["com.apple.developer.associated-domains"]) ||
+    entitlements["com.apple.developer.associated-domains"].length !== 1 ||
+    entitlements["com.apple.developer.associated-domains"][0] !== `appclips:${expected.associatedDomain}`
+  ) {
+    throw new TypeError("Signed App Clip associated domains do not contain the exact invocation domain.");
+  }
+  if (
+    !Array.isArray(entitlements["com.apple.developer.parent-application-identifiers"]) ||
+    entitlements["com.apple.developer.parent-application-identifiers"].length !== 1 ||
+    entitlements["com.apple.developer.parent-application-identifiers"][0] !== expected.appIdentifier
+  ) {
+    throw new TypeError("Signed App Clip does not identify the exact parent application.");
+  }
+  if (entitlements["get-task-allow"] !== undefined && entitlements["get-task-allow"] !== false) {
+    throw new TypeError("Signed production App Clip entitlements enable get-task-allow.");
   }
 }
 
@@ -294,6 +373,8 @@ export async function preflightProductionArtifacts({
   normalizedIosBinaryPath,
   iosInfo,
   iosEntitlements,
+  appClipInfo,
+  appClipEntitlements,
   cosign = "cosign",
 }) {
   const result = buildProductionConfig(manifest, { evaluatorUrl, rootCertificate });
@@ -317,6 +398,8 @@ export async function preflightProductionArtifacts({
   );
   verifyIosInfo(iosInfo, result);
   verifyIosEntitlements(iosEntitlements, result);
+  verifyAppClipInfo(appClipInfo, result);
+  verifyAppClipEntitlements(appClipEntitlements, result);
   return {
     releaseId: result.manifest.releaseId,
     configurationSha256: result.configurationSha256,

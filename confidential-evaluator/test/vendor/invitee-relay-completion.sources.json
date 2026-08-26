@@ -1,7 +1,7 @@
 {
   "bundle": {
     "path": "test/vendor/invitee-relay-completion.mjs",
-    "sha256": "5df413eea126220a00b1ffc43f2fada8834fafc85d468d807b9eddf4caad403e"
+    "sha256": "a1e6903ab5e6f60eb23d7837b667b47c67cc04ad0a1e22c36c3f940b26302af6"
   },
   "sources": [
     {
@@ -14,7 +14,7 @@
     },
     {
       "path": "../invitee-web/lib/backend/resolutions.ts",
-      "sha256": "0cd6968635432e113ea360a1e351759fc77f6f4239fae7b9a8c91c028f9f1266"
+      "sha256": "1308384c39c38677b2a5bde4a99865b81f96c6fd2ec479568df87d07e4566883"
     },
     {
       "path": "../invitee-web/lib/backend/crypto.ts",

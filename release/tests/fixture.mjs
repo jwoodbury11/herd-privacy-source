@@ -365,6 +365,9 @@ export function makeReleaseFixture({
           paths: ["/invite/*"],
         }],
       },
+      appclips: {
+        apps: [`R4UPN8ZDV8.${manifest.artifacts.ios.bundleIdentifier}.Clip`],
+      },
     },
   ));
   manifest.artifacts.web.entryDocumentSha256 = sha256Hex(entryBytes);

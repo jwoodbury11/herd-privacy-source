@@ -244,7 +244,9 @@ for each; the published manifest/signature references; endpoints; and the exact
 entry-document and asset-manifest hashes. It must also bind the exact live
 `/.well-known/apple-app-site-association` bytes as an `application/json`
 monitored resource. Those bytes must authorize only
-`R4UPN8ZDV8.<signed bundle identifier>` and `/invite/*`.
+`R4UPN8ZDV8.<signed bundle identifier>` for universal links and
+`R4UPN8ZDV8.<signed bundle identifier>.Clip` for App Clip invocations, both
+bounded to `/invite/*`.
 
 Pass the same downloaded association file to both deployment signing and
 `.well-known` generation:

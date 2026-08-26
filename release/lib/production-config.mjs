@@ -137,6 +137,8 @@ export function buildProductionConfig(
   }
   const iosAssociatedDomain = publicOriginUrl.hostname;
   const iosAppIdentifier = iosApplicationIdentifier(iosBundleIdentifier);
+  const iosAppClipBundleIdentifier = `${iosBundleIdentifier}.Clip`;
+  const iosAppClipIdentifier = iosApplicationIdentifier(iosAppClipBundleIdentifier);
   const normalizedEvaluatorUrl = productionEvaluatorRelayUrl(evaluatorUrl);
   const claimPolicy = manifest.trust.workload.attestationClaimPolicy;
   productionUrl(claimPolicy.audience, "attestation audience");
@@ -172,8 +174,9 @@ export function buildProductionConfig(
       build: iosBuild,
       developmentTeam: IOS_DEVELOPMENT_TEAM,
       appIdentifier: iosAppIdentifier,
+      appClipBundleIdentifier: iosAppClipBundleIdentifier,
+      appClipIdentifier: iosAppClipIdentifier,
       associatedDomain: iosAssociatedDomain,
-      keychainAccessGroup: iosAppIdentifier,
     },
     evaluator: {
       url: normalizedEvaluatorUrl,
@@ -265,6 +268,7 @@ export function buildProductionConfig(
     HERD_EVALUATOR_URL: normalizedEvaluatorUrl,
     HERD_PUBLIC_APP_URL: publicOrigin,
     HERD_IOS_APP_ID: iosAppIdentifier,
+    HERD_IOS_APP_CLIP_BUNDLE_ID: iosAppClipBundleIdentifier,
     HERD_RELEASE_CONFIGURATION_SHA256: configurationSha256,
     HERD_RELEASE_ID: manifest.evaluatorKeyEpochId,
     HERD_TEST_ACCOUNT_ACCESS_ENABLED: "true",
@@ -274,6 +278,8 @@ export function buildProductionConfig(
     DEVELOPMENT_TEAM: IOS_DEVELOPMENT_TEAM,
     HERD_API_BASE_URL: publicOrigin,
     HERD_ASSOCIATED_DOMAIN: iosAssociatedDomain,
+    HERD_APP_CLIP_BUNDLE_IDENTIFIER: iosAppClipBundleIdentifier,
+    HERD_PARENT_BUNDLE_IDENTIFIER: iosBundleIdentifier,
     HERD_ARTIFACT_RELEASE_ID: manifest.releaseId,
     HERD_ATTESTATION_AUDIENCE: claimPolicy.audience,
     HERD_ATTESTATION_IMAGE_DIGEST: imageDigest,

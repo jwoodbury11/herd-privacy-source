@@ -98,9 +98,12 @@ final class HerdHostUITests: XCTestCase {
         let carousel = app.scrollViews["event-image-carousel"]
         XCTAssertTrue(carousel.waitForExistence(timeout: 5))
         let preview = app.buttons["event-image-preview-fishing"]
-        for _ in 0..<6 where !preview.isHittable {
+        for _ in 0..<6 where !preview.exists || preview.frame.isEmpty || !preview.frame.intersects(carousel.frame) {
             carousel.swipeLeft()
         }
+        XCTAssertTrue(preview.exists)
+        XCTAssertFalse(preview.frame.isEmpty)
+        XCTAssertTrue(preview.frame.intersects(carousel.frame))
         XCTAssertTrue(preview.isHittable)
         preview.tap()
         let fishingPreview = app.images["event-image-preview-full-fishing"]
@@ -630,16 +633,31 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(back.exists)
         XCTAssertLessThanOrEqual(abs(hero.frame.minY - back.frame.minY), 32)
         XCTAssertGreaterThanOrEqual(hero.frame.height, 315)
+        let expandedTitle = app.staticTexts["event-detail-expanded-title"]
+        let collapsedTitle = app.staticTexts["event-detail-collapsed-title"]
+        XCTAssertTrue(expandedTitle.exists)
+        XCTAssertFalse(collapsedTitle.exists)
         let expandedScreenshot = XCTAttachment(screenshot: app.screenshot())
         expandedScreenshot.name = "event-detail-hero-under-navigation"
         expandedScreenshot.lifetime = .keepAlways
         add(expandedScreenshot)
 
         let detailScroll = app.scrollViews.firstMatch
+        let start = detailScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
+        let end = detailScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.54))
+        start.press(forDuration: 0.05, thenDragTo: end)
+
+        XCTAssertTrue(expandedTitle.exists)
+        XCTAssertGreaterThan(expandedTitle.frame.maxY, back.frame.maxY)
+        XCTAssertFalse(collapsedTitle.exists)
+        let transitioningScreenshot = XCTAttachment(screenshot: app.screenshot())
+        transitioningScreenshot.name = "event-detail-scrolling-before-title-collapse"
+        transitioningScreenshot.lifetime = .keepAlways
+        add(transitioningScreenshot)
+
         detailScroll.swipeUp()
         detailScroll.swipeUp()
 
-        let collapsedTitle = app.staticTexts["event-detail-collapsed-title"]
         XCTAssertTrue(collapsedTitle.waitForExistence(timeout: 5))
         XCTAssertEqual(collapsedTitle.label, "Private Picnic Invitation")
         XCTAssertLessThan(collapsedTitle.frame.height, 30)
@@ -864,8 +882,19 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Your latest reply is saved."].exists)
         XCTAssertTrue(app.staticTexts["This is how your reply will appear to others."].exists)
 
+        let previewTitle = app.staticTexts["success-reply-preview-title"]
+        let outcomePicker = app.otherElements["success-outcome-picker"]
+        XCTAssertTrue(previewTitle.exists)
+        XCTAssertTrue(outcomePicker.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(outcomePicker.frame.height, 54)
+        XCTAssertGreaterThanOrEqual(
+            outcomePicker.frame.minY - previewTitle.frame.maxY,
+            30
+        )
+
         let preview = app.otherElements["success-outcome-preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(preview.frame.minY - outcomePicker.frame.maxY, 16)
         XCTAssertTrue(app.staticTexts["Correct Invitee"].exists)
         XCTAssertTrue(app.staticTexts["Going"].exists)
         XCTAssertFalse(app.staticTexts["This event was not confirmed"].exists)
@@ -876,7 +905,7 @@ final class HerdHostUITests: XCTestCase {
         confirmedScreenshot.lifetime = .keepAlways
         add(confirmedScreenshot)
 
-        app.buttons["Event not confirmed"].tap()
+        app.buttons["If never confirmed"].tap()
         XCTAssertTrue(app.staticTexts["This event was not confirmed"].waitForExistence(timeout: 3))
         XCTAssertEqual(preview.frame.height, confirmedHeight, accuracy: 1)
         XCTAssertFalse(app.staticTexts["Correct Invitee"].exists)
@@ -887,11 +916,55 @@ final class HerdHostUITests: XCTestCase {
         add(screenshot)
     }
 
+    func testAppClipHostActionUsesNativeFullAppHandoff() {
+        let app = launchClip(scenario: "host-create")
+
+        let hostAction = app.buttons["create-event-card"]
+        XCTAssertTrue(hostAction.waitForExistence(timeout: 10))
+        hostAction.tap()
+
+        XCTAssertTrue(app.navigationBars["Host an event"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Download Herd"].exists)
+        XCTAssertTrue(app.buttons["full-app-download"].exists)
+        XCTAssertFalse(app.navigationBars["New event"].exists)
+    }
+
+    func testAppClipResponseSuccessOffersOnlyGetHerd() {
+        let app = launchClip(
+            scenario: "invitee-home",
+            additionalArguments: ["--open-response-success"]
+        )
+
+        XCTAssertTrue(app.staticTexts["Make plans happen."].waitForExistence(timeout: 10))
+        signIn(app, phoneNumber: "4155550102")
+
+        let invitation = app.staticTexts["Private Picnic Invitation"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 10))
+        invitation.tap()
+
+        XCTAssertTrue(app.staticTexts["Thanks for responding"].waitForExistence(timeout: 10))
+        let getHerd = app.buttons["success-download-herd"]
+        XCTAssertTrue(getHerd.waitForExistence(timeout: 5))
+        XCTAssertEqual(getHerd.label, "Get Herd")
+        XCTAssertFalse(app.buttons["success-view-invitation"].exists)
+        XCTAssertFalse(app.buttons["success-back-to-events"].exists)
+    }
+
     private func launch(
         scenario: String,
         additionalArguments: [String] = []
     ) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments = ["--herd-ui-testing", scenario] + additionalArguments
+        app.launch()
+        return app
+    }
+
+    private func launchClip(
+        scenario: String,
+        additionalArguments: [String] = []
+    ) -> XCUIApplication {
+        let app = XCUIApplication(bundleIdentifier: "com.jameswoodbury.HerdPrototype.Clip")
         app.launchArguments = ["--herd-ui-testing", scenario] + additionalArguments
         app.launch()
         return app

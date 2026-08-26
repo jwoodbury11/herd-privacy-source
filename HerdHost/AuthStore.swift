@@ -421,7 +421,7 @@ struct KeychainSessionStore: SessionStoring {
     private let service: String
     private let account = "herd-auth-session"
 
-    init(service: String = Bundle.main.bundleIdentifier ?? "com.herd.app") {
+    init(service: String = HerdRuntime.parentApplicationBundleIdentifier) {
         self.service = service
     }
 

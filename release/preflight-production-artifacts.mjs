@@ -33,6 +33,8 @@ async function main() {
     normalizedIosBinaryPath: requireArg(args, "normalized-ios-binary"),
     iosInfo: await readJson(requireArg(args, "ios-info-json")),
     iosEntitlements: await readJson(requireArg(args, "ios-entitlements-json")),
+    appClipInfo: await readJson(requireArg(args, "app-clip-info-json")),
+    appClipEntitlements: await readJson(requireArg(args, "app-clip-entitlements-json")),
     cosign: args.cosign ?? "cosign",
   });
   process.stdout.write(`${JSON.stringify({ verified: true, ...result })}\n`);

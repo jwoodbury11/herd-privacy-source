@@ -81,6 +81,7 @@ export type EvaluationResultAttestation = {
 
 export type EventResolution =
   | { status: "pending"; retrying?: true; relayNeeded?: true }
+  | { status: "verification_unavailable" }
   | {
       status: "confirmed";
       attendingMemberIds?: string[];
