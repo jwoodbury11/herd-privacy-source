@@ -94,6 +94,10 @@
       "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
     },
     {
+      "path": "HerdHost/Assets.xcassets/HerdBrandIcon.imageset/HerdAppIcon.png",
+      "binarySha256": "13c4d2d374da5691b52aee92993434c4b1bc2975f3a45fcbeae6b65af8e2ac2f"
+    },
+    {
       "path": "HerdHost/Assets.xcassets/HerdWelcomeSplash.imageset/herd-welcome-splash.png",
       "binarySha256": "d98eaaef1c8002e67d78f585a3d2619c94962a2a8f78916a88d3fcbda6fc4191"
     },
