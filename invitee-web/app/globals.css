@@ -836,13 +836,6 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-.header-countdown {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 680;
-  font-variant-numeric: tabular-nums;
-}
-
 .event-detail-scroll {
   padding: 0 18px max(34px, env(safe-area-inset-bottom));
 }

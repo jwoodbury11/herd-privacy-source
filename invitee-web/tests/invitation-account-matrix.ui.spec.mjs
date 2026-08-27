@@ -112,6 +112,11 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
     await openInvitationFromHome(page);
 
     if (index === 0) {
+      await test.step("the guest event header matches iPhone without a countdown action", async () => {
+        await expect(page.locator(".app-header .header-side-right")).toBeEmpty();
+        await expect(page.locator(".header-countdown")).toHaveCount(0);
+      });
+
       await test.step("the reply preview dismisses from the visible edge of OK", async () => {
         await page.getByRole("button", { name: "Preview how others see it" }).click();
         const dialog = page.getByRole("dialog", {
