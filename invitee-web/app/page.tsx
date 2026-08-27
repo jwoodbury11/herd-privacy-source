@@ -979,6 +979,7 @@ function EventCard({
           alt=""
           width={224}
           height={224}
+          unoptimized
         />
       </div>
       <div className="metric-row">
@@ -2960,6 +2961,7 @@ export function HerdApp() {
                   width={512}
                   height={512}
                   priority
+                  unoptimized
                 />
                 <div className="event-hero-heading">
                   <span className="status-pill">
