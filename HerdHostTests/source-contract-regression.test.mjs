@@ -5,7 +5,7 @@ import test from "node:test";
 const source = async (name) =>
   readFile(new URL(`../HerdHost/${name}`, import.meta.url), "utf8");
 
-test("response success previews one outcome at a time with equal cards", async () => {
+test("reply previews reuse one outcome toggle and locked replies expose one action", async () => {
   const [home, experience] = await Promise.all([
     source("HomeView.swift"),
     readFile(new URL("../invitee-web/shared/HerdExperience.json", import.meta.url), "utf8"),
@@ -14,11 +14,20 @@ test("response success previews one outcome at a time with equal cards", async (
   assert.match(experience, /"confirmedPreviewOption": "If confirmed"/u);
   assert.match(experience, /"notConfirmedPreviewOption": "If never confirmed"/u);
   assert.doesNotMatch(experience, /"Your latest reply is saved\."/u);
-  assert.match(home, /private var outcomeSelector: some View/u);
+  assert.match(home, /private struct ReplyOutcomeSelector: View/u);
+  assert.equal((home.match(/ReplyOutcomeSelector\(/gu) ?? []).length, 2);
+  assert.match(home, /@Binding var selection: ReplyPreviewOutcome/u);
   assert.match(home, /HStack\(spacing: 0\)/u);
   assert.match(home, /\.frame\(height: 58\)/u);
-  assert.match(home, /accessibilityIdentifier\("success-outcome-picker"\)/u);
+  assert.match(home, /accessibilityIdentifier: "success-outcome-picker"/u);
+  assert.match(home, /accessibilityIdentifier: "reply-preview-outcome-picker"/u);
   assert.match(home, /mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
+  assert.match(home, /mode: replyPreviewOutcome == \.confirmed[\s\S]*?\.confirmed[\s\S]*?: \.notConfirmed/u);
+  assert.match(
+    home,
+    /if !savedReplyIsLocked \{[\s\S]*?accessibilityIdentifier\("reply-preview-trigger"\)/u,
+  );
+  assert.match(experience, /"unlockButton": "View my reply"/u);
   assert.match(home, /background\(attendeeAvatarTone\(1\), in: \.circle\)/u);
   assert.match(home, /accessibilityIdentifier\("reply-preview-confirmed-card"\)/u);
   assert.match(home, /accessibilityIdentifier\("reply-preview-not-confirmed-card"\)/u);

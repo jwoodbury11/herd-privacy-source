@@ -131,6 +131,19 @@ for (let index = 0; index < acceptanceScenarios.length; index += 1) {
           "Avoid a no response at all costs. No responses are why fun events that could have happened don’t happen.",
           { exact: true },
         )).toBeVisible();
+        await expect(dialog.getByText(
+          "This event was not confirmed",
+          { exact: true },
+        )).toHaveCount(0);
+        await dialog.getByRole("button", { name: "If never confirmed" }).click();
+        await expect(dialog.getByText(
+          "This event was not confirmed",
+          { exact: true },
+        )).toBeVisible();
+        await expect(dialog.getByText(
+          "This user has not responded to their only confirmed event invitation.",
+          { exact: true },
+        )).toHaveCount(0);
         const dismiss = page.getByTestId("reply-preview-dismiss");
         const box = await dismiss.boundingBox();
         expect(box).not.toBeNull();

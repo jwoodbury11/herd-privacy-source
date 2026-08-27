@@ -1598,6 +1598,7 @@ private struct InvitationDetailView: View {
     @State private var showsSuccess = false
     @State private var showsConditionPicker = false
     @State private var showsReplyPreview = false
+    @State private var replyPreviewOutcome = ReplyPreviewOutcome.confirmed
     @State private var conditionTargetGroupID: String?
     @State private var privateMinimumParticipants = 2
     @State private var privateRequiredGroups: [RSVPConditionGroup] = []
@@ -2356,23 +2357,26 @@ private struct InvitationDetailView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button {
-                showsReplyPreview = true
-            } label: {
-                Text(replyExperience.previewButton)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                    }
+            if !savedReplyIsLocked {
+                Button {
+                    replyPreviewOutcome = .confirmed
+                    showsReplyPreview = true
+                } label: {
+                    Text(replyExperience.previewButton)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(HerdTheme.raisedSurface, in: .rect(cornerRadius: 14))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(PlainPressButtonStyle())
+                .accessibilityLabel(replyExperience.previewButton)
+                .accessibilityIdentifier("reply-preview-trigger")
             }
-            .buttonStyle(PlainPressButtonStyle())
-            .accessibilityLabel(replyExperience.previewButton)
-            .accessibilityIdentifier("reply-preview-trigger")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2398,7 +2402,10 @@ private struct InvitationDetailView: View {
         .background(.white, in: .rect(cornerRadius: 14))
     }
 
-    private func replyVisibilityPreview(_ event: HerdEvent) -> some View {
+    private func replyVisibilityPreview(
+        _ event: HerdEvent,
+        mode: ReplyVisibilityPreviewMode
+    ) -> some View {
         let currentInvitee = event.invitees.first(where: \.isCurrentUser)
         let displayName = currentInvitee?.displayName
             ?? HerdExperience.shared.attendees.currentUserLabel
@@ -2415,7 +2422,7 @@ private struct InvitationDetailView: View {
         return ReplyVisibilityPreview(
             displayName: displayName,
             status: status,
-            isConfirmed: event.resolution?.status == .confirmed,
+            mode: mode,
             confirmedBody: selectedResponse == nil
                 ? replyExperience.noReplyPreviewBody
                 : nil
@@ -2445,7 +2452,18 @@ private struct InvitationDetailView: View {
                     Text(replyExperience.previewTitle)
                         .font(.title2.weight(.bold))
 
-                    replyVisibilityPreview(event)
+                    ReplyOutcomeSelector(
+                        selection: $replyPreviewOutcome,
+                        accessibilityIdentifier: "reply-preview-outcome-picker"
+                    )
+
+                    replyVisibilityPreview(
+                        event,
+                        mode: replyPreviewOutcome == .confirmed
+                            ? .confirmed
+                            : .notConfirmed
+                    )
+                    .accessibilityIdentifier("reply-outcome-preview")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -3847,7 +3865,10 @@ private struct InvitationResponseSuccess: View {
                             .minimumScaleFactor(0.82)
                             .accessibilityIdentifier("success-reply-preview-title")
 
-                        outcomeSelector
+                        ReplyOutcomeSelector(
+                            selection: $previewOutcome,
+                            accessibilityIdentifier: "success-outcome-picker"
+                        )
                         .padding(.top, 34)
 
                         ReplyVisibilityPreview(
@@ -3919,16 +3940,22 @@ private struct InvitationResponseSuccess: View {
         }
     }
 
-    private var outcomeSelector: some View {
+}
+
+private enum ReplyPreviewOutcome: Hashable {
+    case confirmed
+    case notConfirmed
+}
+
+private struct ReplyOutcomeSelector: View {
+    @Binding var selection: ReplyPreviewOutcome
+    let accessibilityIdentifier: String
+    private let experience = HerdExperience.shared.success
+
+    var body: some View {
         HStack(spacing: 0) {
-            outcomeButton(
-                experience.confirmedPreviewOption,
-                outcome: .confirmed
-            )
-            outcomeButton(
-                experience.notConfirmedPreviewOption,
-                outcome: .notConfirmed
-            )
+            outcomeButton(experience.confirmedPreviewOption, outcome: .confirmed)
+            outcomeButton(experience.notConfirmedPreviewOption, outcome: .notConfirmed)
         }
         .padding(3)
         .frame(height: 58)
@@ -3938,7 +3965,7 @@ private struct InvitationResponseSuccess: View {
                 .stroke(HerdTheme.subtleBorder, lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("success-outcome-picker")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func outcomeButton(
@@ -3947,7 +3974,7 @@ private struct InvitationResponseSuccess: View {
     ) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.18)) {
-                previewOutcome = outcome
+                selection = outcome
             }
         } label: {
             Text(title)
@@ -3956,7 +3983,7 @@ private struct InvitationResponseSuccess: View {
                 .minimumScaleFactor(0.82)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
-                    previewOutcome == outcome
+                    selection == outcome
                         ? Color(uiColor: .systemGray2)
                         : Color.clear,
                     in: .capsule
@@ -3964,15 +3991,8 @@ private struct InvitationResponseSuccess: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(PlainPressButtonStyle())
-        .accessibilityAddTraits(
-            previewOutcome == outcome ? [.isSelected] : []
-        )
+        .accessibilityAddTraits(selection == outcome ? [.isSelected] : [])
     }
-}
-
-private enum ReplyPreviewOutcome: Hashable {
-    case confirmed
-    case notConfirmed
 }
 
 private enum ReplyVisibilityPreviewMode {

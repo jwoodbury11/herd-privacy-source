@@ -674,7 +674,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.goingCollapsedTitle, "I’m down if…");
   assert.equal(experience.reply.goingCollapsedBody, "Set your private conditions");
   assert.equal(experience.reply.savedTitle, "Your private reply has been sent");
-  assert.equal(experience.reply.unlockButton, "View my private reply");
+  assert.equal(experience.reply.unlockButton, "View my reply");
   assert.match(
     swiftHome,
     /primaryReplyActionLabel\(\s*title: replyExperience\.unlockButton,\s*systemImage: "faceid"\s*\)/u,
@@ -723,6 +723,10 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftHome, /replyVisibilityPreviewSheet[\s\S]*\.padding\(\.top, 28\)/u);
   assert.match(swiftHome, /accessibilityIdentifier\("reply-preview-dismiss"\)/u);
   assert.match(page, /data-testid="reply-preview-dismiss"/u);
+  assert.match(
+    page,
+    /reply-preview-outcome-toggle[\s\S]*aria-pressed=\{replyPreviewOutcome === "confirmed"\}[\s\S]*aria-pressed=\{replyPreviewOutcome === "not-confirmed"\}[\s\S]*outcome=\{replyPreviewOutcome\}/u,
+  );
   assert.match(page, /REPLY_EXPERIENCE\.confirmedPreviewLabel/);
   assert.equal(experience.reply.confirmedPreviewLabel, "If the event is confirmed:");
   assert.equal(experience.reply.confirmedPreviewBody, "Your attendance conditions are never shown to anyone.");
@@ -754,7 +758,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftHome, /private struct ReplyVisibilityPreview[\s\S]*Text\(confirmedBody \?\? experience\.confirmedPreviewBody\)[\s\S]*if mode != \.confirmed \{[\s\S]*Text\(experience\.notConfirmedPreviewLabel\)[\s\S]*Text\(experience\.notConfirmedPreviewTitle\)[\s\S]*Text\(experience\.notConfirmedPreviewBody\)/u);
   assert.doesNotMatch(page, /No response by deadline/u);
   assert.doesNotMatch(swiftHome, /No response by deadline/u);
-  assert.match(swiftHome, /replyVisibilityPreview\(event\)/);
+  assert.match(swiftHome, /replyVisibilityPreview\([\s\S]*?event,[\s\S]*?mode:/u);
   assert.match(swiftHome, /noReplyHistory\(including: event\)/);
   assert.match(page, /noReplyHistoryLabel/);
   assert.match(page, /person\.responseHistory\.missedConfirmedEvents/);
@@ -775,8 +779,8 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.success.notConfirmedPreviewOption, "If never confirmed");
   assert.match(page, /SUCCESS_EXPERIENCE\.replyPreviewTitle[\s\S]*success-outcome-toggle[\s\S]*outcome=\{successPreviewOutcome\}/u);
   assert.doesNotMatch(page, /SUCCESS_EXPERIENCE\.(?:savedReply|visibility|goingPrivacy|cantCommitPrivacy)/u);
-  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*outcomeSelector/u);
-  assert.match(swiftHome, /private var outcomeSelector: some View[\s\S]*HStack\(spacing: 0\)/u);
+  assert.match(swiftHome, /Text\(experience\.replyPreviewTitle\)[\s\S]*ReplyOutcomeSelector/u);
+  assert.match(swiftHome, /private struct ReplyOutcomeSelector: View[\s\S]*HStack\(spacing: 0\)/u);
   assert.match(swiftHome, /mode: previewOutcome == \.confirmed \? \.confirmed : \.notConfirmed/u);
   assert.match(swiftHome, /background\(attendeeAvatarTone\(1\), in: \.circle\)/u);
   assert.match(swiftHome, /accessibilityIdentifier\("reply-preview-confirmed-card"\)[\s\S]*accessibilityIdentifier\("reply-preview-not-confirmed-card"\)/u);

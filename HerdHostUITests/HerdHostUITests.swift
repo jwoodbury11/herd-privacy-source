@@ -684,6 +684,16 @@ final class HerdHostUITests: XCTestCase {
         scrollToMakeHittable(preview, in: app.scrollViews.firstMatch)
         preview.tap()
 
+        let outcomePicker = app.otherElements["reply-preview-outcome-picker"]
+        XCTAssertTrue(outcomePicker.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(outcomePicker.frame.height, 54)
+        XCTAssertTrue(app.staticTexts["This user has not responded to their only confirmed event invitation."].exists)
+        XCTAssertFalse(app.staticTexts["This event was not confirmed"].exists)
+
+        app.buttons["If never confirmed"].tap()
+        XCTAssertTrue(app.staticTexts["This event was not confirmed"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["This user has not responded to their only confirmed event invitation."].exists)
+
         let dismiss = app.buttons["reply-preview-dismiss"]
         XCTAssertTrue(dismiss.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(dismiss.frame.width, 250)
