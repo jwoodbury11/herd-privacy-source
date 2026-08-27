@@ -18,7 +18,11 @@ import type {
 } from "@/lib/privacy/protocol";
 import { reportClientSignal, trackedFetch } from "@/lib/client/telemetry";
 import { requiredAttendeeName } from "@/lib/client/display-names.mjs";
-import { eventImagePath, type EventImageID } from "@/lib/event-images";
+import {
+  eventImagePath,
+  NEVER_CONFIRMED_EVENT_IMAGE_PATH,
+  type EventImageID,
+} from "@/lib/event-images";
 
 const OTP_LENGTH = 4;
 const AUTH_EXPERIENCE = herdExperience.authentication;
@@ -263,6 +267,12 @@ function homeEventSection(event: ApiEvent, now: number): HomeEventSection {
   }
 
   return event.role === "invitee" ? "invites" : "hosted";
+}
+
+function eventArtworkPath(event: ApiEvent, now: number): string {
+  return homeEventSection(event, now) === "unconfirmed"
+    ? NEVER_CONFIRMED_EVENT_IMAGE_PATH
+    : eventImagePath(event.eventImageID);
 }
 
 type InviteMetadata = {
@@ -975,7 +985,7 @@ function EventCard({
         </div>
         <Image
           className="event-card-image"
-          src={eventImagePath(event.eventImageID)}
+          src={eventArtworkPath(event, now)}
           alt=""
           width={224}
           height={224}
@@ -2956,7 +2966,7 @@ export function HerdApp() {
               <section className="event-hero">
                 <Image
                   className="event-hero-image"
-                  src={eventImagePath(activeEvent.eventImageID)}
+                  src={eventArtworkPath(activeEvent, now)}
                   alt={`${activeEvent.title || INVITATION_EXPERIENCE.untitledEvent} event image`}
                   width={512}
                   height={512}

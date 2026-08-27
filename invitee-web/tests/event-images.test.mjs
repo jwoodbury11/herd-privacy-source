@@ -42,6 +42,8 @@ const approvedSha256ForID = {
   other: "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b",
 };
 
+const neverConfirmedSha256 = "65a6a15299f046abc2dbf267e3f5ebbe712f27f1976410b8872360dcc8391102";
+
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
@@ -105,6 +107,35 @@ test("every production event image is the approved high-density transparent asse
   }
 });
 
+test("never-confirmed events use the dedicated funeral artwork without making it selectable", async () => {
+  const [webImage, nativeImage, webCatalog, page, nativeHome, nativeCatalog] = await Promise.all([
+    readFile(new URL("../public/event-images/never-confirmed.png", import.meta.url)),
+    readFile(new URL("../../HerdHost/Assets.xcassets/EventScenes/event-scene-never-confirmed.imageset/event-scene-never-confirmed.png", import.meta.url)),
+    readFile(new URL("../lib/event-images.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
+    readFile(new URL("../../HerdHost/EventImage.swift", import.meta.url), "utf8"),
+  ]);
+
+  for (const [platform, image] of [["web", webImage], ["iPhone", nativeImage]]) {
+    assert.equal(image.subarray(1, 4).toString("ascii"), "PNG", `${platform} funeral art must be a PNG`);
+    assert.equal(image[25], 6, `${platform} funeral art must use RGBA pixels`);
+    assert.equal(image.readUInt32BE(16), 1254, `${platform} funeral art must retain the native width`);
+    assert.equal(image.readUInt32BE(20), 1254, `${platform} funeral art must retain the native height`);
+    assert.equal(sha256(image), neverConfirmedSha256, `${platform} funeral art must match V1 exactly`);
+  }
+
+  assert.match(webCatalog, /NEVER_CONFIRMED_EVENT_IMAGE_PATH = "\/event-images\/never-confirmed\.png"/u);
+  assert.doesNotMatch(webCatalog, /"never-confirmed",\s*\] as const/u);
+  assert.match(page, /homeEventSection\(event, now\) === "unconfirmed"[\s\S]*NEVER_CONFIRMED_EVENT_IMAGE_PATH/u);
+  assert.match(page, /className="event-card-image"[\s\S]*src=\{eventArtworkPath\(event, now\)\}/u);
+  assert.match(page, /className="event-hero-image"[\s\S]*src=\{eventArtworkPath\(activeEvent, now\)\}/u);
+  assert.match(nativeHome, /usesNeverConfirmedArtwork: true/u);
+  assert.match(nativeHome, /usesNeverConfirmedArtwork: event\.homeSection\(\) == \.unconfirmed/u);
+  assert.match(nativeCatalog, /"event-scene-never-confirmed"/u);
+  assert.doesNotMatch(nativeCatalog, /case neverConfirmed/u);
+});
+
 test("cards, details, and the host editor expose the event image", async () => {
   const [page, styles, editor, nativeHome, nativeImage] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
@@ -118,19 +149,19 @@ test("cards, details, and the host editor expose the event image", async () => {
   assert.match(page, /className="event-hero-image"/u);
   assert.match(
     page,
-    /className="event-card-image"[\s\S]*?src=\{eventImagePath\(event\.eventImageID\)\}[\s\S]*?unoptimized/u,
+    /className="event-card-image"[\s\S]*?src=\{eventArtworkPath\(event, now\)\}[\s\S]*?unoptimized/u,
   );
   assert.match(
     page,
-    /className="event-hero-image"[\s\S]*?src=\{eventImagePath\(activeEvent\.eventImageID\)\}[\s\S]*?unoptimized/u,
+    /className="event-hero-image"[\s\S]*?src=\{eventArtworkPath\(activeEvent, now\)\}[\s\S]*?unoptimized/u,
   );
   assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) 144px/u);
   assert.match(styles, /\.event-card h2[\s\S]*-webkit-line-clamp: 3/u);
-  assert.match(nativeHome, /EventSceneImage\(id: event\.resolvedEventImageID\)[\s\S]*\.frame\(width: 144, height: 144\)/u);
+  assert.match(nativeHome, /EventSceneImage\([\s\S]*id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: usesNeverConfirmedArtwork[\s\S]*\.frame\(width: 144, height: 144\)/u);
   assert.match(nativeHome, /\.lineLimit\(3\)[\s\S]*\.truncationMode\(\.tail\)/u);
   assert.match(nativeHome, /\.frame\([\s\S]*minHeight: max\(0, cardMinimumHeight - \(cardPadding \* 2\)\)[\s\S]*alignment: \.topLeading/u);
   assert.match(styles, /\.event-hero-image[\s\S]*width: min\(100%, 468px\)[\s\S]*height: 317px/u);
-  assert.match(nativeHome, /event\.resolvedEventImageID\)[\s\S]*\.frame\(height: 317\)/u);
+  assert.match(nativeHome, /id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: event\.homeSection\(\) == \.unconfirmed[\s\S]*\.frame\(height: 317\)/u);
   assert.match(editor, /EditorGroup\(title: "Image"\)[\s\S]*EventImageID\.allCases/u);
   assert.match(editor, /event-image-preview-/u);
   assert.match(editor, /fullScreenCover\(item: \$previewedImageID\)/u);

@@ -21,6 +21,8 @@ export type EventImageID = (typeof EVENT_IMAGE_IDS)[number];
 
 export const DEFAULT_EVENT_IMAGE_ID: EventImageID = "poker";
 
+export const NEVER_CONFIRMED_EVENT_IMAGE_PATH = "/event-images/never-confirmed.png";
+
 export function eventImagePath(id: EventImageID | null | undefined): string {
   return `/event-images/${id ?? DEFAULT_EVENT_IMAGE_ID}.png`;
 }

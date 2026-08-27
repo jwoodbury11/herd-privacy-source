@@ -92,6 +92,7 @@ struct HomeView: View {
                                 title: experience.unconfirmedSectionTitle,
                                 events: unconfirmedEvents,
                                 note: experience.unconfirmedSectionNote,
+                                usesNeverConfirmedArtwork: true,
                                 isExpanded: $unconfirmedEventsExpanded
                             )
                         }
@@ -226,7 +227,10 @@ struct HomeView: View {
             .min()
     }
 
-    private func eventButton(for event: HerdEvent) -> some View {
+    private func eventButton(
+        for event: HerdEvent,
+        usesNeverConfirmedArtwork: Bool = false
+    ) -> some View {
         Button {
             if HerdRuntime.isAppClip && event.isHosted && !event.invitationsSent {
                 presentation = .fullApp
@@ -236,7 +240,11 @@ struct HomeView: View {
                 presentation = .detail(event.id)
             }
         } label: {
-            EventCard(event: event, experience: experience)
+            EventCard(
+                event: event,
+                experience: experience,
+                usesNeverConfirmedArtwork: usesNeverConfirmedArtwork
+            )
                 .contentShape(Rectangle())
         }
         .buttonStyle(PlainPressButtonStyle())
@@ -300,6 +308,7 @@ struct HomeView: View {
         title: String,
         events: [HerdEvent],
         note: String? = nil,
+        usesNeverConfirmedArtwork: Bool = false,
         isExpanded: Binding<Bool>
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -337,7 +346,10 @@ struct HomeView: View {
 
             if isExpanded.wrappedValue {
                 ForEach(events) { event in
-                    eventButton(for: event)
+                    eventButton(
+                        for: event,
+                        usesNeverConfirmedArtwork: usesNeverConfirmedArtwork
+                    )
                 }
             }
         }
@@ -1380,6 +1392,7 @@ private struct ProfileAddressPicker: View {
 private struct EventCard: View {
     let event: HerdEvent
     let experience: HerdExperience.Home
+    let usesNeverConfirmedArtwork: Bool
 
     var body: some View {
         let cardPadding = CGFloat(experience.layout.cardPadding)
@@ -1416,7 +1429,10 @@ private struct EventCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                EventSceneImage(id: event.resolvedEventImageID)
+                EventSceneImage(
+                    id: event.resolvedEventImageID,
+                    usesNeverConfirmedArtwork: usesNeverConfirmedArtwork
+                )
                     .frame(width: 144, height: 144)
                     .fixedSize()
                     .accessibilityIdentifier(
@@ -1895,7 +1911,10 @@ private struct InvitationDetailView: View {
 
     private func invitationHeader(_ event: HerdEvent) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            EventSceneImage(id: event.resolvedEventImageID)
+            EventSceneImage(
+                id: event.resolvedEventImageID,
+                usesNeverConfirmedArtwork: event.homeSection() == .unconfirmed
+            )
                 .frame(maxWidth: .infinity)
                 .frame(height: 317)
                 .padding(.bottom, 14)
