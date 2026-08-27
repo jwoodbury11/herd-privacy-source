@@ -47,12 +47,22 @@ enum EventImageID: String, Codable, CaseIterable, Hashable, Identifiable, Sendab
 
 struct EventSceneImage: View {
     let id: EventImageID
+    let usesNeverConfirmedArtwork: Bool
+
+    init(id: EventImageID, usesNeverConfirmedArtwork: Bool = false) {
+        self.id = id
+        self.usesNeverConfirmedArtwork = usesNeverConfirmedArtwork
+    }
 
     var body: some View {
-        Image(id.assetName)
+        Image(usesNeverConfirmedArtwork ? "event-scene-never-confirmed" : id.assetName)
             .resizable()
             .scaledToFit()
-            .accessibilityLabel("\(id.label) event image")
+            .accessibilityLabel(
+                usesNeverConfirmedArtwork
+                    ? "Event never confirmed illustration"
+                    : "\(id.label) event image"
+            )
     }
 }
 
