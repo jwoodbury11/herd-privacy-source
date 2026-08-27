@@ -182,6 +182,7 @@ export type ApiEvent = {
   id: string;
   title: string;
   eventDate: string | null;
+  eventTimeZone: string | null;
   endDate: string | null;
   hostName: string;
   locationName: string;
@@ -978,6 +979,7 @@ function EventCard({
           alt=""
           width={224}
           height={224}
+          unoptimized
         />
       </div>
       <div className="metric-row">
@@ -1675,6 +1677,7 @@ export function HerdApp() {
           id: event.id,
           title: event.title,
           eventDate: event.eventDate,
+          eventTimeZone: event.eventTimeZone,
           endDate: event.endDate,
           hostName: event.hostName,
           locationName: event.locationName,
@@ -2958,6 +2961,7 @@ export function HerdApp() {
                   width={512}
                   height={512}
                   priority
+                  unoptimized
                 />
                 <div className="event-hero-heading">
                   <span className="status-pill">

@@ -116,6 +116,14 @@ test("cards, details, and the host editor expose the event image", async () => {
 
   assert.match(page, /className="event-card-image"/u);
   assert.match(page, /className="event-hero-image"/u);
+  assert.match(
+    page,
+    /className="event-card-image"[\s\S]*?src=\{eventImagePath\(event\.eventImageID\)\}[\s\S]*?unoptimized/u,
+  );
+  assert.match(
+    page,
+    /className="event-hero-image"[\s\S]*?src=\{eventImagePath\(activeEvent\.eventImageID\)\}[\s\S]*?unoptimized/u,
+  );
   assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) 144px/u);
   assert.match(styles, /\.event-card h2[\s\S]*-webkit-line-clamp: 3/u);
   assert.match(nativeHome, /EventSceneImage\(id: event\.resolvedEventImageID\)[\s\S]*\.frame\(width: 144, height: 144\)/u);

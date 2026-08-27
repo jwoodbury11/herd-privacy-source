@@ -130,6 +130,7 @@ function eventFixture({ eventId, invitees, invitationsSent = false }) {
     id: eventId,
     title: "Delivery reliability dinner",
     eventDate: eventDate.toISOString(),
+    eventTimeZone: "America/Los_Angeles",
     endDate: new Date(eventDate.getTime() + 7_200_000).toISOString(),
     hostName: "Herd test Host",
     locationName: "Test kitchen",
@@ -203,6 +204,7 @@ test("first Send stores an encrypted private link and returns provider-accepted 
   });
   assert.equal(sentResponse.status, 200);
   const sentEvent = (await sentResponse.json()).event;
+  assert.equal(sentEvent.eventTimeZone, event.eventTimeZone);
   assert.deepEqual(sentEvent.invitationDelivery, {
     status: "complete",
     total: 1,
@@ -237,12 +239,18 @@ test("first Send stores an encrypted private link and returns provider-accepted 
   assert.equal(providerBody.get("To"), event.invitees[0].phoneNumber);
   assert.equal(providerBody.get("MessagingServiceSid"), messagingServiceSid);
   const message = providerBody.get("Body") ?? "";
-  assert.match(message, /^A plan is taking shape on Herd: Delivery reliability dinner — /u);
-  assert.match(
-    message,
-    /\. Herd test Host included you\. Open the invitation and reply privately\. One-time message sent at the host’s request\. Reply STOP to opt out; HELP for help\. Msg & data rates may apply\.\nhttps:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}$/u,
+  const expectedDate = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: event.eventTimeZone,
+  }).format(new Date(event.eventDate));
+  assert.match(message, /^https:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}\n/u);
+  assert.equal(
+    message.slice(message.indexOf("\n") + 1),
+    `Herd test Host invited you to Delivery reliability dinner — ${expectedDate}. Open the invitation and reply privately. One-time message sent at Herd test Host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`,
   );
-  const invitationToken = message.match(/\/invite\/([A-Za-z0-9_-]{43})\./u)?.[1];
+  assert.doesNotMatch(message, /\bUTC\b/u);
+  const invitationToken = message.match(/\/invite\/([A-Za-z0-9_-]{43})\n/u)?.[1];
   assert.ok(invitationToken);
 
   const tokenRow = await database

@@ -107,28 +107,50 @@ final class LocationSearchModel: NSObject, ObservableObject, MKLocalSearchComple
             self?.results = []
         }
     }
+
+    func resolveTimeZone(
+        for suggestion: LocationSearchSuggestion,
+        completion: @escaping (String?) -> Void
+    ) {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = [suggestion.title, suggestion.subtitle]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        Task {
+            let response = try? await MKLocalSearch(request: request).start()
+            let identifier = response?.mapItems.first?.placemark.timeZone?.identifier
+            await MainActor.run {
+                completion(identifier)
+            }
+        }
+    }
 }
 
 struct LocationSearchView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding private var locationName: String
     @Binding private var locationAddress: String
+    @Binding private var eventTimeZone: String
     private let profileAddress: String?
 
     @StateObject private var searchModel: LocationSearchModel
     @State private var selectedName: String
     @State private var selectedAddress: String
     @State private var unitNumber: String
+    @State private var selectedTimeZone: String?
+    @State private var isResolvingTimeZone = false
     @FocusState private var isSearchFocused: Bool
     @FocusState private var isUnitFocused: Bool
 
     init(
         locationName: Binding<String>,
         locationAddress: Binding<String>,
+        eventTimeZone: Binding<String>,
         profileAddress: String
     ) {
         _locationName = locationName
         _locationAddress = locationAddress
+        _eventTimeZone = eventTimeZone
         self.profileAddress = LocationSearchSuggestions.profileAddress(from: profileAddress)
 
         let parsedAddress = LocationUnitAddress.split(locationAddress.wrappedValue)
@@ -139,6 +161,7 @@ struct LocationSearchView: View {
         _selectedName = State(initialValue: locationName.wrappedValue)
         _selectedAddress = State(initialValue: parsedAddress.base)
         _unitNumber = State(initialValue: parsedAddress.unit)
+        _selectedTimeZone = State(initialValue: eventTimeZone.wrappedValue)
     }
 
     var body: some View {
@@ -186,6 +209,13 @@ struct LocationSearchView: View {
                                         searchModel.query = [result.title, result.subtitle]
                                             .filter { !$0.isEmpty }
                                             .joined(separator: ", ")
+                                        selectedTimeZone = nil
+                                        isResolvingTimeZone = true
+                                        searchModel.resolveTimeZone(for: result) { identifier in
+                                            selectedTimeZone = identifier
+                                                ?? TimeZone.autoupdatingCurrent.identifier
+                                            isResolvingTimeZone = false
+                                        }
                                         dismissKeyboard()
                                     } label: {
                                         LocationResultRow(
@@ -248,10 +278,13 @@ struct LocationSearchView: View {
                         )
                         locationAddress = savedAddress
                         locationName = normalizedSummary == savedAddress ? "" : savedName
+                        eventTimeZone = selectedTimeZone
+                            ?? TimeZone.autoupdatingCurrent.identifier
                         dismiss()
                     }
                     .fontWeight(.semibold)
                     .disabled(
+                        isResolvingTimeZone ||
                         selectedName.isEmpty &&
                         searchModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     )

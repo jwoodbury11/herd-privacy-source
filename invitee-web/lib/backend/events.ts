@@ -98,6 +98,7 @@ type EventRow = {
   hostUserId: string;
   title: string;
   eventDate: string | null;
+  eventTimeZone: string | null;
   endDate: string | null;
   hostName: string;
   locationName: string;
@@ -141,6 +142,7 @@ const EVENT_SELECT = `SELECT
   host_user_id AS hostUserId,
   title,
   event_date AS eventDate,
+  event_time_zone AS eventTimeZone,
   end_date AS endDate,
   host_name AS hostName,
   location_name AS locationName,
@@ -173,6 +175,17 @@ function normalizeIsoDate(
     throw new ApiError(400, "invalid_event", `${field} must be an ISO 8601 timestamp.`);
   }
   return new Date(timestamp).toISOString();
+}
+
+function normalizeTimeZone(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const candidate = requireString(value, "event.eventTimeZone", { max: 100 });
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format();
+  } catch {
+    throw new ApiError(400, "invalid_event", "event.eventTimeZone must be a valid IANA time zone.");
+  }
+  return candidate;
 }
 
 function requireInteger(
@@ -229,6 +242,7 @@ export function validateCanonicalEvent(
   const eventDate = normalizeIsoDate(input.eventDate, "event.eventDate", {
     nullable: true,
   });
+  const eventTimeZone = normalizeTimeZone(input.eventTimeZone);
   const endDate = normalizeIsoDate(input.endDate, "event.endDate", { nullable: true });
   const rsvpDeadline = normalizeIsoDate(input.rsvpDeadline, "event.rsvpDeadline", {
     nullable: true,
@@ -384,6 +398,7 @@ export function validateCanonicalEvent(
     id,
     title,
     eventDate,
+    eventTimeZone,
     endDate,
     hostName,
     locationName,
@@ -466,6 +481,7 @@ async function hydrateEvents(
     id: event.id,
     title: event.title,
     eventDate: event.eventDate,
+    eventTimeZone: event.eventTimeZone,
     endDate: event.endDate,
     hostName: event.hostName,
     locationName: event.locationName,
@@ -913,6 +929,7 @@ export async function putHostedEvent(
           `UPDATE events SET
              title = ?,
              event_date = ?,
+             event_time_zone = ?,
              end_date = ?,
              host_name = ?,
              location_name = ?,
@@ -932,6 +949,7 @@ export async function putHostedEvent(
         .bind(
           event.title,
           event.eventDate,
+          event.eventTimeZone,
           event.endDate,
           event.hostName,
           event.locationName,
@@ -952,17 +970,18 @@ export async function putHostedEvent(
       db
         .prepare(
           `INSERT INTO events
-            (id, host_user_id, title, event_date, end_date, host_name, location_name,
+            (id, host_user_id, title, event_date, event_time_zone, end_date, host_name, location_name,
              location_address, minimum_participants, allows_attendees_to_add_guests,
              rsvp_deadline, event_description, event_image_id,
              invitations_sent, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           event.id,
           hostUserId,
           event.title,
           event.eventDate,
+          event.eventTimeZone,
           event.endDate,
           event.hostName,
           event.locationName,
