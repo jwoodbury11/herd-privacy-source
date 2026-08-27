@@ -2960,7 +2960,7 @@ export function HerdApp() {
                     </button>
                   </div>
                 </details>
-              ) : <span className="header-countdown">{countdown}</span>}
+              ) : null}
             />
             <div className="screen-scroll event-detail-scroll">
               <section className="event-hero">

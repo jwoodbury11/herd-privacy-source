@@ -381,9 +381,10 @@ test("attendee names truncate to one line and reveal only clipped full names", a
   assert.match(swiftHome, /arrowEdge: \.bottom/u);
 });
 
-test("reply countdown remains visible until the deadline and uses compact time pairs", async () => {
-  const [page, swiftHome] = await Promise.all([
+test("reply countdown remains in event content without diverging into the guest header", async () => {
+  const [page, css, swiftHome] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../../HerdHost/HomeView.swift", import.meta.url), "utf8"),
   ]);
 
@@ -395,6 +396,9 @@ test("reply countdown remains visible until the deadline and uses compact time p
   assert.match(page, /eventThirdMetric\(activeEvent,[\s\S]*, now\)/u);
   assert.match(page, /activeEvent\.resolution\?\.status !== "confirmed" \? <div>[\s\S]*Hourglass/u);
   assert.match(page, /event\.resolution\.attendanceRevealed[\s\S]*INVITATION_EXPERIENCE\.metrics\.attending/u);
+  assert.match(page, /action=\{activeEvent\.role === "host" \? \([\s\S]*\) : null\}/u);
+  assert.doesNotMatch(page, /header-countdown/u);
+  assert.doesNotMatch(css, /\.header-countdown/u);
   assert.doesNotMatch(page, /value: "Yes", label: "confirmed"/u);
   assert.match(
     swiftHome,
