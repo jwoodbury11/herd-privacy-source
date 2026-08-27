@@ -636,9 +636,9 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.home.layout.webCardMinimumHeight, 240);
   assert.match(css, /\.event-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
   assert.match(css, /\.host-event-create-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
-  assert.match(css, /\.event-card h2 \{[^}]*-webkit-line-clamp: 3/u);
+  assert.match(css, /\.event-card h2 \{[^}]*-webkit-line-clamp: 2/u);
   assert.match(swiftHome, /minHeight: max\(0, cardMinimumHeight - \(cardPadding \* 2\)\)/u);
-  assert.match(swiftEventCard, /\.lineLimit\(3\)[\s\S]*\.truncationMode\(\.tail\)/u);
+  assert.match(swiftEventCard, /\.lineLimit\(2\)[\s\S]*\.truncationMode\(\.tail\)/u);
   assert.match(swiftHome, /spacing: CGFloat\(experience\.layout\.sectionGap\)/);
   assert.match(swiftHome, /font\(\.system\(size: 39, weight: \.bold\)\)/);
   assert.match(swiftHome, /background\(HerdTheme\.surface, in: \.rect\(cornerRadius: 9\)\)/);
