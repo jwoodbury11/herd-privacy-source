@@ -117,6 +117,7 @@
     { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-jacuzzi.imageset/event-scene-jacuzzi.png", "binarySha256": "5e7dd2d05b2d8ea9d337212ac230bd466cd77825e0cc2330fe679b5964ece714" },
     { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-skiing.imageset/event-scene-skiing.png", "binarySha256": "a788d5fcd524f6222e28a22c291e4023dcf87ab58f4fe853e26b821baa4fb6fe" },
     { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-other.imageset/event-scene-other.png", "binarySha256": "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-never-confirmed.imageset/event-scene-never-confirmed.png", "binarySha256": "65a6a15299f046abc2dbf267e3f5ebbe712f27f1976410b8872360dcc8391102" },
     {
       "path": "HerdHost.xcodeproj",
       "recursive": true,
@@ -178,6 +179,7 @@
     { "path": "invitee-web/public/event-images/jacuzzi.png", "binarySha256": "5e7dd2d05b2d8ea9d337212ac230bd466cd77825e0cc2330fe679b5964ece714" },
     { "path": "invitee-web/public/event-images/skiing.png", "binarySha256": "a788d5fcd524f6222e28a22c291e4023dcf87ab58f4fe853e26b821baa4fb6fe" },
     { "path": "invitee-web/public/event-images/other.png", "binarySha256": "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b" },
+    { "path": "invitee-web/public/event-images/never-confirmed.png", "binarySha256": "65a6a15299f046abc2dbf267e3f5ebbe712f27f1976410b8872360dcc8391102" },
     { "path": "invitee-web/public/link-previews/README.md" },
     { "path": "invitee-web/public/link-previews/birthday-party.png", "binarySha256": "62565a8509ff2b680d3fc8735154d0651a6d6f62eb6f7b561f0e4cbf0ec06629" },
     { "path": "invitee-web/public/link-previews/board-games.png", "binarySha256": "8d8f241461038f5c6cef70987333adb8ae05190496b6284366e6d201933337b0" },
