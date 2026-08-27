@@ -1415,7 +1415,7 @@ private struct EventCard: View {
                     Text(event.title.isEmpty ? experience.untitledEvent : event.title)
                         .font(.title2.weight(.bold))
                         .multilineTextAlignment(.leading)
-                        .lineLimit(3)
+                        .lineLimit(2)
                         .truncationMode(.tail)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("event-card-title-\(event.id.uuidString)")

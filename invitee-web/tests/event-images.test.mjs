@@ -156,9 +156,9 @@ test("cards, details, and the host editor expose the event image", async () => {
     /className="event-hero-image"[\s\S]*?src=\{eventArtworkPath\(activeEvent, now\)\}[\s\S]*?unoptimized/u,
   );
   assert.match(styles, /grid-template-columns: minmax\(0, 1fr\) 144px/u);
-  assert.match(styles, /\.event-card h2[\s\S]*-webkit-line-clamp: 3/u);
+  assert.match(styles, /\.event-card h2[\s\S]*-webkit-line-clamp: 2/u);
   assert.match(nativeHome, /EventSceneImage\([\s\S]*id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: usesNeverConfirmedArtwork[\s\S]*\.frame\(width: 144, height: 144\)/u);
-  assert.match(nativeHome, /\.lineLimit\(3\)[\s\S]*\.truncationMode\(\.tail\)/u);
+  assert.match(nativeHome, /\.lineLimit\(2\)[\s\S]*\.truncationMode\(\.tail\)/u);
   assert.match(nativeHome, /\.frame\([\s\S]*minHeight: max\(0, cardMinimumHeight - \(cardPadding \* 2\)\)[\s\S]*alignment: \.topLeading/u);
   assert.match(styles, /\.event-hero-image[\s\S]*width: min\(100%, 468px\)[\s\S]*height: 317px/u);
   assert.match(nativeHome, /id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: event\.homeSection\(\) == \.unconfirmed[\s\S]*\.frame\(height: 317\)/u);
