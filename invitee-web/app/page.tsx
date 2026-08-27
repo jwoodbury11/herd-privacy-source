@@ -1008,6 +1008,7 @@ export function HerdApp() {
   const [resendSeconds, setResendSeconds] = useState(0);
   const [resendNotice, setResendNotice] = useState("");
   const [reply, setReply] = useState<Reply>(null);
+  const [replyPreviewOutcome, setReplyPreviewOutcome] = useState<"confirmed" | "not-confirmed">("confirmed");
   const [successPreviewOutcome, setSuccessPreviewOutcome] = useState<"confirmed" | "not-confirmed">("confirmed");
   const [savedReplyFingerprint, setSavedReplyFingerprint] = useState<string | null>(null);
   const [events, setEvents] = useState<ApiEvent[]>([]);
@@ -2149,6 +2150,7 @@ export function HerdApp() {
   }
 
   function openReplyPreview() {
+    setReplyPreviewOutcome("confirmed");
     setReplyPreviewDragY(0);
     setReplyPreviewOpen(true);
   }
@@ -3621,9 +3623,25 @@ export function HerdApp() {
               <div className="sheet-heading">
                 <h2 id="reply-preview-title">{REPLY_EXPERIENCE.previewTitle}</h2>
               </div>
+              <div className="success-outcome-toggle reply-preview-outcome-toggle" role="group" aria-label="Preview outcome">
+                <button
+                  type="button"
+                  aria-pressed={replyPreviewOutcome === "confirmed"}
+                  onClick={() => setReplyPreviewOutcome("confirmed")}
+                >
+                  {SUCCESS_EXPERIENCE.confirmedPreviewOption}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={replyPreviewOutcome === "not-confirmed"}
+                  onClick={() => setReplyPreviewOutcome("not-confirmed")}
+                >
+                  {SUCCESS_EXPERIENCE.notConfirmedPreviewOption}
+                </button>
+              </div>
               <ReplyVisibilityPreview
                 displayName={replyPreviewName}
-                isConfirmed={activeEvent?.resolution?.status === "confirmed"}
+                outcome={replyPreviewOutcome}
                 status={reply === "yes"
                   ? "Going"
                   : reply === "no"

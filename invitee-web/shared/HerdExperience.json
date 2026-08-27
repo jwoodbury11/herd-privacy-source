@@ -276,7 +276,7 @@
     "notConfirmedPreviewBody": "Zero information is shown to anybody.",
     "previewDismissButton": "OK",
     "savedTitle": "Your private reply has been sent",
-    "unlockButton": "View my private reply",
+    "unlockButton": "View my reply",
     "closedMessage": "The reply deadline has passed.",
     "missingLinkMessage": "This invitation doesn’t have an active reply link."
   },

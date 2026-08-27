@@ -2050,6 +2050,7 @@ summary:focus-visible {
 .reply-preview-sheet { max-height: min(78%, 560px); }
 .reply-preview-sheet .sheet-handle { margin-bottom: 21px; }
 .reply-preview-sheet .sheet-heading { padding-bottom: 24px; }
+.reply-preview-sheet .reply-preview-outcome-toggle { margin: 0 0 18px; }
 .reply-preview-sheet > .primary-button { flex: 0 0 auto; margin-top: 24px; }
 
 .sheet-handle { width: 64px; min-height: 30px; margin: -3px auto 5px; padding: 10px 12px; display: grid; place-items: center; border: 0; background: transparent; cursor: grab; touch-action: none; }
