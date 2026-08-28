@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import sharp from "sharp";
+import { verifyEventImageEdges } from "../scripts/verify-event-image-edges.mjs";
 
 const expectedIDs = [
   "poker",
@@ -42,7 +43,7 @@ const approvedSha256ForID = {
   other: "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b",
 };
 
-const neverConfirmedSha256 = "65a6a15299f046abc2dbf267e3f5ebbe712f27f1976410b8872360dcc8391102";
+const neverConfirmedSha256 = "7fd7302b429db17f40f34fb59d304117b485ffb2428235e2eebcef361e626623";
 
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
@@ -63,6 +64,16 @@ test("the web and iPhone event-image catalogs stay in parity", async () => {
     assert.match(webCatalog, new RegExp(`"${id}"`));
     assert.match(swiftCatalog, new RegExp(id.replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())));
   }
+});
+
+test("event images have no detectable white-matte fringe", async () => {
+  const reports = await verifyEventImageEdges();
+  assert.equal(reports.length, 17);
+  assert.ok(reports.every((report) => report.passesWhiteMatteGate));
+  const neverConfirmed = reports.find((report) => report.name === "never-confirmed");
+  assert.ok(neverConfirmed);
+  assert.ok(neverConfirmed.suspiciousWhiteMattePixels <= 100);
+  assert.ok(neverConfirmed.suspiciousWhiteMatteRate <= 0.005);
 });
 
 test("the host image selector uses the approved short labels", async () => {

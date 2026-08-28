@@ -11,6 +11,7 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test:browser-harness": "node scripts/browser-acceptance-harness.mjs",
     "test:browser-ui": "playwright test --config playwright.config.mjs",
+    "qa:event-images": "node scripts/verify-event-image-edges.mjs",
     "test": "npm run build && node scripts/run-current-tests.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
