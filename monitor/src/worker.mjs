@@ -509,7 +509,11 @@ export class ReleaseMonitorCoordinator {
 
 function coordinator(env) {
   if (!env.MONITOR_COORDINATOR) throw new TypeError("MONITOR_COORDINATOR Durable Object binding is not configured.");
-  return env.MONITOR_COORDINATOR.get(env.MONITOR_COORDINATOR.idFromName("herd-release-monitor-global-v1"));
+  // Generation v1 remains preserved as the historical witness. Production's
+  // authorized test-account reset returned the response log to genesis, so a
+  // new coordinator must establish that genesis independently rather than
+  // weakening or overwriting the prior witness.
+  return env.MONITOR_COORDINATOR.get(env.MONITOR_COORDINATOR.idFromName("herd-release-monitor-global-v2"));
 }
 
 export default {
