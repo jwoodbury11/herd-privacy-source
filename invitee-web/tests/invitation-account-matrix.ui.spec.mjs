@@ -224,9 +224,13 @@ test("an already-open observer receives every other account's response marker", 
   const observer = authenticatedPages[0];
   await observer.getByRole("button", { name: "View invitation" }).click();
   await expectInvitation(observer);
-  await observer.locator(".attendee-entry").click();
+  await observer.getByRole("button", { name: /invited, view attendees/u }).click();
   await expect(observer.getByRole("heading", { name: "Attendees" })).toBeVisible();
   await expect(observer.locator(".person-status", { hasText: "Responded" })).toHaveCount(8);
+  await observer.getByRole("button", { name: "Go back" }).click();
+  await expectInvitation(observer);
+  await observer.getByRole("button", { name: /responded, view attendees/u }).click();
+  await expect(observer.getByRole("heading", { name: "Attendees" })).toBeVisible();
   await observer.getByRole("button", { name: "Go back" }).click();
   await expectInvitation(observer);
 });

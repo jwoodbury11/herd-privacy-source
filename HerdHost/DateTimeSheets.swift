@@ -168,8 +168,6 @@ struct RSVPDeadlineSheet: View {
                     )
                     .datePickerStyle(.graphical)
                     .labelsHidden()
-                } footer: {
-                    Text("Guests can reply until this deadline unless the event confirms first.")
                 }
             }
             .herdScreenBackground()

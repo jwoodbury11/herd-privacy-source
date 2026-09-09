@@ -5,6 +5,27 @@ import test from "node:test";
 const source = async (name) =>
   readFile(new URL(`../HerdHost/${name}`, import.meta.url), "utf8");
 
+test("Contacts disclosure, explicit upload consent, and manual fallback remain connected", async () => {
+  const [flow, api, editor, home] = await Promise.all([
+    source("AttendeeFlowView.swift"), source("APIClient.swift"),
+    source("EventEditorView.swift"), source("HomeView.swift"),
+  ]);
+  assert.match(flow, /permissionButton\("Continue", primary: true, action: contactService.requestAccess\)/u);
+  assert.doesNotMatch(flow, /Allow contact access|ManualRecipientSheet|ContactsDesignPreview/u);
+  assert.match(flow, /Button\("Agree and save", action: save\)/u);
+  const consent = flow.slice(flow.indexOf('.alert("Save attendees to Herd?"'), flow.indexOf('.navigationBarTitleDisplayMode(.inline)', flow.indexOf('.alert("Save attendees to Herd?"')));
+  assert.match(consent, /These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft\./u);
+  assert.doesNotMatch(consent, /address book|contacts/u);
+  assert.match(flow, /permissionButton\("Add attendees manually"[\s\S]*?action: beginManualReview/u);
+  assert.match(flow, /onChange\(of: scenePhase\)[\s\S]*?contactService.refresh\(\)/u);
+  assert.match(flow, /add-another-attendee/u);
+  const payload = api.slice(api.indexOf("private struct HostInviteePayload:"), api.indexOf("private struct HostEventPayload:"));
+  assert.match(payload, /let id: UUID[\s\S]*let displayName: String[\s\S]*let phoneNumber: String/u);
+  assert.doesNotMatch(payload, /sourceContactIdentifier|CNContact|photo/u);
+  assert.match(editor, /AttendeeFlowView\([\s\S]*?invitees: \$draft.invitees/u);
+  assert.match(home, /AttendeeFlowView\([\s\S]*?invitees: \$pendingInvitees/u);
+});
+
 test("reply previews reuse one outcome toggle and locked replies expose one action", async () => {
   const [home, experience] = await Promise.all([
     source("HomeView.swift"),
@@ -217,6 +238,13 @@ test("response progress unlocks only after the current guest replies", async () 
   );
 });
 
+test("invited and response metrics open the same attendee list as the guest card", async () => {
+  const home = await source("HomeView.swift");
+  assert.match(home, /attendeeMetricLink\([\s\S]*invitation-metric-invited/u);
+  assert.match(home, /outcomeMetric\.label == "responded"[\s\S]*invitation-metric-outcome/u);
+  assert.match(home, /private func attendeeMetricLink\([\s\S]*InvitationAttendees\(eventID: eventID\)/u);
+});
+
 test("selected required-attendee chips abbreviate names without changing stored names", async () => {
   const [editor, home, models] = await Promise.all([
     source("EventEditorView.swift"),
@@ -339,15 +367,27 @@ test("event editor uses attendee language for required-attendee controls", async
   assert.doesNotMatch(source, /Required attendance|Add required attendance/u);
 });
 
-test("event editor distinguishes unsaved abandonment from saved-draft deletion", async () => {
+test("event editor closes saved drafts without deleting them and protects unsaved changes", async () => {
   const editor = await source("EventEditorView.swift");
   assert.match(
     editor,
-    /if draft\.invitationsSent[\s\S]*else if isExistingEvent \{\s*showsDeleteDraftConfirmation = true\s*\} else \{\s*showsAbandonDraftConfirmation = true/u,
+    /if draft\.invitationsSent[\s\S]*else if isExistingEvent \{\s*if hasUnsavedChanges \{\s*showsDiscardChangesConfirmation = true\s*\} else \{\s*dismiss\(\)\s*\}[\s\S]*else if !hasUnsavedChanges \{\s*dismiss\(\)/u,
   );
+  assert.match(editor, /private let initialDraft: HerdEvent/u);
+  assert.match(editor, /private var hasUnsavedChanges: Bool \{\s*draft != initialDraft\s*\}/u);
   assert.match(editor, /\.alert\("Abandon this draft\?"[\s\S]*confirm-abandon-draft/u);
-  assert.match(editor, /\.alert\("Delete this draft\?"[\s\S]*confirm-delete-draft/u);
-  assert.match(editor, /let didDelete = await store\.delete\(draft\)/u);
+  assert.match(editor, /\.alert\("Discard unsaved changes\?"/u);
+  assert.match(editor, /Your saved draft will stay unchanged\./u);
+  assert.match(editor, /confirm-discard-draft-changes/u);
+  assert.doesNotMatch(editor, /Delete this draft\?|confirm-delete-draft|deleteSavedDraft/u);
+});
+
+test("the RSVP deadline picker omits the redundant reply-window explanation", async () => {
+  const dateTimeSheets = await source("DateTimeSheets.swift");
+  assert.doesNotMatch(
+    dateTimeSheets,
+    /Guests can reply until this deadline unless the event confirms first\./u,
+  );
 });
 
 test("blank event drafts always save with the Untitled event fallback", async () => {
@@ -429,7 +469,9 @@ test("pending invitations keep the normal sign-in screen and native iOS design",
   ]);
   assert.doesNotMatch(auth, /Your invitation is ready|pending-invitation-notice/u);
   assert.match(app, /ZStack \{\s*HerdTheme\.canvas\s*\.ignoresSafeArea\(\)/u);
-  assert.doesNotMatch(attendeeFlow, /Color\.black/u);
+  // Black button text on the shared white primary action is intentional;
+  // page and keyboard backgrounds must continue using the Herd canvas.
+  assert.doesNotMatch(attendeeFlow, /background\(Color\.black/u);
   assert.match(attendeeFlow, /toolbarBackground\(HerdTheme\.canvas/u);
   assert.doesNotMatch(
     info,
@@ -503,14 +545,18 @@ test("every iOS build requires hardware evaluator attestation", async () => {
 });
 
 test("the App Clip is embedded without making the archive generic", async () => {
-  const [project, hostInfo, clipInfo] = await Promise.all([
+  const [project, hostInfo, clipInfo, home] = await Promise.all([
     readFile(new URL("../HerdHost.xcodeproj/project.pbxproj", import.meta.url), "utf8"),
     source("Info.plist"),
     readFile(new URL("../HerdClip/Info.plist", import.meta.url), "utf8"),
+    source("HomeView.swift"),
   ]);
   const clipConfigurations = project.match(/PRODUCT_NAME = HerdClip;\s+SKIP_INSTALL = YES;/gu) ?? [];
   assert.equal(clipConfigurations.length, 2);
   assert.doesNotMatch(project, /PRODUCT_NAME = HerdClip;\s+SKIP_INSTALL = NO;/u);
+  assert.equal((project.match(/HomeView\.swift in Sources/gu) ?? []).length, 4);
+  assert.match(home, /private func beginHosting\(\) \{\s*if HerdRuntime\.isAppClip \{\s*presentation = \.fullApp/u);
+  assert.match(home, /navigationTitle\("Account diagnostics"\)/u);
   for (const info of [hostInfo, clipInfo]) {
     assert.match(info, /<key>HERD_APP_CLIP_BUNDLE_IDENTIFIER<\/key>/u);
     assert.match(info, /<key>HERD_PARENT_BUNDLE_IDENTIFIER<\/key>/u);

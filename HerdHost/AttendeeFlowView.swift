@@ -4,6 +4,7 @@ import UIKit
 
 struct AttendeeFlowView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Binding private var invitees: [Invitee]
 
     @StateObject private var contactService = ContactStoreService()
@@ -12,7 +13,7 @@ struct AttendeeFlowView: View {
     @State private var reviewDrafts: [Invitee]
     @State private var showsReview = false
     @State private var showsContactPicker = false
-    @State private var showsManualRecipientSheet = false
+    @State private var manualEntry = false
     @State private var contactSelectionSnapshot: Set<String> = []
     @State private var returnsToReviewOnCancel = false
     @State private var showsCancelConfirmation = false
@@ -71,6 +72,11 @@ struct AttendeeFlowView: View {
         .onAppear {
             contactService.refresh()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                contactService.refresh()
+            }
+        }
         .onDisappear(perform: dismissKeyboard)
         .task(id: contactPickerIsActive) {
             guard contactPickerIsActive, isAuthorized else { return }
@@ -86,11 +92,6 @@ struct AttendeeFlowView: View {
             }
         } message: {
             Text(clearSelectionMessage)
-        }
-        .sheet(isPresented: $showsManualRecipientSheet) {
-            ManualRecipientSheet(excludedPhoneKeys: excludedPhoneKeys) { candidate in
-                addManualRecipient(candidate)
-            }
         }
     }
 
@@ -141,6 +142,8 @@ struct AttendeeFlowView: View {
         InviteeReviewView(
             invitees: $reviewDrafts,
             excludedPhoneKeys: excludedPhoneKeys,
+            allowsManualEntry: manualEntry || !isAuthorized,
+            showsSettingsHint: contactService.authorizationStatus == .denied,
             onCancel: isRoot ? { dismiss() } : nil,
             onAddMore: showContactPickerFromReview,
             onSave: saveReview
@@ -197,7 +200,10 @@ struct AttendeeFlowView: View {
             HerdPhoneNumberFormatter.comparisonKey(candidate.phoneNumber)
         })
 
-        contacts.append(contentsOf: invitees.compactMap { invitee in
+        let retainedInvitees = invitees + reviewDrafts.filter { draft in
+            !invitees.contains { $0.id == draft.id }
+        }
+        contacts.append(contentsOf: retainedInvitees.compactMap { invitee in
             let identifier = invitee.sourceContactIdentifier ?? "existing-\(invitee.id.uuidString)"
             let phoneKey = HerdPhoneNumberFormatter.comparisonKey(invitee.phoneNumber)
             guard
@@ -258,7 +264,7 @@ struct AttendeeFlowView: View {
             Section {
                 Button {
                     isSearchFocused = false
-                    showsManualRecipientSheet = true
+                    beginManualReview()
                 } label: {
                     VStack(spacing: 10) {
                         Image(systemName: "plus")
@@ -378,24 +384,19 @@ struct AttendeeFlowView: View {
     }
 
     private var permissionPrimer: some View {
+      ScrollView {
         VStack(spacing: 20) {
-            Spacer()
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(.largeTitle, design: .rounded, weight: .medium))
                 .foregroundStyle(.secondary)
             VStack(spacing: 8) {
-                Text("Choose attendees")
+                Text("Choose from your contacts")
                     .font(.title2.weight(.bold))
-                Text("Herd uses Contacts so you can choose people to invite. Only the guests you select are sent to Herd.")
+                Text("Only selected names and phone numbers are uploaded to Herd’s servers to manage the event and deliver invitations. Your full address book is never uploaded.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-
-            Button("Allow contact access") {
-                contactService.requestAccess()
-            }
-            .buttonStyle(.borderedProminent)
-            .foregroundStyle(.black)
 
             if let errorMessage = contactService.errorMessage {
                 Text(errorMessage)
@@ -403,32 +404,82 @@ struct AttendeeFlowView: View {
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
             }
-            Spacer()
         }
         .padding(28)
+        .frame(maxWidth: .infinity)
+      }
+        .defaultScrollAnchor(.center)
+        .safeAreaInset(edge: .bottom) {
+            permissionButton("Continue", primary: true, action: contactService.requestAccess)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+                .background(HerdTheme.canvas)
+        }
     }
 
     private var accessDenied: some View {
-        VStack(spacing: 20) {
-            Spacer()
+        ScrollView {
+          VStack(spacing: 20) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("Contact access is off")
+            Text(contactService.authorizationStatus == .restricted
+                 ? "Contact access is restricted" : "Contact access is off")
                 .font(.title2.weight(.bold))
-            Text("Turn on Contacts access in Settings to choose people to invite.")
+            Text("Only selected names and phone numbers are uploaded to Herd’s servers to manage the event and deliver invitations. Your full address book is never uploaded.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-
-            Button("Open settings") {
+          }
+          .padding(28)
+          .frame(maxWidth: .infinity)
+        }
+        .defaultScrollAnchor(.center)
+        .safeAreaInset(edge: .bottom) {
+          VStack(spacing: 12) {
+            if contactService.authorizationStatus != .restricted {
+            permissionButton("Open Settings", primary: true) {
                 guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
                 UIApplication.shared.open(url)
             }
-            .buttonStyle(.borderedProminent)
-            .foregroundStyle(.black)
-            Spacer()
+            }
+            permissionButton("Add attendees manually", primary: contactService.authorizationStatus == .restricted,
+                             action: beginManualReview)
+            if !selectedIDs.isEmpty {
+                Button("Review invites", action: prepareReview)
+            }
+          }
+          .padding(.horizontal, 24)
+          .padding(.bottom, 16)
+          .background(HerdTheme.canvas)
         }
-        .padding(28)
+    }
+
+    private func permissionButton(_ title: String, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: HerdExperience.shared.authentication.layout.buttonHeight)
+                .foregroundStyle(primary ? Color.black : Color.primary)
+                .background(primary ? Color.white : HerdTheme.surface,
+                            in: .rect(cornerRadius: HerdExperience.shared.authentication.layout.buttonCornerRadius))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func beginManualReview() {
+        manualEntry = true
+        if isAuthorized {
+            prepareReview()
+        } else if startsWithReview && showsContactPicker {
+            showsContactPicker = false
+        } else {
+            showsReview = true
+        }
+        if reviewDrafts.isEmpty {
+            reviewDrafts.append(Invitee(displayName: "", phoneNumber: ""))
+        }
     }
 
     private func toggle(_ candidate: ContactCandidate) {
@@ -436,13 +487,6 @@ struct AttendeeFlowView: View {
             selectedIDs.remove(candidate.id)
         } else {
             selectedIDs.insert(candidate.id)
-        }
-    }
-
-    private func addManualRecipient(_ candidate: ContactCandidate) {
-        let savedCandidate = contactService.saveManualContact(candidate)
-        withAnimation(.snappy) {
-            _ = selectedIDs.insert(savedCandidate.id)
         }
     }
 
@@ -515,6 +559,15 @@ struct AttendeeFlowView: View {
         guard !reviewDrafts.contains(where: { isExcludedPhoneNumber($0.phoneNumber) }) else {
             return
         }
+        // Remember manually entered recipients locally only after review consent.
+        for index in reviewDrafts.indices where reviewDrafts[index].sourceContactIdentifier == nil {
+            let candidate = contactService.saveManualContact(ContactCandidate(
+                id: "manual-\(reviewDrafts[index].id.uuidString)",
+                displayName: reviewDrafts[index].displayName,
+                phoneNumber: reviewDrafts[index].phoneNumber
+            ))
+            reviewDrafts[index].sourceContactIdentifier = candidate.id
+        }
         invitees = reviewDrafts
         dismissKeyboard()
         dismiss()
@@ -531,117 +584,6 @@ struct AttendeeFlowView: View {
     }
 }
 
-private struct ManualRecipientSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    let excludedPhoneKeys: Set<String>
-    let onSave: (ContactCandidate) -> Void
-
-    @State private var name = ""
-    @State private var phoneNumber = ""
-    @FocusState private var focusedField: Field?
-
-    private enum Field: Hashable {
-        case name
-        case phoneNumber
-    }
-
-    private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var phoneKey: String? {
-        HerdPhoneNumberFormatter.comparisonKey(phoneNumber)
-    }
-
-    private var isHostPhoneNumber: Bool {
-        guard let phoneKey else { return false }
-        return excludedPhoneKeys.contains(phoneKey)
-    }
-
-    private var canSave: Bool {
-        let digitCount = phoneNumber.filter(\.isWholeNumber).count
-        return !trimmedName.isEmpty &&
-            (7...15).contains(digitCount) &&
-            !isHostPhoneNumber
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $name)
-                        .textInputAutocapitalization(.words)
-                        .submitLabel(.next)
-                        .focused($focusedField, equals: .name)
-                        .onSubmit {
-                            focusedField = .phoneNumber
-                        }
-                        .accessibilityIdentifier("manual-recipient-name")
-
-                    TextField("Phone number", text: $phoneNumber)
-                        .keyboardType(.phonePad)
-                        .textContentType(.telephoneNumber)
-                        .focused($focusedField, equals: .phoneNumber)
-                        .onChange(of: phoneNumber) { _, newValue in
-                            let formatted = HerdPhoneNumberFormatter.format(newValue)
-                            if formatted != newValue {
-                                phoneNumber = formatted
-                            }
-                        }
-                        .accessibilityIdentifier("manual-recipient-phone")
-                } header: {
-                    Text("Recipient")
-                } footer: {
-                    if isHostPhoneNumber {
-                        Text("This person is already on the attendee list.")
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(HerdTheme.canvas)
-            .navigationTitle("Add recipient")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismissKeyboard()
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        dismissKeyboard()
-                        let candidate = ContactCandidate(
-                            id: "manual-\(UUID().uuidString)",
-                            displayName: trimmedName,
-                            phoneNumber: HerdPhoneNumberFormatter.format(phoneNumber)
-                        )
-                        onSave(candidate)
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(!canSave)
-                    .accessibilityIdentifier("save-manual-recipient")
-                }
-            }
-        }
-        .herdCanvasBehindSystemUI()
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-        .onAppear {
-            focusedField = .name
-        }
-        .onDisappear(perform: dismissKeyboard)
-    }
-
-    private func dismissKeyboard() {
-        focusedField = nil
-        HerdKeyboard.dismiss()
-    }
-}
 
 private struct ContactCandidateRow: View {
     let candidate: ContactCandidate
@@ -672,19 +614,41 @@ private struct ContactCandidateRow: View {
     }
 }
 
+private enum InviteeReviewField: Hashable {
+    case name(UUID)
+    case phone(UUID)
+}
+
 private struct InviteeReviewView: View {
+    @State private var showsUploadConsent = false
     @Binding var invitees: [Invitee]
     let excludedPhoneKeys: Set<String>
+    let allowsManualEntry: Bool
+    let showsSettingsHint: Bool
     let onCancel: (() -> Void)?
     let onAddMore: () -> Void
     let onSave: () -> Void
-    @FocusState private var isEditing: Bool
+    @FocusState private var focusedField: InviteeReviewField?
+
+    private var settingsHint: AttributedString {
+        var text = AttributedString("Enable Contacts in Settings to invite faster")
+        if let range = text.range(of: "Settings") {
+            text[range].link = URL(string: "herd-settings://contacts")
+            text[range].underlineStyle = .single
+        }
+        return text
+    }
 
     private var canSave: Bool {
-        !invitees.isEmpty && !containsExcludedPhone && invitees.allSatisfy {
+        !containsExcludedPhone && !containsDuplicatePhone && invitees.allSatisfy {
             !$0.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !$0.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            (7...15).contains($0.phoneNumber.filter(\.isWholeNumber).count)
         }
+    }
+
+    private var containsDuplicatePhone: Bool {
+        let keys = invitees.compactMap { HerdPhoneNumberFormatter.comparisonKey($0.phoneNumber) }
+        return Set(keys).count != keys.count
     }
 
     private var containsExcludedPhone: Bool {
@@ -697,18 +661,19 @@ private struct InviteeReviewView: View {
     }
 
     var body: some View {
+      ScrollViewReader { proxy in
         ScrollView {
-            VStack(spacing: 12) {
-                if invitees.isEmpty {
+            VStack(spacing: 24) {
+                if invitees.isEmpty && !allowsManualEntry {
                     ContentUnavailableView(
                         "No attendees selected",
                         systemImage: "person.crop.circle.badge.minus"
                     )
                     .padding(.top, 60)
                 } else {
-                    if containsExcludedPhone {
+                    if containsExcludedPhone || containsDuplicatePhone {
                         Label(
-                            "This person is already on the attendee list.",
+                            containsExcludedPhone ? "This person is already on the attendee list." : "Each attendee needs a different phone number.",
                             systemImage: "person.crop.circle.badge.exclamationmark"
                         )
                         .font(.footnote)
@@ -725,17 +690,37 @@ private struct InviteeReviewView: View {
                         ForEach($invitees) { $invitee in
                             InviteeReviewRow(
                                 invitee: $invitee,
-                                isEditing: $isEditing
+                                focusedField: $focusedField
                             ) {
                                 withAnimation {
                                     invitees.removeAll { $0.id == invitee.id }
                                 }
                             }
+                            .id(invitee.id)
 
                             if invitee.id != invitees.last?.id {
                                 Divider()
                                     .padding(.leading, 14)
                             }
+                        }
+                        if allowsManualEntry {
+                            Divider().padding(.leading, 14)
+                            Button {
+                                let attendee = Invitee(displayName: "", phoneNumber: "")
+                                invitees.append(attendee)
+                                focusedField = .name(attendee.id)
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    withAnimation { proxy.scrollTo(attendee.id, anchor: .bottom) }
+                                }
+                            } label: {
+                                Label("Add another attendee", systemImage: "plus")
+                                    .font(.subheadline.weight(.medium))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(16)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("add-another-attendee")
                         }
                     }
                     .background(HerdTheme.surface, in: .rect(cornerRadius: 18))
@@ -746,8 +731,23 @@ private struct InviteeReviewView: View {
                     }
                 }
 
+                if showsSettingsHint {
+                    Text(settingsHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .tint(.primary)
+                        .multilineTextAlignment(.center)
+                        .environment(\.openURL, OpenURLAction { _ in
+                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return .discarded }
+                            UIApplication.shared.open(url)
+                            return .handled
+                        })
+                        .accessibilityIdentifier("contacts-settings-hint")
+                }
+
+                if !allowsManualEntry {
                 Button {
-                    isEditing = false
+                    focusedField = nil
                     onAddMore()
                 } label: {
                     HStack(spacing: 12) {
@@ -776,12 +776,19 @@ private struct InviteeReviewView: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
         }
         .background(HerdTheme.canvas)
         .navigationTitle("Review invites")
+        .alert("Save attendees to Herd?", isPresented: $showsUploadConsent) {
+            Button("Cancel", role: .cancel) {}
+            Button("Agree and save", action: save)
+        } message: {
+            Text("These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft.")
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let onCancel {
@@ -797,7 +804,10 @@ private struct InviteeReviewView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save", action: save)
+                Button("Save") {
+                    if invitees.isEmpty { save() }
+                    else { showsUploadConsent = true }
+                }
                     .fontWeight(.semibold)
                     .disabled(!canSave)
                     .accessibilityIdentifier("save-invitees")
@@ -806,7 +816,7 @@ private struct InviteeReviewView: View {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
                 Button {
-                    isEditing = false
+                    focusedField = nil
                 } label: {
                     Image(systemName: "keyboard.chevron.compact.down")
                 }
@@ -821,6 +831,7 @@ private struct InviteeReviewView: View {
                 )
             }
         }
+      }
     }
 
     private func save() {
@@ -835,7 +846,7 @@ private struct InviteeReviewView: View {
     }
 
     private func dismissKeyboard() {
-        isEditing = false
+        focusedField = nil
         HerdKeyboard.dismiss()
     }
 }
@@ -890,20 +901,24 @@ private struct ReviewColumnLabel: View {
 
 private struct InviteeReviewRow: View {
     @Binding var invitee: Invitee
-    var isEditing: FocusState<Bool>.Binding
+    var focusedField: FocusState<InviteeReviewField?>.Binding
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
             TextField("Name", text: $invitee.displayName)
                 .textInputAutocapitalization(.words)
-                .focused(isEditing)
+                .focused(focusedField, equals: .name(invitee.id))
                 .reviewFieldStyle()
 
-            FormattedPhoneTextField(
-                text: $invitee.phoneNumber,
-                isFocused: isEditing
-            )
+            TextField("Phone number", text: $invitee.phoneNumber)
+                .keyboardType(.phonePad)
+                .textContentType(.telephoneNumber)
+                .focused(focusedField, equals: .phone(invitee.id))
+                .onChange(of: invitee.phoneNumber) { _, newValue in
+                    let formatted = HerdPhoneNumberFormatter.format(newValue)
+                    if formatted != newValue { invitee.phoneNumber = formatted }
+                }
                 .reviewFieldStyle()
 
             Button(role: .destructive, action: onDelete) {
@@ -920,85 +935,6 @@ private struct InviteeReviewRow: View {
     }
 }
 
-private struct FormattedPhoneTextField: UIViewRepresentable {
-    @Binding var text: String
-    var isFocused: FocusState<Bool>.Binding
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    func makeUIView(context: Context) -> UITextField {
-        let textField = UITextField()
-        textField.delegate = context.coordinator
-        textField.placeholder = "Phone"
-        textField.keyboardType = .phonePad
-        textField.textContentType = .telephoneNumber
-        textField.font = .preferredFont(forTextStyle: .subheadline)
-        textField.textColor = .label
-        textField.tintColor = .label
-        textField.adjustsFontForContentSizeCategory = true
-        textField.accessibilityLabel = "Phone number"
-        return textField
-    }
-
-    func updateUIView(_ textField: UITextField, context: Context) {
-        context.coordinator.parent = self
-
-        let formatted = HerdPhoneNumberFormatter.format(text)
-        if text != formatted {
-            DispatchQueue.main.async {
-                self.text = formatted
-            }
-        }
-        if textField.text != formatted {
-            textField.text = formatted
-        }
-
-        if isFocused.wrappedValue, !textField.isFirstResponder {
-            textField.becomeFirstResponder()
-        } else if !isFocused.wrappedValue, textField.isFirstResponder {
-            textField.resignFirstResponder()
-        }
-    }
-
-    final class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: FormattedPhoneTextField
-
-        init(parent: FormattedPhoneTextField) {
-            self.parent = parent
-        }
-
-        func textFieldDidBeginEditing(_ textField: UITextField) {
-            parent.isFocused.wrappedValue = true
-        }
-
-        func textFieldDidEndEditing(_ textField: UITextField) {
-            parent.isFocused.wrappedValue = false
-        }
-
-        func textField(
-            _ textField: UITextField,
-            shouldChangeCharactersIn range: NSRange,
-            replacementString string: String
-        ) -> Bool {
-            let current = textField.text ?? ""
-            guard let swiftRange = Range(range, in: current) else { return false }
-
-            let proposed = current.replacingCharacters(in: swiftRange, with: string)
-            let formatted = HerdPhoneNumberFormatter.format(proposed)
-
-            parent.text = formatted
-            textField.text = formatted
-
-            if let end = textField.endOfDocument as UITextPosition? {
-                textField.selectedTextRange = textField.textRange(from: end, to: end)
-            }
-
-            return false
-        }
-    }
-}
 
 enum HerdPhoneNumberFormatter {
     static func comparisonKey(_ rawValue: String) -> String? {

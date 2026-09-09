@@ -102,6 +102,7 @@ struct HerdExperience: Decodable {
         let unconfirmedSectionTitle: String
         let unconfirmedSectionNote: String
         let pastSectionTitle: String
+        let pastEventsInitiallyExpanded: Bool
         let emptyInvitesMessage: String
         let dateNotSet: String
         let untitledEvent: String

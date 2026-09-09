@@ -13,6 +13,24 @@ final class ContactStoreService: ObservableObject {
     private var phoneCandidates: [ContactCandidate] = []
     private static let savedContactsKey = "herd.saved-contacts.v1"
 
+#if DEBUG
+    private var requestedTestAccess = false
+    private var testAuthorizationStatus: CNAuthorizationStatus {
+        let arguments = ProcessInfo.processInfo.arguments
+        let flag = requestedTestAccess ? "--contacts-response" : "--contacts-status"
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+            return .authorized
+        }
+        switch arguments[index + 1] {
+        case "notDetermined": return .notDetermined
+        case "denied": return .denied
+        case "restricted": return .restricted
+        case "limited": return .limited
+        default: return .authorized
+        }
+    }
+#endif
+
     init(defaults: UserDefaults? = nil) {
 #if DEBUG
         let resolvedDefaults = defaults ?? HerdUITestEnvironment.current?.defaults ?? .standard
@@ -22,9 +40,11 @@ final class ContactStoreService: ObservableObject {
         self.defaults = resolvedDefaults
 
 #if DEBUG
-        if HerdUITestEnvironment.current != nil {
+        if HerdUITestEnvironment.current != nil && !ProcessInfo.processInfo.arguments.contains("--contacts-system") {
             authorizationStatus = .authorized
+            authorizationStatus = testAuthorizationStatus
             phoneCandidates = HerdUITestEnvironment.fixtureContacts
+            if authorizationStatus != .authorized && authorizationStatus != .limited { phoneCandidates = [] }
             candidates = Self.merge(
                 phoneCandidates: phoneCandidates,
                 savedCandidates: Self.loadSavedContacts(from: resolvedDefaults)
@@ -38,9 +58,10 @@ final class ContactStoreService: ObservableObject {
 
     func refresh() {
 #if DEBUG
-        if HerdUITestEnvironment.current != nil {
-            authorizationStatus = .authorized
+        if HerdUITestEnvironment.current != nil && !ProcessInfo.processInfo.arguments.contains("--contacts-system") {
+            authorizationStatus = testAuthorizationStatus
             phoneCandidates = HerdUITestEnvironment.fixtureContacts
+            if authorizationStatus != .authorized && authorizationStatus != .limited { phoneCandidates = [] }
             publishMergedCandidates()
             isLoading = false
             errorMessage = nil
@@ -98,7 +119,8 @@ final class ContactStoreService: ObservableObject {
 
     func requestAccess() {
 #if DEBUG
-        if HerdUITestEnvironment.current != nil {
+        if HerdUITestEnvironment.current != nil && !ProcessInfo.processInfo.arguments.contains("--contacts-system") {
+            requestedTestAccess = true
             refresh()
             return
         }

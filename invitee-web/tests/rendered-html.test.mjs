@@ -550,8 +550,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(page, /function homeEventSection/);
   assert.match(page, /event\.invitationsSent[\s\S]*event\.resolution\?\.status !== "confirmed"/u);
   assert.match(page, /eventDay\.setDate\(eventDay\.getDate\(\) \+ 1\)/);
-  assert.match(page, /invitedEvents\.map\(\(event\)/);
-  assert.match(page, /hostedEvents\.map\(\(event\)/);
+  assert.match(page, /currentEvents\.map\(\(event\)/);
   assert.match(page, /unconfirmedEvents\.map\(\(event\)/);
   assert.match(page, /pastEvents\.map\(\(event\)/);
   const webEventCard = page.slice(
@@ -563,31 +562,39 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(webEventCard, /className="card-date"/u);
   assert.match(page, /return `\$\{weekday\} \$\{numericDate\} at \$\{time\}`/u);
   assert.equal(
-    page.match(/<details className="home-event-disclosure">/gu)?.length,
+    page.match(/<details className="home-event-disclosure"[^>]*>/gu)?.length,
     2,
   );
-  assert.doesNotMatch(page, /<details className="home-event-disclosure"[^>]*\sopen/u);
+  assert.equal(experience.home.pastEventsInitiallyExpanded, true);
+  assert.match(page, /home-past-heading"[\s\S]*?<details className="home-event-disclosure" open=\{HOME_EXPERIENCE\.pastEventsInitiallyExpanded\}/u);
+  assert.match(page, /home-unconfirmed-heading"[\s\S]*?<details className="home-event-disclosure">/u);
   assert.match(
     page,
     /home-unconfirmed-heading[\s\S]*HOME_EXPERIENCE\.unconfirmedSectionTitle[\s\S]*HOME_EXPERIENCE\.unconfirmedSectionNote[\s\S]*home-event-disclosure-chevron/u,
   );
   assert.match(css, /\.home-event-disclosure\[open\] \.home-event-disclosure-chevron \{ transform: rotate\(90deg\); \}/u);
   assert.doesNotMatch(page, /showsEventSectionHeadings|populatedEventSectionCount/);
-  assert.match(page, /\{invitedEvents\.length \? \([\s\S]*aria-labelledby="home-invites-heading"[\s\S]*<h2 id="home-invites-heading">/u);
-  assert.match(page, /aria-labelledby="home-hosted-heading"[\s\S]*<h2 id="home-hosted-heading">/u);
+  assert.doesNotMatch(page, /home-invites-heading|home-hosted-heading/u);
+  assert.match(page, /aria-label="Upcoming events"[\s\S]*currentEvents\.map/u);
   assert.match(page, /aria-labelledby="home-unconfirmed-heading"[\s\S]*<h2 id="home-unconfirmed-heading">/u);
   assert.match(page, /HOME_EXPERIENCE\.unconfirmedSectionNote/u);
   assert.match(page, /aria-labelledby="home-past-heading"[\s\S]*<h2 id="home-past-heading">/u);
   assert.ok(page.indexOf('aria-labelledby="home-past-heading"') < page.indexOf('aria-labelledby="home-unconfirmed-heading"'));
-  assert.doesNotMatch(page, /className="home-section-empty"/);
+  assert.match(page, /events\.length === 0[\s\S]*className="home-empty-events"[\s\S]*No upcoming events/u);
   assert.match(page, /sortEventsForHome/);
   assert.match(page, /upsertHomeEvent/);
   assert.match(page, /HOME_EXPERIENCE\.profile\.useGenericIconWithoutName/);
   assert.match(page, /<UserRound aria-hidden="true"/);
   assert.match(page, /lastUpdatedLabel\(lastEventsUpdatedAt, now\)/);
   assert.doesNotMatch(page, /aria-label="Refresh events"/);
-  assert.match(page, /aria-label="Account status"/);
+  assert.doesNotMatch(page, /aria-label="Account status"/);
+  assert.match(page, /aria-label="New event"[\s\S]*<Plus/u);
   assert.match(page, /screen === "status"/);
+  assert.match(page, /className="profile-diagnostics-link"[\s\S]*Account diagnostics/u);
+  assert.match(page, /className="metric metric-button"[\s\S]*view attendees/u);
+  assert.match(page, /label=\{INVITATION_EXPERIENCE\.metrics\.invited\}[\s\S]*onClick=\{\(\) => setScreen\("attendees"\)\}/u);
+  assert.match(page, /activeThirdMetric\.label === "responded"[\s\S]*setScreen\("attendees"\)/u);
+  assert.match(css, /\.metric-button \{[^}]*background: transparent;[^}]*cursor: pointer;/u);
   assert.match(page, /aria-label="Run status checks"/);
   assert.match(page, /Private reply security/);
   assert.match(page, /Event results/);
@@ -600,8 +607,9 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftHome, /events\(in: \.unconfirmed\)/);
   assert.match(swiftHome, /events\(in: \.past\)/);
   assert.doesNotMatch(swiftHome, /showsEventSectionTitles|populatedEventSectionCount/);
-  assert.match(swiftHome, /if !invitedEvents\.isEmpty \{[\s\S]*title: experience\.invitesSectionTitle/u);
-  assert.match(swiftHome, /title: experience\.hostedSectionTitle/);
+  assert.doesNotMatch(swiftHome, /title: experience\.invitesSectionTitle|title: experience\.hostedSectionTitle/u);
+  assert.match(swiftHome, /private var currentEvents: \[HerdEvent\][\s\S]*section == \.invites \|\| section == \.hosted/u);
+  assert.match(swiftHome, /store\.events\.isEmpty \{[\s\S]*emptyEventsState/u);
   assert.match(swiftHome, /title: experience\.unconfirmedSectionTitle/);
   assert.match(swiftHome, /note: experience\.unconfirmedSectionNote/);
   assert.match(swiftHome, /title: experience\.pastSectionTitle/);
@@ -614,7 +622,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(swiftEventCard, /dateFormat = "EEE M\/d"/u);
   assert.match(swiftEventCard, /dateFormat = "ha"/u);
   assert.match(swiftEventCard, /return "\\\(weekdayAndDate\) at \\\(time\)"/u);
-  assert.match(swiftHome, /@State private var pastEventsExpanded = false/u);
+  assert.match(swiftHome, /@State private var pastEventsExpanded = HerdExperience\.shared\.home\.pastEventsInitiallyExpanded/u);
   assert.match(swiftHome, /@State private var unconfirmedEventsExpanded = false/u);
   assert.match(
     swiftHome,
@@ -632,12 +640,15 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.match(css, /\.home-content \{[\s\S]*gap: var\(--home-section-gap\)/u);
   assert.doesNotMatch(css, /home-header-to-first-card-gap/);
   assert.match(css, /--home-card-min-height/);
-  assert.equal(experience.home.layout.cardMinimumHeight, 228);
-  assert.equal(experience.home.layout.webCardMinimumHeight, 240);
+  assert.equal(experience.home.layout.cardMinimumHeight, 224);
+  assert.equal(experience.home.layout.webCardMinimumHeight, 234);
   assert.match(css, /\.event-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
-  assert.match(css, /\.host-event-create-card \{[^}]*min-height: var\(--home-card-min-height\)/u);
+  assert.match(css, /\.event-card-copy \{[^}]*gap: 8px;[^}]*padding-top: 6px/u);
+  assert.match(css, /\.event-card > \.metric-row \{ margin-top: 12px; \}/u);
+  assert.match(css, /\.home-empty-events \{[^}]*min-height: 340px/u);
+  assert.doesNotMatch(css, /\.host-event-create-card/u);
   assert.match(css, /\.event-card h2 \{[^}]*-webkit-line-clamp: 2/u);
-  assert.match(swiftHome, /minHeight: max\(0, cardMinimumHeight - \(cardPadding \* 2\)\)/u);
+  assert.match(swiftHome, /Text\("No upcoming events"\)[\s\S]*accessibilityIdentifier\("create-event-card"\)/u);
   assert.match(swiftEventCard, /\.lineLimit\(2\)[\s\S]*\.truncationMode\(\.tail\)/u);
   assert.match(swiftHome, /spacing: CGFloat\(experience\.layout\.sectionGap\)/);
   assert.match(swiftHome, /font\(\.system\(size: 39, weight: \.bold\)\)/);
@@ -920,7 +931,7 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   await assert.rejects(access(new URL("app/_sites-preview/SkeletonPreview.tsx", projectRoot)));
 });
 
-test("hosting handoff explains contact access and honestly marks the unavailable app", async () => {
+test("hosting handoff explains contact access and links to the approved app", async () => {
   const [page, css, experienceSource] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -932,15 +943,12 @@ test("hosting handoff explains contact access and honestly marks the unavailable
   assert.equal(experience.home.webCreateEventHandoff.heading, "Download Herd");
   assert.match(experience.home.webCreateEventHandoff.body, /choose guests from your contacts and host an event/u);
   assert.match(experience.home.webCreateEventHandoff.body, /appear here too/u);
-  assert.equal(experience.home.webCreateEventHandoff.availabilityLabel, "iPhone app coming soon");
-  assert.match(experience.home.webCreateEventHandoff.availabilityBody, /awaiting approval from Apple/u);
   assert.equal(experience.home.webCreateEventHandoff.downloadButton, "Get Herd");
-  assert.match(page, /className="host-app-availability"[\s\S]*role="status"/u);
-  assert.match(page, /className="primary-button host-app-download"[\s\S]*disabled/u);
-  assert.doesNotMatch(page, /apps\.apple\.com|APP_STORE_URL/);
+  assert.match(page, /<a\s+className="primary-button host-app-download"\s+href="https:\/\/apps\.apple\.com\/app\/id6793711077"/u);
+  assert.doesNotMatch(page, /webCreateEventHandoff\.availabilityLabel|webCreateEventHandoff\.availabilityBody/u);
   assert.match(css, /\.host-app-handoff/);
   assert.match(css, /\.host-app-copy h2 \{[\s\S]*white-space: nowrap/u);
-  assert.match(css, /\.host-app-download:disabled/u);
+  assert.doesNotMatch(css, /\.host-app-download:disabled/u);
   assert.match(css, /url\("\/herd-icon\.png"\)/);
   assert.doesNotMatch(css, /\.home-empty-note/);
   assert.doesNotMatch(css, /\.brand-lockup|\.build-status-pill|\.release-status-dialog/u);

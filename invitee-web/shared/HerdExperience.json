@@ -55,6 +55,7 @@
     "unconfirmedSectionTitle": "Events never confirmed",
     "unconfirmedSectionNote": "Auto-deletes 5 days after reply deadline",
     "pastSectionTitle": "Past events",
+    "pastEventsInitiallyExpanded": true,
     "emptyInvitesMessage": "No invites yet.",
     "dateNotSet": "Date not set",
     "untitledEvent": "Untitled event",
@@ -77,8 +78,8 @@
       "sectionGap": 36,
       "cardCornerRadius": 18,
       "cardPadding": 16,
-      "cardMinimumHeight": 228,
-      "webCardMinimumHeight": 240,
+      "cardMinimumHeight": 224,
+      "webCardMinimumHeight": 234,
       "profileAvatarDiameter": 44
     },
     "webCreateEventHandoff": {

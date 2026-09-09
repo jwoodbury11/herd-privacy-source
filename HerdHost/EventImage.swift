@@ -16,6 +16,8 @@ enum EventImageID: String, Codable, CaseIterable, Hashable, Identifiable, Sendab
     case birthdayParty = "birthday-party"
     case jacuzzi
     case skiing
+    case lan
+    case arcade
     case other
 
     var label: String {
@@ -35,6 +37,8 @@ enum EventImageID: String, Codable, CaseIterable, Hashable, Identifiable, Sendab
         case .birthdayParty: "Birthday"
         case .jacuzzi: "Hot tub"
         case .skiing: "Skiing"
+        case .lan: "LAN"
+        case .arcade: "Arcade"
         }
     }
 

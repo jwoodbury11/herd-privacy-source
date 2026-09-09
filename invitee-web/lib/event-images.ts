@@ -14,6 +14,8 @@ export const EVENT_IMAGE_IDS = [
   "birthday-party",
   "jacuzzi",
   "skiing",
+  "lan",
+  "arcade",
   "other",
 ] as const;
 
