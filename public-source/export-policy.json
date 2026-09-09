@@ -43,6 +43,8 @@
     ".zip"
   ],
   "includes": [
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-beach.imageset/event-scene-beach.png", "binarySha256": "6ca474d20086ac984c16a712f6f157544bdd140bc85a14cde8a7b88faec5d384" },
+    { "path": "invitee-web/public/event-images/beach.png", "binarySha256": "6ca474d20086ac984c16a712f6f157544bdd140bc85a14cde8a7b88faec5d384" },
     { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-lan.imageset/event-scene-lan.png", "binarySha256": "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673" },
     { "path": "invitee-web/public/event-images/lan.png", "binarySha256": "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673" },
     { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-arcade.imageset/event-scene-arcade.png", "binarySha256": "dc85718bf0768bf1eedad16ab478c9e9e6b9624b4648b51e0b7995d7e2449868" },

@@ -27,6 +27,7 @@ const expectedIDs = [
   "skiing",
   "lan",
   "arcade",
+  "beach",
   "other",
 ];
 
@@ -48,6 +49,7 @@ const approvedSha256ForID = {
   skiing: "a788d5fcd524f6222e28a22c291e4023dcf87ab58f4fe853e26b821baa4fb6fe",
   lan: "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673",
   arcade: "dc85718bf0768bf1eedad16ab478c9e9e6b9624b4648b51e0b7995d7e2449868",
+  beach: "6ca474d20086ac984c16a712f6f157544bdd140bc85a14cde8a7b88faec5d384",
   other: "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b",
 };
 
@@ -63,20 +65,22 @@ test("the web and iPhone event-image catalogs stay in parity", async () => {
     readFile(new URL("../../HerdHost/EventImage.swift", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(expectedIDs.length, 18);
-  assert.equal(expectedIDs.at(-1), "other");
-  assert.match(webCatalog, /"skiing",\s*"lan",\s*"arcade",\s*"other",\s*\] as const/u);
-  assert.match(swiftCatalog, /case skiing\s+case lan\s+case arcade\s+case other/u);
-
-  for (const id of expectedIDs) {
-    assert.match(webCatalog, new RegExp(`"${id}"`));
-    assert.match(swiftCatalog, new RegExp(id.replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())));
+  const webIDs = [...webCatalog.match(/EVENT_IMAGE_IDS = \[([\s\S]*?)\] as const/u)[1]
+    .matchAll(/"([a-z-]+)"/gu)].map((match) => match[1]);
+  const swiftCases = swiftCatalog.split("    var label:")[0];
+  const nativeIDs = [...swiftCases.matchAll(/^    case ([A-Za-z]+)(?: = "([a-z-]+)")?$/gmu)]
+    .map((match) => match[2] ?? match[1]);
+  for (const [platform, ids] of [["web", webIDs], ["iPhone", nativeIDs]]) {
+    assert.deepEqual(ids, expectedIDs, `${platform} must retain the complete ordered catalog`);
+    assert.equal(new Set(ids).size, ids.length, `${platform} must not duplicate an activity`);
+    assert.equal(ids.at(-1), "other", `${platform} must keep Other last`);
   }
+  assert.deepEqual(Object.keys(approvedSha256ForID).sort(), [...expectedIDs].sort());
 });
 
 test("event images have no detectable white-matte fringe", async () => {
   const reports = await verifyEventImageEdges();
-  assert.equal(reports.length, 19);
+  assert.equal(reports.length, expectedIDs.length + 1);
   assert.ok(reports.every((report) => report.passesWhiteMatteGate));
   const neverConfirmed = reports.find((report) => report.name === "never-confirmed");
   assert.ok(neverConfirmed);
@@ -123,6 +127,7 @@ test("the host image selector uses the approved short labels", async () => {
   assert.match(swiftCatalog, /case \.skiing: "Skiing"/u);
   assert.match(swiftCatalog, /case \.lan: "LAN"/u);
   assert.match(swiftCatalog, /case \.arcade: "Arcade"/u);
+  assert.match(swiftCatalog, /case \.beach: "Beach"/u);
   assert.doesNotMatch(
     swiftCatalog,
     /case \.poker: "Cards"|case \.houseDrinks: "At home"|case \.clubDancing: "Dancing"/u,

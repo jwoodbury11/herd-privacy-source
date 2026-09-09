@@ -157,19 +157,25 @@ final class HerdHostUITests: XCTestCase {
         arcadeScreenshot.lifetime = .keepAlways
         add(arcadeScreenshot)
         app.swipeLeft()
+        let beachPreview = app.images["event-image-preview-full-beach"]
+        XCTAssertTrue(beachPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(beachPreview.isHittable)
+        let beachPreviewName = app.staticTexts["event-image-preview-name-beach"]
+        XCTAssertTrue(beachPreviewName.waitForExistence(timeout: 5))
+        XCTAssertEqual(beachPreviewName.label, "Beach")
+        let beachScreenshot = XCTAttachment(screenshot: app.screenshot())
+        beachScreenshot.name = "event-image-preview-beach-clean-edge"
+        beachScreenshot.lifetime = .keepAlways
+        add(beachScreenshot)
+        app.swipeLeft()
         let otherPreview = app.images["event-image-preview-full-other"]
         XCTAssertTrue(otherPreview.waitForExistence(timeout: 5))
         XCTAssertTrue(otherPreview.isHittable)
+        app.swipeLeft()
+        XCTAssertTrue(otherPreview.isHittable, "Other must remain the final page")
         app.swipeRight()
-        XCTAssertTrue(arcadePreview.waitForExistence(timeout: 5))
-        app.swipeRight()
-        XCTAssertTrue(lanPreview.waitForExistence(timeout: 5))
-        app.swipeRight()
-        XCTAssertTrue(skiingPreview.waitForExistence(timeout: 5))
-        XCTAssertTrue(skiingPreview.isHittable)
-        let skiingPreviewName = app.staticTexts["event-image-preview-name-skiing"]
-        XCTAssertTrue(skiingPreviewName.waitForExistence(timeout: 5))
-        XCTAssertEqual(skiingPreviewName.label, "Skiing")
+        XCTAssertTrue(beachPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(beachPreview.isHittable)
         let previewDone = app.buttons["event-image-preview-done"]
         XCTAssertTrue(previewDone.waitForExistence(timeout: 5))
         XCTAssertEqual(previewDone.label, "Done")
@@ -179,21 +185,21 @@ final class HerdHostUITests: XCTestCase {
         add(previewScreenshot)
         previewDone.tap()
 
-        let skiing = app.buttons["event-image-skiing"]
-        XCTAssertTrue(skiing.waitForExistence(timeout: 5))
-        XCTAssertTrue(skiing.isHittable)
-        XCTAssertEqual(skiing.value as? String, "Selected")
+        let beach = app.buttons["event-image-beach"]
+        XCTAssertTrue(beach.waitForExistence(timeout: 5))
+        XCTAssertTrue(beach.isHittable)
+        XCTAssertEqual(beach.value as? String, "Selected")
 
         app.buttons["event-primary-action"].tap()
-        let cardImage = app.images["event-card-image-skiing"]
+        let cardImage = app.images["event-card-image-beach"]
         XCTAssertTrue(cardImage.waitForExistence(timeout: 10))
 
         app.staticTexts["Untitled event"].tap()
         XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
-        let reopenedSkiing = app.buttons["event-image-skiing"]
-        XCTAssertTrue(reopenedSkiing.waitForExistence(timeout: 5))
-        XCTAssertTrue(reopenedSkiing.isHittable)
-        XCTAssertEqual(reopenedSkiing.value as? String, "Selected")
+        let reopenedBeach = app.buttons["event-image-beach"]
+        XCTAssertTrue(reopenedBeach.waitForExistence(timeout: 5))
+        XCTAssertTrue(reopenedBeach.isHittable)
+        XCTAssertEqual(reopenedBeach.value as? String, "Selected")
     }
 
     func testDeniedContactsManualInvitesRequireConsent() {
