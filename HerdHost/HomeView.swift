@@ -3638,6 +3638,11 @@ private struct InvitationPrivacyProof: View {
     private let experience = HerdExperience.shared.privacy
     @State private var expandedSectionID: String? = HerdExperience.shared.privacy.sections.first?.id
     @State private var showsCollapsedTitle = false
+    @State private var showsNavigationDivider = false
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLetteringInset =
+        UIFont.systemFont(ofSize: 34, weight: .bold).ascender
+        - UIFont.systemFont(ofSize: 34, weight: .bold).capHeight
+    private let contentTopPadding: CGFloat = 14
 
     var body: some View {
         ScrollView {
@@ -3712,8 +3717,14 @@ private struct InvitationPrivacyProof: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 14)
+            .padding(.top, contentTopPadding)
             .padding(.bottom, 36)
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            // Wait until the H reaches the header, including the font's space above its capitals.
+            geometry.contentOffset.y + geometry.contentInsets.top >= contentTopPadding + titleLetteringInset
+        } action: { _, overlapsHeader in
+            showsNavigationDivider = overlapsHeader
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > 55
@@ -3722,13 +3733,15 @@ private struct InvitationPrivacyProof: View {
         }
         .background(HerdTheme.canvas)
         .overlay(alignment: .top) {
-            Divider()
-                .accessibilityIdentifier("privacy-navigation-divider")
+            if showsNavigationDivider {
+                Divider()
+                    .accessibilityIdentifier("privacy-navigation-divider")
+            }
         }
         .navigationTitle(showsCollapsedTitle ? experience.navigationTitle : "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(showsNavigationDivider ? .visible : .hidden, for: .navigationBar)
     }
 
     private func eyebrow(_ text: String) -> some View {

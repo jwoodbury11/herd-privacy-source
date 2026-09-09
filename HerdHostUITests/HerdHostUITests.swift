@@ -873,7 +873,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["How privacy works"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["The essentials"].exists)
         XCTAssertTrue(app.staticTexts["privacy-answers-title"].exists)
-        XCTAssertTrue(
+        XCTAssertFalse(
             app.descendants(matching: .any)["privacy-navigation-divider"].exists
         )
 
@@ -883,7 +883,16 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(label.waitForExistence(timeout: 2))
         XCTAssertLessThan(abs(icon.frame.midY - label.frame.midY), 2)
 
+        let atTop = XCTAttachment(screenshot: app.screenshot())
+        atTop.name = "privacy-proof-no-divider-at-top"
+        atTop.lifetime = .keepAlways
+        add(atTop)
+
         let privacyScroll = app.scrollViews.firstMatch
+        let dragStart = privacyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        dragStart.press(forDuration: 0.1, thenDragTo: dragStart.withOffset(CGVector(dx: 0, dy: -35)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertTrue(app.descendants(matching: .any)["privacy-navigation-divider"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.navigationBars["How privacy works"].exists)
         privacyScroll.swipeUp()
         privacyScroll.swipeUp()
         XCTAssertTrue(app.navigationBars["How privacy works"].waitForExistence(timeout: 5))
@@ -895,6 +904,12 @@ final class HerdHostUITests: XCTestCase {
         screenshot.name = "privacy-proof-collapsed-navigation"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+
+        privacyScroll.swipeDown()
+        privacyScroll.swipeDown()
+        privacyScroll.swipeDown()
+        XCTAssertTrue(app.staticTexts["How privacy works"].isHittable)
+        XCTAssertFalse(app.descendants(matching: .any)["privacy-navigation-divider"].exists)
     }
 
     func testConfirmedAttendeeStatusesStayInsideTheirRows() {

@@ -126,6 +126,12 @@ renderers. Together they require every applicable renderer to use the same:
 - unavailable-response language and account-wide saved-reply recovery; and
 - successful-response summary and return actions.
 
+On the privacy screen, the navigation divider stays hidden at rest and while
+only the space above the heading has scrolled. It appears when the top of the
+heading lettering reaches the navigation edge, and hides again on return. The
+compact navigation title still appears only after the large title has scrolled
+out of view. This applies to web, iPhone, and App Clip.
+
 Selecting a reply is local editing state. It must never show `Responded` or
 perform a network write until the explicit encrypted-reply submit action
 succeeds.

@@ -804,6 +804,7 @@ function AppHeader({
   backLabel = "Go back",
   action,
   persistentAction = false,
+  dividerAtHeadingStart = false,
 }: {
   title: string;
   headingId: string;
@@ -811,8 +812,10 @@ function AppHeader({
   backLabel?: string;
   action?: React.ReactNode;
   persistentAction?: boolean;
+  dividerAtHeadingStart?: boolean;
 }) {
   const [isCondensed, setIsCondensed] = useState(false);
+  const [hasHeadingOverlap, setHasHeadingOverlap] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -822,19 +825,39 @@ function AppHeader({
 
     if (!(scrollRoot instanceof HTMLElement) || !heading) return;
 
+    const context = dividerAtHeadingStart ? document.createElement("canvas").getContext("2d") : null;
     const updateHeader = () => {
-      setIsCondensed(
-        heading.getBoundingClientRect().bottom <= scrollRoot.getBoundingClientRect().top,
-      );
+      const headingBounds = heading.getBoundingClientRect();
+      const edge = scrollRoot.getBoundingClientRect().top;
+      setIsCondensed(headingBounds.bottom <= edge);
+      if (dividerAtHeadingStart) {
+        // Account for the line box's space above the visible capital H.
+        const style = getComputedStyle(heading);
+        let letteringInset = 0;
+        if (context) {
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const metrics = context.measureText("H");
+          const lineHeight = parseFloat(style.lineHeight);
+          letteringInset = (lineHeight - metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2
+            + metrics.fontBoundingBoxAscent - metrics.actualBoundingBoxAscent;
+        }
+        setHasHeadingOverlap(headingBounds.top + letteringInset <= edge);
+      }
     };
 
     updateHeader();
     scrollRoot.addEventListener("scroll", updateHeader, { passive: true });
-    return () => scrollRoot.removeEventListener("scroll", updateHeader);
-  }, [headingId]);
+    const resizeObserver = new ResizeObserver(updateHeader);
+    resizeObserver.observe(heading);
+    resizeObserver.observe(scrollRoot);
+    return () => {
+      scrollRoot.removeEventListener("scroll", updateHeader);
+      resizeObserver.disconnect();
+    };
+  }, [headingId, dividerAtHeadingStart]);
 
   return (
-    <header ref={headerRef} className={`app-header ${isCondensed ? "app-header-condensed" : ""}`}>
+    <header ref={headerRef} className={`app-header ${isCondensed ? "app-header-condensed" : ""} ${dividerAtHeadingStart && hasHeadingOverlap ? "app-header-overlap" : ""}`}>
       <div className="header-side">
         {onBack ? (
           <button className="circle-button" onClick={onBack} aria-label={backLabel}>
@@ -3405,7 +3428,7 @@ export function HerdApp() {
 
         {screen === "privacy" ? (
           <section className="screen-layout">
-            <AppHeader title={PRIVACY_EXPERIENCE.navigationTitle} headingId="privacy-heading" onBack={goBack} />
+            <AppHeader title={PRIVACY_EXPERIENCE.navigationTitle} headingId="privacy-heading" dividerAtHeadingStart onBack={goBack} />
             <div className="screen-scroll privacy-screen">
               <section className="privacy-hero">
                 <h2 id="privacy-heading" ref={privacyHeadingRef} tabIndex={-1}>{PRIVACY_EXPERIENCE.title}</h2>

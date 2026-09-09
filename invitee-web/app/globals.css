@@ -132,6 +132,7 @@ summary:focus-visible {
   transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
+.app-header-overlap,
 .app-header-condensed {
   background: rgba(28, 28, 31, 0.94);
   border-bottom-color: var(--border-soft);
