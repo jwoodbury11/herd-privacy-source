@@ -240,17 +240,19 @@ test("first Send stores an encrypted private link and returns provider-accepted 
   assert.equal(providerBody.get("MessagingServiceSid"), messagingServiceSid);
   const message = providerBody.get("Body") ?? "";
   const expectedDate = new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZone: event.eventTimeZone,
   }).format(new Date(event.eventDate));
-  assert.match(message, /^https:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}\n/u);
+  assert.match(message, /\nhttps:\/\/herd\.example\.test\/invite\/[A-Za-z0-9_-]{43}$/u);
   assert.equal(
-    message.slice(message.indexOf("\n") + 1),
+    message.slice(0, message.indexOf("\n")),
     `Herd test Host invited you to Delivery reliability dinner — ${expectedDate}. Open the invitation and reply privately. One-time message sent at Herd test Host’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`,
   );
   assert.doesNotMatch(message, /\bUTC\b/u);
-  const invitationToken = message.match(/\/invite\/([A-Za-z0-9_-]{43})\n/u)?.[1];
+  const invitationToken = message.match(/\/invite\/([A-Za-z0-9_-]{43})$/u)?.[1];
   assert.ok(invitationToken);
 
   const tokenRow = await database
