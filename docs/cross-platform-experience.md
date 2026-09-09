@@ -69,7 +69,13 @@ The App Clip uses the native guest experience, including authentication,
 invitation detail, private replies, attendee visibility, refresh, and profile
 management. Hosting entry points lead to the full-app download handoff because
 App Clips cannot use Contacts. Its reply-success screen has one `Download Herd`
-action. It stores sessions and protected reply material in its own default
+action. Both native download entry points keep Apple's full-app card and show
+“Once downloaded, tap Open to continue” above it in bundled Gochi Hand, with a
+short handwriting reveal and downward arrow. Reduce Motion shows the complete
+note immediately. The hosting handoff content stays near the upper third of
+the page before and during the card presentation; the content can scroll on
+smaller displays. The font and its SIL Open Font License are in `HerdHost/Fonts`.
+It stores sessions and protected reply material in its own default
 Keychain; on iOS 15.4 and later the system makes those items available to the
 corresponding full app through the signed parent/App Clip association. Neither
 target declares a custom Keychain-sharing group.

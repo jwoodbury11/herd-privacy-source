@@ -1,5 +1,4 @@
 import SwiftUI
-import StoreKit
 import UIKit
 
 struct HomeView: View {
@@ -503,70 +502,82 @@ private struct FullAppHandoffView: View {
     private let experience = HerdExperience.shared.home.webCreateEventHandoff
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                VStack(spacing: 24) {
-                    ZStack {
-                        Circle()
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                            .frame(width: 150, height: 150)
-                        Circle()
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                            .frame(width: 104, height: 104)
-                        Image(systemName: "iphone.gen3")
-                            .font(.system(size: 46, weight: .regular))
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.system(size: 26, weight: .medium))
-                            .padding(8)
-                            .background(HerdTheme.raisedSurface, in: .circle)
-                            .offset(x: 42, y: 42)
+        GeometryReader { geometry in
+            NavigationStack {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        handoffContent
+                            .padding(.horizontal, 30)
+                            .padding(.top, max(24, geometry.size.height * 0.25 - 160))
+                            .padding(.bottom, 24)
                     }
 
-                    VStack(spacing: 10) {
-                        Text(experience.heading)
-                            .font(.largeTitle.weight(.bold))
-                            .multilineTextAlignment(.center)
-                        Text(experience.body)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                    if !showsAppStoreOverlay {
+                        Button {
+                            showsAppStoreOverlay = true
+                        } label: {
+                            Text(experience.downloadButton)
+                                .font(.headline)
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(.white, in: .rect(cornerRadius: 14))
+                        }
+                        .buttonStyle(PlainPressButtonStyle())
+                        .accessibilityIdentifier("full-app-download")
+                        .padding(20)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 30)
+                .background(HerdTheme.canvas)
+                .navigationTitle(HerdExperience.shared.home.createEventTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .accessibilityLabel(experience.backButton)
+                    }
+                }
+            }
+            .herdAppStoreOverlay(isPresented: $showsAppStoreOverlay)
+        }
+    }
 
-                Button {
-                    showsAppStoreOverlay = true
-                } label: {
-                    Text(experience.downloadButton)
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(.white, in: .rect(cornerRadius: 14))
-                }
-                .buttonStyle(PlainPressButtonStyle())
-                .accessibilityIdentifier("full-app-download")
-                .padding(20)
+    private var handoffContent: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    .frame(width: 150, height: 150)
+                Circle()
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    .frame(width: 104, height: 104)
+                Image(systemName: "iphone.gen3")
+                    .font(.system(size: 46, weight: .regular))
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 26, weight: .medium))
+                    .padding(8)
+                    .background(HerdTheme.raisedSurface, in: .circle)
+                    .offset(x: 42, y: 42)
             }
-            .background(HerdTheme.canvas)
-            .navigationTitle(HerdExperience.shared.home.createEventTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .accessibilityLabel(experience.backButton)
-                }
+
+            VStack(spacing: 10) {
+                Text(experience.heading)
+                    .font(.largeTitle.weight(.bold))
+                    .multilineTextAlignment(.center)
+                Text(experience.body)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
-        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
-            SKOverlay.AppClipConfiguration(position: .bottom)
-        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("full-app-handoff-content")
     }
 }
 
@@ -3948,7 +3959,7 @@ private struct InvitationResponseSuccess: View {
             }
 
             VStack(spacing: 12) {
-                if HerdRuntime.isAppClip {
+                if HerdRuntime.isAppClip && !showsAppStoreOverlay {
                     Button {
                         showsAppStoreOverlay = true
                     } label: {
@@ -3962,7 +3973,7 @@ private struct InvitationResponseSuccess: View {
                     }
                     .buttonStyle(PlainPressButtonStyle())
                     .accessibilityIdentifier("success-download-herd")
-                } else {
+                } else if !HerdRuntime.isAppClip {
                     Button(action: onViewInvitation) {
                         Text(experience.viewInvitationButton)
                             .font(.headline)
@@ -3992,13 +4003,11 @@ private struct InvitationResponseSuccess: View {
                     .accessibilityIdentifier("success-back-to-events")
                 }
             }
-            .padding(20)
+            .padding(showsAppStoreOverlay ? 0 : 20)
             .background(HerdTheme.canvas)
         }
         .background(HerdTheme.canvas)
-        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
-            SKOverlay.AppClipConfiguration(position: .bottom)
-        }
+        .herdAppStoreOverlay(isPresented: $showsAppStoreOverlay)
     }
 
 }

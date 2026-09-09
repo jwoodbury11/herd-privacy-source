@@ -30,7 +30,9 @@ Terraform state, dependency directories, build caches and products, generated
 archives, and unallowlisted binary media. The small set of first-party PNG
 assets required by the exported builds is admitted only by exact path and
 SHA-256 in the reviewed policy; PNG structure and the pinned digest are both
-verified during collection. Placeholder-only `.env.example` files required by
+verified during collection. The bundled Gochi Hand TrueType font is also
+allowlisted by exact path and digest, checked for bounded font tables, and
+exported with its SIL Open Font License. Placeholder-only `.env.example` files required by
 the exported web and software-evaluator tests are admitted by exact path and
 SHA-256, and secret-bearing assignments must remain explicit placeholders even
 when commented out; no unpinned or runtime environment file is exportable. A path outside

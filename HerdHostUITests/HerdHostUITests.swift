@@ -1054,6 +1054,18 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Download Herd"].exists)
         XCTAssertTrue(app.buttons["full-app-download"].exists)
         XCTAssertFalse(app.navigationBars["New event"].exists)
+        let content = app.otherElements["full-app-handoff-content"]
+        XCTAssertLessThan(content.frame.midY, app.frame.height * 0.40)
+        XCTAssertFalse(app.descendants(matching: .any)["app-store-download-hint"].exists)
+        let contentPosition = content.frame.midY
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "handoff-upper-third"
+        before.lifetime = .keepAlways
+        add(before)
+
+        app.buttons["full-app-download"].tap()
+        assertDownloadHint(in: app, screenshotName: "handoff-download-hint")
+        XCTAssertEqual(content.frame.midY, contentPosition, accuracy: 2)
     }
 
     func testAppClipResponseSuccessOffersOnlyDownloadHerd() {
@@ -1075,6 +1087,43 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertEqual(getHerd.label, "Download Herd")
         XCTAssertFalse(app.buttons["success-view-invitation"].exists)
         XCTAssertFalse(app.buttons["success-back-to-events"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["app-store-download-hint"].exists)
+        getHerd.tap()
+        assertDownloadHint(in: app, screenshotName: "response-download-hint")
+        XCTAssertFalse(app.buttons["success-view-invitation"].exists)
+        XCTAssertFalse(app.buttons["success-back-to-events"].exists)
+    }
+
+    func testAppClipDownloadHintSupportsLargeText() {
+        let app = launchClip(
+            scenario: "host-create",
+            additionalArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityM"]
+        )
+        let hostAction = app.buttons["create-event-card"]
+        XCTAssertTrue(hostAction.waitForExistence(timeout: 10))
+        hostAction.tap()
+        let download = app.buttons["full-app-download"]
+        XCTAssertTrue(download.waitForExistence(timeout: 5))
+        download.tap()
+        assertDownloadHint(in: app, screenshotName: "handoff-download-hint-large-text")
+        let hint = app.descendants(matching: .any)["app-store-download-hint"]
+        XCTAssertGreaterThan(hint.frame.minY, app.navigationBars["Host an event"].frame.maxY)
+    }
+
+    private func assertDownloadHint(in app: XCUIApplication, screenshotName: String) {
+        let hint = app.descendants(matching: .any)["app-store-download-hint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 5))
+        XCTAssertEqual(hint.label, "Once downloaded, tap Open to continue")
+        XCTAssertLessThan(hint.frame.maxY, app.frame.height - 140)
+        let animationFinished = expectation(description: "Handwriting animation finishes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
+            animationFinished.fulfill()
+        }
+        wait(for: [animationFinished], timeout: 3)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = screenshotName
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     private func launch(

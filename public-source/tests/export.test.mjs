@@ -177,6 +177,32 @@ test("binary export requires an exact path, valid PNG structure, and pinned dige
   await assert.rejects(collectExportFiles(root, binaryPolicy), /not a PNG/u);
 });
 
+test("font export requires a pinned exact TrueType asset and bounded font tables", async () => {
+  const root = await fixtureRoot();
+  const fontPath = "fonts/GochiHand-Regular.ttf";
+  const font = await readFile(path.join(repositoryRoot, "HerdHost/Fonts/GochiHand-Regular.ttf"));
+  await mkdir(path.join(root, "fonts"));
+  await writeFile(path.join(root, fontPath), font);
+  const policy = normalizeExportPolicy({
+    ...rawPolicy(),
+    includes: [...rawPolicy().includes, { path: fontPath, binarySha256: sha256Hex(font) }],
+  });
+  const files = await collectExportFiles(root, policy);
+  assert.equal(files.some((entry) => entry.path === fontPath), true);
+  const changed = Buffer.from(font);
+  changed[changed.length - 1] ^= 1;
+  await writeFile(path.join(root, fontPath), changed);
+  await assert.rejects(collectExportFiles(root, policy), /digest changed/u);
+  await writeFile(path.join(root, fontPath), font.subarray(0, 13));
+  await assert.rejects(collectExportFiles(root, policy), /directory is truncated/u);
+  const invalidTable = Buffer.from(font);
+  invalidTable.writeUInt32BE(font.length + 1, 20);
+  await writeFile(path.join(root, fontPath), invalidTable);
+  await assert.rejects(collectExportFiles(root, policy), /invalid table/u);
+  await writeFile(path.join(root, fontPath), Buffer.alloc(12));
+  await assert.rejects(collectExportFiles(root, policy), /not a TrueType/u);
+});
+
 test("configuration examples require an exact .env.example path and pinned digest", async () => {
   const root = await fixtureRoot();
   const examplePath = path.join(root, "app", ".env.example");
@@ -290,6 +316,9 @@ test("repository policy includes the executable privacy contracts and acceptance
     "confidential-evaluator/test/transparency-authority.test.mjs",
     "HerdHostTests/HerdHostCoreTests.swift",
     "HerdHost/UITestSupport.swift",
+    "HerdHost/AppStoreDownloadHint.swift",
+    "HerdHost/Fonts/GochiHand-Regular.ttf",
+    "HerdHost/Fonts/OFL.txt",
     "HerdHostUITests/HerdHostUITests.swift",
     "HerdClip/HerdClipApp.swift",
     "HerdClip/AppClipHostStubs.swift",

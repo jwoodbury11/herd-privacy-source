@@ -97,10 +97,10 @@ export function normalizeExportPolicy(value) {
         });
     if (
       binarySha256 &&
-      (entry.recursive === true || extensions !== null || path.posix.extname(includePath).toLowerCase() !== ".png")
+      (entry.recursive === true || extensions !== null || ![".png", ".ttf"].includes(path.posix.extname(includePath).toLowerCase()))
     ) {
       throw new TypeError(
-        `includes[${index}].binarySha256 is allowed only for an exact PNG file include.`,
+        `includes[${index}].binarySha256 is allowed only for an exact PNG or TTF file include.`,
       );
     }
     if (
@@ -158,7 +158,7 @@ function isProhibitedPath(relativePath, policy) {
 
 export function assertSafePath(relativePath, policy) {
   const lowered = relativePath.toLowerCase();
-  const exactPinnedPng = policy.includes.some(
+  const exactPinnedBinary = policy.includes.some(
     (entry) => entry.binarySha256 && entry.path.toLowerCase() === lowered,
   );
   const exactPinnedExample = policy.includes.some(
@@ -168,7 +168,7 @@ export function assertSafePath(relativePath, policy) {
     throw new TypeError(`Prohibited path entered export: ${relativePath}`);
   }
   const extension = path.posix.extname(lowered);
-  if (policy.prohibitedExtensions.includes(extension) && !exactPinnedPng) {
+  if (policy.prohibitedExtensions.includes(extension) && !exactPinnedBinary) {
     throw new TypeError(`Prohibited file type entered export: ${relativePath}`);
   }
   if (
@@ -208,6 +208,31 @@ function assertPng(bytes, relativePath) {
     chunkIndex += 1;
   }
   if (!sawEnd) throw new TypeError(`PNG lacks an IEND chunk: ${relativePath}`);
+}
+
+function assertTrueType(bytes, relativePath) {
+  if (bytes.byteLength < 12 || bytes.readUInt32BE(0) !== 0x00010000) {
+    throw new TypeError(`Pinned binary asset is not a TrueType font: ${relativePath}`);
+  }
+  const tableCount = bytes.readUInt16BE(4);
+  const directoryEnd = 12 + tableCount * 16;
+  if (tableCount === 0 || directoryEnd > bytes.byteLength) {
+    throw new TypeError(`TrueType table directory is truncated: ${relativePath}`);
+  }
+  const tags = new Set();
+  for (let index = 0; index < tableCount; index += 1) {
+    const entry = 12 + index * 16;
+    const tag = bytes.subarray(entry, entry + 4).toString("ascii");
+    const offset = bytes.readUInt32BE(entry + 8);
+    const length = bytes.readUInt32BE(entry + 12);
+    if (tags.has(tag) || offset < directoryEnd || offset + length > bytes.byteLength) {
+      throw new TypeError(`TrueType has an invalid table: ${relativePath}`);
+    }
+    tags.add(tag);
+  }
+  if (!["head", "maxp", "cmap", "name", "glyf", "loca"].every((tag) => tags.has(tag))) {
+    throw new TypeError(`TrueType lacks required font tables: ${relativePath}`);
+  }
 }
 
 function assertPlaceholderEnvironmentExample(bytes, relativePath) {
@@ -265,7 +290,11 @@ async function walk(root, relativePath, entry, policy, output) {
   if (metadata.size > policy.maximumFileBytes) throw new TypeError(`Export file exceeds size limit: ${relativePath}`);
   const bytes = await readFile(absolutePath);
   if (entry.binarySha256) {
-    assertPng(bytes, relativePath);
+    if (path.posix.extname(relativePath).toLowerCase() === ".ttf") {
+      assertTrueType(bytes, relativePath);
+    } else {
+      assertPng(bytes, relativePath);
+    }
     if (sha256Hex(bytes) !== entry.binarySha256) {
       throw new TypeError(`Pinned binary asset digest changed: ${relativePath}`);
     }

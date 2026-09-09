@@ -9,8 +9,10 @@ The allowlist contains the privacy-critical clients, services, evaluator,
 infrastructure definitions, release tools, monitor, tests, and relevant design
 documents. It excludes proprietary visual references, screenshots, secrets,
 certificates, private keys, databases, deployment state, dependencies, and build
-outputs. The few first-party PNG build inputs are admitted only by exact path
-and policy-pinned SHA-256. The documented `.env.example` files required by the
+outputs. The few first-party PNG build inputs and the licensed Gochi Hand
+TrueType font are admitted only by exact path and policy-pinned SHA-256, with
+their image/font structure checked. The font's OFL license ships alongside it.
+The documented `.env.example` files required by the
 web and software-evaluator test/build closures are likewise admitted only by
 exact path and digest; active and commented secret-bearing assignments must
 also contain explicit placeholder values. All other environment files remain forbidden. Other
