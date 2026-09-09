@@ -24,6 +24,8 @@ struct HerdUITestEnvironment {
     static let resultSigningPublicKey =
         "BKT1u-jRmfD6Se9sIXMy1H3JyUE5u1wqiV20sneUNN5YQi9CHKv5HPa_nBJkkz-nkxrU38-RCe4tclUQM_5SEVY"
 
+    static var isStoreScreenshot: Bool { ProcessInfo.processInfo.arguments.contains("--herd-store-screenshots") }
+
     let scenario: Scenario
 
     static var current: HerdUITestEnvironment? {
@@ -50,7 +52,13 @@ struct HerdUITestEnvironment {
     }
 
     func makeSessionStore() -> any SessionStoring {
-        HerdUITestSessionStore(
+        if Self.isStoreScreenshot && scenario == .inviteeHome {
+            return HerdUITestSessionStore(session: AuthSession(
+                user: HerdUser(id: "ui-invitee-account", phoneNumber: Self.inviteePhoneNumber, name: "Alex Morgan", address: ""),
+                accessToken: "ui-invitee-access-token", expiresAt: .now.addingTimeInterval(86400)
+            ))
+        }
+        return HerdUITestSessionStore(
             session: startsWithAuthenticatedHost
                 ? AuthSession(
                     user: Self.hostUser,
@@ -93,7 +101,7 @@ struct HerdUITestEnvironment {
     static let hostUser = HerdUser(
         id: "ui-host-account",
         phoneNumber: "+14155550100",
-        name: "UI Host",
+        name: (HerdUITestEnvironment.isStoreScreenshot ? "Jamie Chen" : "UI Host"),
         address: "1 Fixture Way"
     )
 
@@ -115,20 +123,27 @@ struct HerdUITestEnvironment {
         ),
     ]
 
+    static var storeInvitees: [Invitee] {
+        ["Alex Morgan", "Sam Rivera", "Jordan Lee", "Taylor Brooks", "Riley Kim", "Casey Green", "Avery Davis", "Drew Wilson", "Morgan Ellis"].enumerated().map { index, name in
+            Invitee(id: UUID(uuidString: String(format: "50000000-0000-0000-0000-%012d", index + 31))!, displayName: name, phoneNumber: "+141555501\(31 + index)")
+        }
+    }
+
     static func hostDraft(id: UUID, title: String) -> HerdEvent {
         HerdEvent(
             id: id,
             title: title,
-            eventDate: .now.addingTimeInterval(7 * 86_400),
-            endDate: .now.addingTimeInterval(7 * 86_400 + 7_200),
+            eventDate: (HerdUITestEnvironment.isStoreScreenshot ? Date(timeIntervalSince1970: 1789779600) : .now.addingTimeInterval(7 * 86_400)),
+            endDate: (HerdUITestEnvironment.isStoreScreenshot ? Date(timeIntervalSince1970: 1789790400) : .now.addingTimeInterval(7 * 86_400 + 7_200)),
             hostName: hostUser.name,
-            locationName: "Fixture Park",
-            locationAddress: "1 Test Lane",
-            invitees: [],
-            minimumParticipants: 2,
+            locationName: (HerdUITestEnvironment.isStoreScreenshot ? "The corner trattoria" : "Fixture Park"),
+            locationAddress: (HerdUITestEnvironment.isStoreScreenshot ? "North Beach, San Francisco" : "1 Test Lane"),
+            invitees: HerdUITestEnvironment.isStoreScreenshot ? storeInvitees : [],
+            minimumParticipants: HerdUITestEnvironment.isStoreScreenshot ? 4 : 2,
             requiredGroups: [],
             rsvpDeadline: .now.addingTimeInterval(86_400),
-            eventDescription: "Deterministic native UI coverage fixture.",
+            eventDescription: (HerdUITestEnvironment.isStoreScreenshot ? "Good food, a big table, and everyone we keep meaning to see." : "Deterministic native UI coverage fixture."),
+            eventImageID: HerdUITestEnvironment.isStoreScreenshot ? .restaurant : .poker,
             createdAt: .now,
             invitationsSent: false
         )
@@ -177,7 +192,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             events = [hostEventDictionary(
                 HerdUITestEnvironment.hostDraft(
                     id: UUID(uuidString: "20000000-0000-0000-0000-000000000002")!,
-                    title: "Fixture Draft"
+                    title: (HerdUITestEnvironment.isStoreScreenshot ? "Friday dinner club" : "Fixture Draft")
                 )
             )]
         case .hostDelete:
@@ -208,19 +223,19 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             saved.invitees = [
                 Invitee(
                     id: UUID(uuidString: "50000000-0000-0000-0000-000000000011")!,
-                    displayName: "One Anderson",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Maya Patel" : "One Anderson"),
                     phoneNumber: "+14155550101",
                     hasResponded: false
                 ),
                 Invitee(
                     id: UUID(uuidString: "50000000-0000-0000-0000-000000000012")!,
-                    displayName: "Two Brown",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Sam Rivera" : "Two Brown"),
                     phoneNumber: "+14155550102",
                     hasResponded: false
                 ),
                 Invitee(
                     id: UUID(uuidString: "50000000-0000-0000-0000-000000000013")!,
-                    displayName: "Three Davis",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Jordan Lee" : "Three Davis"),
                     phoneNumber: "+14155550103",
                     hasResponded: false
                 ),
@@ -233,7 +248,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         case .confirmedAttendees:
             var saved = HerdUITestEnvironment.hostDraft(
                 id: UUID(uuidString: "20000000-0000-0000-0000-000000000005")!,
-                title: "Confirmed Attendee Layout"
+                title: (HerdUITestEnvironment.isStoreScreenshot ? "Friday dinner club" : "Confirmed Attendee Layout")
             )
             let goingID = UUID(uuidString: "50000000-0000-0000-0000-000000000021")!
             let noHistoryID = UUID(uuidString: "50000000-0000-0000-0000-000000000022")!
@@ -241,18 +256,18 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             saved.invitees = [
                 Invitee(
                     id: goingID,
-                    displayName: "One Anderson",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Maya Patel" : "One Anderson"),
                     phoneNumber: "+14155550121"
                 ),
                 Invitee(
                     id: noHistoryID,
-                    displayName: "Two Brown",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Sam Rivera" : "Two Brown"),
                     phoneNumber: "+14155550122",
                     responseHistory: .init(missedConfirmedEvents: 0, totalConfirmedEvents: 0)
                 ),
                 Invitee(
                     id: historyID,
-                    displayName: "Three Davis",
+                    displayName: (HerdUITestEnvironment.isStoreScreenshot ? "Jordan Lee" : "Three Davis"),
                     phoneNumber: "+14155550123",
                     responseHistory: .init(missedConfirmedEvents: 2, totalConfirmedEvents: 3)
                 ),
@@ -261,7 +276,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
             saved.rsvpDeadline = .now.addingTimeInterval(-86_400)
             saved.resolution = EventResolution(
                 status: .confirmed,
-                attendingMemberIds: ["host", goingID.uuidString.lowercased()],
+                attendingMemberIds: HerdUITestEnvironment.isStoreScreenshot ? ["host", goingID.uuidString.lowercased(), noHistoryID.uuidString.lowercased(), historyID.uuidString.lowercased()] : ["host", goingID.uuidString.lowercased()],
                 attendanceRevealed: true,
                 guestStates: [
                     RevealedGuestState(
@@ -271,17 +286,29 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                     ),
                     RevealedGuestState(
                         memberId: noHistoryID.uuidString.lowercased(),
-                        status: .noResponse,
-                        missedDeadline: true
+                        status: HerdUITestEnvironment.isStoreScreenshot ? .going : .noResponse,
+                        missedDeadline: !HerdUITestEnvironment.isStoreScreenshot
                     ),
                     RevealedGuestState(
                         memberId: historyID.uuidString.lowercased(),
-                        status: .noResponse,
-                        missedDeadline: true
+                        status: HerdUITestEnvironment.isStoreScreenshot ? .going : .noResponse,
+                        missedDeadline: !HerdUITestEnvironment.isStoreScreenshot
                     ),
                 ],
                 resolvedAt: .now
             )
+            if HerdUITestEnvironment.isStoreScreenshot {
+                saved.invitees = HerdUITestEnvironment.storeInvitees
+                saved.resolution = EventResolution(
+                    status: .confirmed,
+                    attendingMemberIds: ["host"] + Array(saved.invitees.prefix(3)).map { $0.id.uuidString.lowercased() },
+                    attendanceRevealed: true,
+                    guestStates: Array(saved.invitees.prefix(3)).map {
+                        RevealedGuestState(memberId: $0.id.uuidString.lowercased(), status: .going, missedDeadline: false)
+                    },
+                    resolvedAt: .now
+                )
+            }
             events = [hostEventDictionary(saved)]
         }
     }
@@ -390,7 +417,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
                 }
                 return (200, ["events": events])
             }
-            events = events.map(resolvedEventDictionary)
+            if !HerdUITestEnvironment.isStoreScreenshot { events = events.map(resolvedEventDictionary) }
             return (200, ["events": events])
         }
 
@@ -632,64 +659,65 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         let invitees: [[String: Any]] = [
             [
                 "id": inviteeID,
-                "displayName": "Correct Invitee",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Alex Morgan" : "Correct Invitee"),
                 "phoneNumber": HerdUITestEnvironment.inviteePhoneNumber,
                 "isCurrentUser": true,
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000004",
-                "displayName": "Two Brown",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Sam Rivera" : "Two Brown"),
                 "phoneNumber": "+14155550103",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000005",
-                "displayName": "Three Davis",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Jordan Lee" : "Three Davis"),
                 "phoneNumber": "+14155550104",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000006",
-                "displayName": "Four Garcia",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Taylor Brooks" : "Four Garcia"),
                 "phoneNumber": "+14155550105",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000007",
-                "displayName": "Five Johnson",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Riley Kim" : "Five Johnson"),
                 "phoneNumber": "+14155550106",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000008",
-                "displayName": "Six Miller",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Casey Green" : "Six Miller"),
                 "phoneNumber": "+14155550107",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000009",
-                "displayName": "Seven Smith",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Avery Davis" : "Seven Smith"),
                 "phoneNumber": "+14155550108",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000010",
-                "displayName": "Eight Taylor",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Drew Wilson" : "Eight Taylor"),
                 "phoneNumber": "+14155550109",
             ],
             [
                 "id": "30000000-0000-0000-0000-000000000011",
-                "displayName": "Nine Wilson",
+                "displayName": (HerdUITestEnvironment.isStoreScreenshot ? "Morgan Ellis" : "Nine Wilson"),
                 "phoneNumber": "+14155550110",
             ],
         ]
         return [
             "id": "40000000-0000-0000-0000-000000000004",
-            "title": "Private Picnic Invitation",
-            "eventDate": dateString(.now.addingTimeInterval(7 * 86_400)),
-            "endDate": dateString(.now.addingTimeInterval(7 * 86_400 + 7_200)),
-            "hostName": "Fixture Host",
-            "locationName": "Invitation Park",
-            "locationAddress": "2 Test Lane",
+            "title": (HerdUITestEnvironment.isStoreScreenshot ? "Friday dinner club" : "Private Picnic Invitation"),
+            "eventDate": dateString((HerdUITestEnvironment.isStoreScreenshot ? Date(timeIntervalSince1970: 1789779600) : .now.addingTimeInterval(7 * 86_400))),
+            "endDate": dateString((HerdUITestEnvironment.isStoreScreenshot ? Date(timeIntervalSince1970: 1789790400) : .now.addingTimeInterval(7 * 86_400 + 7_200))),
+            "hostName": (HerdUITestEnvironment.isStoreScreenshot ? "Jamie Chen" : "Fixture Host"),
+            "locationName": (HerdUITestEnvironment.isStoreScreenshot ? "The corner trattoria" : "Invitation Park"),
+            "locationAddress": (HerdUITestEnvironment.isStoreScreenshot ? "North Beach, San Francisco" : "2 Test Lane"),
             "invitees": invitees,
-            "minimumParticipants": 2,
+            "minimumParticipants": HerdUITestEnvironment.isStoreScreenshot ? 4 : 2,
+            "eventImageID": HerdUITestEnvironment.isStoreScreenshot ? "restaurant" : "poker",
             "requiredGroups": [],
             "rsvpDeadline": dateString(.now.addingTimeInterval(86_400)),
-            "eventDescription": "Opened only after the invitation account matches.",
+            "eventDescription": (HerdUITestEnvironment.isStoreScreenshot ? "Good food, a big table, and everyone we keep meaning to see. Let’s make a night of it." : "Opened only after the invitation account matches."),
             "createdAt": dateString(.now),
             "invitationsSent": true,
             "role": "invitee",
@@ -706,6 +734,7 @@ private final class HerdUITestURLProtocol: URLProtocol, @unchecked Sendable {
         let data = try! HerdJSON.makeEncoder().encode(event)
         var object = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         object["role"] = "host"
+        if HerdUITestEnvironment.isStoreScreenshot { object["eventImageID"] = event.resolvedEventImageID.rawValue }
         return object
     }
 

@@ -8,6 +8,55 @@ final class HerdHostUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testCaptureStoreStory() {
+        func capture(_ name: String, _ app: XCUIApplication) {
+            Thread.sleep(forTimeInterval: 1)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let app = launch(scenario: "invitee-home", additionalArguments: ["--herd-store-screenshots"])
+        let invitation = app.staticTexts["Friday dinner club"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 15))
+        invitation.tap()
+        XCTAssertTrue(app.buttons["Back to Herd events"].waitForExistence(timeout: 5))
+        capture("store-01-invitation", app)
+        let going = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "down if")).firstMatch
+        scrollToMakeHittable(going, in: app.scrollViews.firstMatch)
+        going.tap()
+        let addCondition = app.buttons["and this person (or this person) goes"]
+        scrollToMakeHittable(addCondition, in: app.scrollViews.firstMatch)
+        addCondition.tap()
+        let sam = app.staticTexts["Sam Rivera"]
+        XCTAssertTrue(sam.waitForExistence(timeout: 5))
+        sam.tap()
+        let replyScroll = app.scrollViews.firstMatch
+        replyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            .press(forDuration: 0.05, thenDragTo: replyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        capture("store-02-conditional", app)
+        app.scrollViews.firstMatch.swipeDown()
+        let guests = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guests, in: app.scrollViews.firstMatch)
+        guests.tap()
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        capture("store-03-private", app)
+        app.terminate()
+        let host = launch(scenario: "host-edit", additionalArguments: ["--herd-store-screenshots"])
+        XCTAssertTrue(host.staticTexts["Friday dinner club"].waitForExistence(timeout: 10))
+        host.staticTexts["Friday dinner club"].tap()
+        XCTAssertTrue(host.navigationBars["Edit event"].waitForExistence(timeout: 5))
+        host.scrollViews["event-editor-scroll"].swipeUp()
+        host.scrollViews["event-editor-scroll"].swipeUp()
+        capture("store-04-host", host)
+        host.terminate()
+        let confirmed = launch(scenario: "confirmed-attendees", additionalArguments: ["--herd-store-screenshots"])
+        XCTAssertTrue(confirmed.staticTexts["Friday dinner club"].waitForExistence(timeout: 10))
+        confirmed.staticTexts["Friday dinner club"].tap()
+        XCTAssertTrue(confirmed.buttons["Back to Herd events"].waitForExistence(timeout: 5))
+        capture("store-05-confirmed", confirmed)
+    }
+
     func testHostCreatesSelectsGuestSendsAndSeesResolvedResult() {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
 
