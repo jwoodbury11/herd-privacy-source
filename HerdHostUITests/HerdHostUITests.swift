@@ -1056,7 +1056,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["New event"].exists)
     }
 
-    func testAppClipResponseSuccessOffersOnlyGetHerd() {
+    func testAppClipResponseSuccessOffersOnlyDownloadHerd() {
         let app = launchClip(
             scenario: "invitee-home",
             additionalArguments: ["--open-response-success"]
@@ -1072,7 +1072,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Thanks for responding"].waitForExistence(timeout: 10))
         let getHerd = app.buttons["success-download-herd"]
         XCTAssertTrue(getHerd.waitForExistence(timeout: 5))
-        XCTAssertEqual(getHerd.label, "Get Herd")
+        XCTAssertEqual(getHerd.label, "Download Herd")
         XCTAssertFalse(app.buttons["success-view-invitation"].exists)
         XCTAssertFalse(app.buttons["success-back-to-events"].exists)
     }

@@ -68,7 +68,7 @@ web origin and publishes the signed app identifier to the web runtime.
 The App Clip uses the native guest experience, including authentication,
 invitation detail, private replies, attendee visibility, refresh, and profile
 management. Hosting entry points lead to the full-app download handoff because
-App Clips cannot use Contacts. Its reply-success screen has one `Get Herd`
+App Clips cannot use Contacts. Its reply-success screen has one `Download Herd`
 action. It stores sessions and protected reply material in its own default
 Keychain; on iOS 15.4 and later the system makes those items available to the
 corresponding full app through the signed parent/App Clip association. Neither
