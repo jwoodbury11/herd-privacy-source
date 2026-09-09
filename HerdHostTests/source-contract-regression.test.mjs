@@ -70,7 +70,8 @@ test("privacy proof omits the essentials label without collapsing its spacing", 
     /onScrollGeometryChange\(for: Bool\.self\)[\s\S]*?contentOffset\.y \+ geometry\.contentInsets\.top > 55[\s\S]*?showsCollapsedTitle = shouldShowTitle/u,
   );
   assert.match(home, /accessibilityIdentifier\("privacy-navigation-divider"\)/u);
-  assert.match(home, /toolbarBackground\(\.visible, for: \.navigationBar\)/u);
+  assert.match(home, /showsNavigationDivider = false/u);
+  assert.match(home, /toolbarBackground\(showsNavigationDivider \? \.visible : \.hidden, for: \.navigationBar\)/u);
   assert.doesNotMatch(home, /InvitationTitleBottomPreferenceKey/u);
 });
 
