@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import sharp from "sharp";
-import { verifyEventImageEdges } from "../scripts/verify-event-image-edges.mjs";
+import { decontaminateEventImageEdges } from "../scripts/decontaminate-event-image-edges.mjs";
+import {
+  analyzeEventImage,
+  verifyEventImageEdges,
+} from "../scripts/verify-event-image-edges.mjs";
 
 const expectedIDs = [
   "poker",
@@ -21,6 +25,9 @@ const expectedIDs = [
   "birthday-party",
   "jacuzzi",
   "skiing",
+  "lan",
+  "arcade",
+  "beach",
   "other",
 ];
 
@@ -40,6 +47,9 @@ const approvedSha256ForID = {
   "birthday-party": "67d9f0f36d9b231ccedca9633078f7f90ec11050175560b5c744d9b9ad781d18",
   jacuzzi: "5e7dd2d05b2d8ea9d337212ac230bd466cd77825e0cc2330fe679b5964ece714",
   skiing: "a788d5fcd524f6222e28a22c291e4023dcf87ab58f4fe853e26b821baa4fb6fe",
+  lan: "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673",
+  arcade: "dc85718bf0768bf1eedad16ab478c9e9e6b9624b4648b51e0b7995d7e2449868",
+  beach: "6ca474d20086ac984c16a712f6f157544bdd140bc85a14cde8a7b88faec5d384",
   other: "4dc2946db572b78179a15c0fee81c1ef7817a7c22ac240fa9058fb00dd14484b",
 };
 
@@ -55,25 +65,52 @@ test("the web and iPhone event-image catalogs stay in parity", async () => {
     readFile(new URL("../../HerdHost/EventImage.swift", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(expectedIDs.length, 16);
-  assert.equal(expectedIDs.at(-1), "other");
-  assert.match(webCatalog, /"skiing",\s*"other",\s*\] as const/u);
-  assert.match(swiftCatalog, /case skiing\s+case other/u);
-
-  for (const id of expectedIDs) {
-    assert.match(webCatalog, new RegExp(`"${id}"`));
-    assert.match(swiftCatalog, new RegExp(id.replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())));
+  const webIDs = [...webCatalog.match(/EVENT_IMAGE_IDS = \[([\s\S]*?)\] as const/u)[1]
+    .matchAll(/"([a-z-]+)"/gu)].map((match) => match[1]);
+  const swiftCases = swiftCatalog.split("    var label:")[0];
+  const nativeIDs = [...swiftCases.matchAll(/^    case ([A-Za-z]+)(?: = "([a-z-]+)")?$/gmu)]
+    .map((match) => match[2] ?? match[1]);
+  for (const [platform, ids] of [["web", webIDs], ["iPhone", nativeIDs]]) {
+    assert.deepEqual(ids, expectedIDs, `${platform} must retain the complete ordered catalog`);
+    assert.equal(new Set(ids).size, ids.length, `${platform} must not duplicate an activity`);
+    assert.equal(ids.at(-1), "other", `${platform} must keep Other last`);
   }
+  assert.deepEqual(Object.keys(approvedSha256ForID).sort(), [...expectedIDs].sort());
 });
 
 test("event images have no detectable white-matte fringe", async () => {
   const reports = await verifyEventImageEdges();
-  assert.equal(reports.length, 17);
+  assert.equal(reports.length, expectedIDs.length + 1);
   assert.ok(reports.every((report) => report.passesWhiteMatteGate));
   const neverConfirmed = reports.find((report) => report.name === "never-confirmed");
   assert.ok(neverConfirmed);
   assert.ok(neverConfirmed.suspiciousWhiteMattePixels <= 100);
   assert.ok(neverConfirmed.suspiciousWhiteMatteRate <= 0.005);
+});
+
+test("edge decontamination removes white matte without changing alpha", async () => {
+  const width = 1254;
+  const height = 1254;
+  const pixels = Buffer.alloc(width * height * 4);
+  const setPixel = (x, y, red, green, blue, alpha) => {
+    const offset = (y * width + x) * 4;
+    pixels.set([red, green, blue, alpha], offset);
+  };
+  for (let y = 600; y <= 620; y += 1) {
+    for (let x = 600; x <= 620; x += 1) {
+      const edge = x === 600 || x === 620 || y === 600 || y === 620;
+      setPixel(x, y, edge ? 245 : 45, edge ? 245 : 55, edge ? 245 : 65, edge ? 128 : 255);
+    }
+  }
+  const input = await sharp(pixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  const beforeAlpha = (await sharp(input).ensureAlpha().raw().toBuffer()).filter((_, index) => index % 4 === 3);
+  const { buffer: cleaned, changedPixels } = await decontaminateEventImageEdges(input);
+  const afterAlpha = (await sharp(cleaned).ensureAlpha().raw().toBuffer()).filter((_, index) => index % 4 === 3);
+  const report = await analyzeEventImage(cleaned, "synthetic edge fixture");
+
+  assert.ok(changedPixels > 0);
+  assert.deepEqual(afterAlpha, beforeAlpha);
+  assert.equal(report.suspiciousWhiteMattePixels, 0);
 });
 
 test("the host image selector uses the approved short labels", async () => {
@@ -88,6 +125,9 @@ test("the host image selector uses the approved short labels", async () => {
   assert.match(swiftCatalog, /case \.birthdayParty: "Birthday"/u);
   assert.match(swiftCatalog, /case \.jacuzzi: "Hot tub"/u);
   assert.match(swiftCatalog, /case \.skiing: "Skiing"/u);
+  assert.match(swiftCatalog, /case \.lan: "LAN"/u);
+  assert.match(swiftCatalog, /case \.arcade: "Arcade"/u);
+  assert.match(swiftCatalog, /case \.beach: "Beach"/u);
   assert.doesNotMatch(
     swiftCatalog,
     /case \.poker: "Cards"|case \.houseDrinks: "At home"|case \.clubDancing: "Dancing"/u,
@@ -170,6 +210,7 @@ test("cards, details, and the host editor expose the event image", async () => {
   assert.match(styles, /\.event-card h2[\s\S]*-webkit-line-clamp: 2/u);
   assert.match(nativeHome, /EventSceneImage\([\s\S]*id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: usesNeverConfirmedArtwork[\s\S]*\.frame\(width: 144, height: 144\)/u);
   assert.match(nativeHome, /\.lineLimit\(2\)[\s\S]*\.truncationMode\(\.tail\)/u);
+  assert.match(nativeHome, /VStack\(alignment: \.leading, spacing: 12\)[\s\S]*\.padding\(\.top, 6\)/u);
   assert.match(nativeHome, /\.frame\([\s\S]*minHeight: max\(0, cardMinimumHeight - \(cardPadding \* 2\)\)[\s\S]*alignment: \.topLeading/u);
   assert.match(styles, /\.event-hero-image[\s\S]*width: min\(100%, 468px\)[\s\S]*height: 317px/u);
   assert.match(nativeHome, /id: event\.resolvedEventImageID,[\s\S]*usesNeverConfirmedArtwork: event\.homeSection\(\) == \.unconfirmed[\s\S]*\.frame\(height: 317\)/u);

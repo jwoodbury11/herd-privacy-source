@@ -26,6 +26,8 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   );
   assert.match(page, /className="screen-page-heading"[\s\S]*PROFILE_EXPERIENCE\.syncNote/u);
   assert.match(page, /className="profile-account-actions"/u);
+  assert.match(page, /className="profile-diagnostics-link"[\s\S]*Account diagnostics/u);
+  assert.match(page, /setStatusReturnScreen\("profile"\)[\s\S]*setScreen\("status"\)/u);
   assert.match(page, /persistentAction[\s\S]*className="profile-overflow"/u);
   assert.match(page, /MoreHorizontal[\s\S]*More profile actions/u);
   assert.match(page, /LogOut[\s\S]*PROFILE_EXPERIENCE\.logoutButton/u);
@@ -46,6 +48,7 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(page, /role="alertdialog"[\s\S]*PROFILE_EXPERIENCE\.unsavedChanges\.title/u);
   assert.match(page, /className="danger-button" onClick=\{discardProfileChanges\}/u);
   assert.match(css, /\.profile-inline-action \{[^}]*min-height: 44px/u);
+  assert.match(css, /\.profile-diagnostics-link \{[^}]*min-height: 72px/u);
   assert.match(css, /\.profile-save-action \.primary-button:disabled/u);
   assert.match(page, /className="profile-field-clear"[\s\S]*Clear \$\{PROFILE_EXPERIENCE\.nameLabel\}/u);
   assert.match(page, /className="profile-field-clear"[\s\S]*Clear \$\{PROFILE_EXPERIENCE\.addressLabel\}/u);
@@ -63,6 +66,8 @@ test("profile actions and change-aware save stay aligned on web and iPhone", asy
   assert.match(swiftHome, /dismissKeyboard\(\)[\s\S]*authStore\.updateProfile/u);
   assert.doesNotMatch(swiftHome, /Label\(savedNotice, systemImage: "checkmark\.circle\.fill"\)/u);
   assert.match(swiftHome, /private var profileAccountActions: some View/u);
+  assert.match(swiftHome, /private var profileDiagnosticsLink: some View/u);
+  assert.match(swiftHome, /navigationTitle\("Account diagnostics"\)/u);
   assert.match(swiftHome, /\.navigationTitle\(""\)/u);
   assert.match(swiftHome, /\.navigationBarBackButtonHidden\(true\)/u);
   assert.match(swiftHome, /if profileHasChanges \{[\s\S]*showsUnsavedChangesConfirmation = true/u);

@@ -14,7 +14,7 @@ const EVENT_IMAGE_IDS = new Set([
   "poker", "tennis", "board-games", "house-drinks", "restaurant",
   "cocktail-bar", "club-dancing", "movie-night", "park-picnic",
   "travel-airport", "camping", "fishing", "birthday-party", "jacuzzi",
-  "skiing", "other",
+  "skiing", "lan", "arcade", "other",
 ]);
 
 async function trustedOrigin(): Promise<string> {

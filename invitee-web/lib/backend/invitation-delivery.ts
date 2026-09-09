@@ -206,8 +206,10 @@ export async function getInvitationDeliverySummary(
 function invitationDate(value: string | null, timeZone: string | null): string {
   if (!value) return "date to be announced";
   return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZone: timeZone ?? "UTC",
   }).format(new Date(value));
 }
@@ -218,9 +220,9 @@ export function invitationMessageBody(
   options: { replyReset?: boolean } = {},
 ): string {
   if (options.replyReset) {
-    return `${invitationUrl}\n${event.hostName} updated ${event.title}. Open Herd to review the guest list change and send your private reply again. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
+    return `${event.hostName.trim()} updated ${event.title}. Open Herd to review the guest list change and send your private reply again. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl.trim()}`;
   }
-  return `${invitationUrl}\n${event.hostName} invited you to ${event.title} — ${invitationDate(event.eventDate, event.eventTimeZone)}. Open the invitation and reply privately. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.`;
+  return `${event.hostName.trim()} invited you to ${event.title} — ${invitationDate(event.eventDate, event.eventTimeZone)}. Open the invitation and reply privately. One-time message sent at ${event.hostName}’s request. Reply STOP to opt out; HELP for help. Msg & data rates may apply.\n${invitationUrl.trim()}`;
 }
 
 async function updateDispatchResult(

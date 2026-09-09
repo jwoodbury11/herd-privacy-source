@@ -61,6 +61,10 @@
 		P00000000000000000000224 /* HerdClip.app in Embed App Clips */ = {isa = PBXBuildFile; fileRef = P00000000000000000000005 /* HerdClip.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		P00000000000000000000225 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000100 /* UITestSupport.swift */; };
 		P00000000000000000000226 /* AppClipHostStubs.swift in Sources */ = {isa = PBXBuildFile; fileRef = P00000000000000000000105 /* AppClipHostStubs.swift */; };
+		DA0000000000000000000001 /* AppStoreDownloadHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000003 /* AppStoreDownloadHint.swift */; };
+		DA0000000000000000000002 /* AppStoreDownloadHint.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000003 /* AppStoreDownloadHint.swift */; };
+		DA0000000000000000000004 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000006 /* Fonts */; };
+		DA0000000000000000000005 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000006 /* Fonts */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -140,6 +144,8 @@
 		P00000000000000000000103 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		P00000000000000000000104 /* HerdRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdRuntime.swift; sourceTree = "<group>"; };
 		P00000000000000000000105 /* AppClipHostStubs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppClipHostStubs.swift; sourceTree = "<group>"; };
+		DA0000000000000000000003 /* AppStoreDownloadHint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreDownloadHint.swift; sourceTree = "<group>"; };
+		DA0000000000000000000006 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -214,6 +220,8 @@
 				A00000000000000000000102 /* EventStore.swift */,
 				A00000000000000000000103 /* Theme.swift */,
 				A00000000000000000000104 /* HomeView.swift */,
+				DA0000000000000000000003 /* AppStoreDownloadHint.swift */,
+				DA0000000000000000000006 /* Fonts */,
 				A00000000000000000000105 /* DateTimeSheets.swift */,
 				A00000000000000000000106 /* EventEditorView.swift */,
 				A00000000000000000000107 /* ContactStoreService.swift */,
@@ -396,6 +404,7 @@
 				A00000000000000000000210 /* Assets.xcassets in Resources */,
 				A00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */,
 				A00000000000000000000218 /* HerdExperience.json in Resources */,
+				DA0000000000000000000004 /* Fonts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -421,6 +430,7 @@
 				P00000000000000000000210 /* Assets.xcassets in Resources */,
 				P00000000000000000000211 /* PrivacyInfo.xcprivacy in Resources */,
 				P00000000000000000000218 /* HerdExperience.json in Resources */,
+				DA0000000000000000000005 /* Fonts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +446,7 @@
 				A00000000000000000000202 /* EventStore.swift in Sources */,
 				A00000000000000000000203 /* Theme.swift in Sources */,
 				A00000000000000000000204 /* HomeView.swift in Sources */,
+				DA0000000000000000000001 /* AppStoreDownloadHint.swift in Sources */,
 				A00000000000000000000205 /* DateTimeSheets.swift in Sources */,
 				A00000000000000000000206 /* EventEditorView.swift in Sources */,
 				A00000000000000000000207 /* ContactStoreService.swift in Sources */,
@@ -480,6 +491,7 @@
 				P00000000000000000000202 /* EventStore.swift in Sources */,
 				P00000000000000000000203 /* Theme.swift in Sources */,
 				P00000000000000000000204 /* HomeView.swift in Sources */,
+				DA0000000000000000000002 /* AppStoreDownloadHint.swift in Sources */,
 				P00000000000000000000205 /* DateTimeSheets.swift in Sources */,
 				P00000000000000000000206 /* EventEditorView.swift in Sources */,
 				P00000000000000000000209 /* LocationSearchView.swift in Sources */,
@@ -652,7 +664,7 @@
 				INFOPLIST_FILE = HerdHost/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Herd;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSContactsUsageDescription = "Herd uses Contacts so you can choose people to invite. Only guests you select are sent to Herd for invitation delivery.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "Herd accesses your contacts so you can choose people to invite. Only the names and phone numbers of contacts you select are uploaded to Herd’s servers to manage the event and deliver invitations. Your full address book is never uploaded.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Herd uses Face ID to unlock your private event replies on this iPhone.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -689,7 +701,7 @@
 				INFOPLIST_FILE = HerdHost/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Herd;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
-				INFOPLIST_KEY_NSContactsUsageDescription = "Herd uses Contacts so you can choose people to invite. Only guests you select are sent to Herd for invitation delivery.";
+				INFOPLIST_KEY_NSContactsUsageDescription = "Herd accesses your contacts so you can choose people to invite. Only the names and phone numbers of contacts you select are uploaded to Herd’s servers to manage the event and deliver invitations. Your full address book is never uploaded.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Herd uses Face ID to unlock your private event replies on this iPhone.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

@@ -12,7 +12,7 @@ const experience = JSON.parse(
 
 function assertSentenceCase(label, context) {
   const words = label.match(/[A-Za-z][A-Za-z’'-]*/g) ?? [];
-  const allowedProperNouns = new Set(["Herd"]);
+  const allowedProperNouns = new Set(["Herd", "Settings"]);
   const unexpectedCapitalizedWord = words.slice(1).find((word) => (
     /^[A-Z][a-z]/.test(word) && !allowedProperNouns.has(word)
   ));
@@ -55,11 +55,13 @@ test("hard-coded iOS buttons use sentence case", () => {
     "utf8",
   );
 
-  for (const titleCaseLabel of ["Keep Selecting", "Clear Selections", "Open Settings"]) {
+  for (const titleCaseLabel of ["Keep Selecting", "Clear Selections"]) {
     assert.doesNotMatch(attendeeFlow, new RegExp(`Button\\(\\"${titleCaseLabel}\\"`));
   }
 
-  for (const sentenceCaseLabel of ["Keep selecting", "Clear selections", "Open settings"]) {
+  // Settings names the system app, so its proper-name capitalization is intentional.
+  for (const sentenceCaseLabel of ["Keep selecting", "Clear selections", "Open Settings"]) {
+    assertSentenceCase(sentenceCaseLabel, "attendee action");
     assert.match(attendeeFlow, new RegExp(`Button\\(\\"${sentenceCaseLabel}\\"`));
   }
 });

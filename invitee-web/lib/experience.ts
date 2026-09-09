@@ -57,6 +57,7 @@ type HomeExperience = {
   unconfirmedSectionTitle: string;
   unconfirmedSectionNote: string;
   pastSectionTitle: string;
+  pastEventsInitiallyExpanded: boolean;
   emptyInvitesMessage: string;
   dateNotSet: string;
   untitledEvent: string;
@@ -83,11 +84,7 @@ type HomeExperience = {
     webCardMinimumHeight: number;
     profileAvatarDiameter: number;
   };
-  webCreateEventHandoff: {
-    heading: string;
-    body: string;
-    backButton: string;
-  };
+  webCreateEventHandoff: typeof sharedExperience.home.webCreateEventHandoff;
 };
 
 type HerdExperience = {

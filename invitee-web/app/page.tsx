@@ -804,6 +804,7 @@ function AppHeader({
   backLabel = "Go back",
   action,
   persistentAction = false,
+  dividerAtHeadingStart = false,
 }: {
   title: string;
   headingId: string;
@@ -811,8 +812,10 @@ function AppHeader({
   backLabel?: string;
   action?: React.ReactNode;
   persistentAction?: boolean;
+  dividerAtHeadingStart?: boolean;
 }) {
   const [isCondensed, setIsCondensed] = useState(false);
+  const [hasHeadingOverlap, setHasHeadingOverlap] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -822,19 +825,39 @@ function AppHeader({
 
     if (!(scrollRoot instanceof HTMLElement) || !heading) return;
 
+    const context = dividerAtHeadingStart ? document.createElement("canvas").getContext("2d") : null;
     const updateHeader = () => {
-      setIsCondensed(
-        heading.getBoundingClientRect().bottom <= scrollRoot.getBoundingClientRect().top,
-      );
+      const headingBounds = heading.getBoundingClientRect();
+      const edge = scrollRoot.getBoundingClientRect().top;
+      setIsCondensed(headingBounds.bottom <= edge);
+      if (dividerAtHeadingStart) {
+        // Account for the line box's space above the visible capital H.
+        const style = getComputedStyle(heading);
+        let letteringInset = 0;
+        if (context) {
+          context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+          const metrics = context.measureText("H");
+          const lineHeight = parseFloat(style.lineHeight);
+          letteringInset = (lineHeight - metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2
+            + metrics.fontBoundingBoxAscent - metrics.actualBoundingBoxAscent;
+        }
+        setHasHeadingOverlap(headingBounds.top + letteringInset <= edge);
+      }
     };
 
     updateHeader();
     scrollRoot.addEventListener("scroll", updateHeader, { passive: true });
-    return () => scrollRoot.removeEventListener("scroll", updateHeader);
-  }, [headingId]);
+    const resizeObserver = new ResizeObserver(updateHeader);
+    resizeObserver.observe(heading);
+    resizeObserver.observe(scrollRoot);
+    return () => {
+      scrollRoot.removeEventListener("scroll", updateHeader);
+      resizeObserver.disconnect();
+    };
+  }, [headingId, dividerAtHeadingStart]);
 
   return (
-    <header ref={headerRef} className={`app-header ${isCondensed ? "app-header-condensed" : ""}`}>
+    <header ref={headerRef} className={`app-header ${isCondensed ? "app-header-condensed" : ""} ${dividerAtHeadingStart && hasHeadingOverlap ? "app-header-overlap" : ""}`}>
       <div className="header-side">
         {onBack ? (
           <button className="circle-button" onClick={onBack} aria-label={backLabel}>
@@ -867,11 +890,33 @@ function AvatarStack({ hostName, invitees }: { hostName: string; invitees: ApiIn
   );
 }
 
-function Metric({ value, label }: { value: string; label: string }) {
+function Metric({
+  value,
+  label,
+  onClick,
+  actionLabel,
+}: {
+  value: string;
+  label: string;
+  onClick?: () => void;
+  actionLabel?: string;
+}) {
+  const content = <><strong>{value}</strong><span>{label}</span></>;
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="metric metric-button"
+        onClick={onClick}
+        aria-label={actionLabel ?? `${value} ${label}, view attendees`}
+      >
+        {content}
+      </button>
+    );
+  }
   return (
     <div className="metric">
-      <strong>{value}</strong>
-      <span>{label}</span>
+      {content}
     </div>
   );
 }
@@ -953,10 +998,6 @@ async function writeClipboardText(value: string) {
   if (!copied) throw new Error("Clipboard access is unavailable.");
 }
 
-function PlusMark() {
-  return <span className="host-create-plus" aria-hidden="true">+</span>;
-}
-
 function EventCard({
   event,
   now,
@@ -1003,6 +1044,7 @@ function EventCard({
 
 export function HerdApp() {
   const [screen, setScreen] = useState<Screen>("welcome");
+  const [statusReturnScreen, setStatusReturnScreen] = useState<Screen>("home");
   const [otp, setOtp] = useState("");
   const [otpError, setOtpError] = useState("");
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -1174,8 +1216,10 @@ export function HerdApp() {
     !(activeEvent?.hasResponse || activeEvent?.hasBallot) ||
     currentReplyFingerprint !== savedReplyFingerprint
   );
-  const invitedEvents = events.filter((event) => homeEventSection(event, now) === "invites");
-  const hostedEvents = events.filter((event) => homeEventSection(event, now) === "hosted");
+  const currentEvents = events.filter((event) => {
+    const section = homeEventSection(event, now);
+    return section === "invites" || section === "hosted";
+  });
   const unconfirmedEvents = events.filter((event) => homeEventSection(event, now) === "unconfirmed");
   const pastEvents = events.filter((event) => homeEventSection(event, now) === "past");
   const activeInvitationCount = events.filter((event) => event.role === "invitee" && event.inviteToken).length;
@@ -1542,6 +1586,11 @@ export function HerdApp() {
   }
 
   function goBack() {
+    if (screen === "status") {
+      blurActiveControl();
+      setScreen(statusReturnScreen);
+      return;
+    }
     const previous: Record<Screen, Screen> = {
       welcome: "welcome",
       verify: "welcome",
@@ -2509,13 +2558,10 @@ export function HerdApp() {
                 <div className="home-header-actions">
                   <button
                     className="profile-avatar"
-                    aria-label="Account status"
-                    onClick={() => {
-                      setScreen("status");
-                      void runAccountStatusChecks();
-                    }}
+                    aria-label="New event"
+                    onClick={openHostDownload}
                   >
-                    <Activity aria-hidden="true" size={19} strokeWidth={1.8} />
+                    <Plus aria-hidden="true" size={21} strokeWidth={1.8} />
                   </button>
                   <button
                     className="profile-avatar"
@@ -2531,49 +2577,34 @@ export function HerdApp() {
                 </div>
               </div>
               {homeRefreshError ? <p className="inline-error home-refresh-error" role="alert">{homeRefreshError}</p> : null}
-              {invitedEvents.length ? (
-                <section
-                  className="home-event-section"
-                  aria-labelledby="home-invites-heading"
-                >
-                  <h2 id="home-invites-heading">{HOME_EXPERIENCE.invitesSectionTitle}</h2>
+              {events.length === 0 ? (
+                <div className="home-empty-events" aria-label="No upcoming events">
+                  <Plus className="home-empty-events-icon" size={28} strokeWidth={1.7} aria-hidden="true" />
+                  <h2>No upcoming events</h2>
+                  <button
+                    ref={hostDownloadTriggerRef}
+                    type="button"
+                    className="home-empty-events-action"
+                    onClick={openHostDownload}
+                  >
+                    {HOME_EXPERIENCE.createEventTitle}
+                  </button>
+                </div>
+              ) : currentEvents.length ? (
+                <section className="home-event-section" aria-label="Upcoming events">
                   <div className="home-event-list">
-                    {invitedEvents.map((event) => (
+                    {currentEvents.map((event) => (
                       <EventCard key={event.id} event={event} now={now} onClick={() => void openEvent(event)} />
                     ))}
                   </div>
                 </section>
               ) : null}
-              <section
-                className="home-event-section"
-                aria-labelledby="home-hosted-heading"
-              >
-                <h2 id="home-hosted-heading">{HOME_EXPERIENCE.hostedSectionTitle}</h2>
-                {hostedEvents.length ? (
-                  <div className="home-event-list">
-                    {hostedEvents.map((event) => (
-                      <EventCard key={event.id} event={event} now={now} onClick={() => void openEvent(event)} />
-                    ))}
-                  </div>
-                ) : null}
-                <div className="host-event-entry">
-                  <button
-                    ref={hostDownloadTriggerRef}
-                    type="button"
-                    className="host-event-create-card"
-                    onClick={openHostDownload}
-                  >
-                    <PlusMark />
-                    <strong>{HOME_EXPERIENCE.createEventTitle}</strong>
-                  </button>
-                </div>
-              </section>
               {pastEvents.length ? (
                 <section
                   className="home-event-section home-event-section-collapsible"
                   aria-labelledby="home-past-heading"
                 >
-                  <details className="home-event-disclosure">
+                  <details className="home-event-disclosure" open={HOME_EXPERIENCE.pastEventsInitiallyExpanded}>
                     <summary>
                       <span className="home-event-section-heading">
                         <h2 id="home-past-heading">{HOME_EXPERIENCE.pastSectionTitle}</h2>
@@ -2616,7 +2647,7 @@ export function HerdApp() {
         {screen === "status" ? (
           <section className="screen-layout">
             <AppHeader
-              title="Account status"
+              title="Account diagnostics"
               headingId="account-status-heading"
               onBack={goBack}
               persistentAction
@@ -2744,18 +2775,12 @@ export function HerdApp() {
               </div>
             </div>
             <div className="bottom-action host-app-action">
-              <div className="host-app-availability" id="host-app-availability" role="status">
-                <strong>{HOME_EXPERIENCE.webCreateEventHandoff.availabilityLabel}</strong>
-                <span>{HOME_EXPERIENCE.webCreateEventHandoff.availabilityBody}</span>
-              </div>
-              <button
+              <a
                 className="primary-button host-app-download"
-                type="button"
-                aria-describedby="host-app-availability"
-                disabled
+                href="https://apps.apple.com/app/id6793711077"
               >
                 {HOME_EXPERIENCE.webCreateEventHandoff.downloadButton}
-              </button>
+              </a>
               <button className="text-button host-app-back" type="button" onClick={closeHostDownload}>
                 {HOME_EXPERIENCE.webCreateEventHandoff.backButton}
               </button>
@@ -2914,6 +2939,24 @@ export function HerdApp() {
                   </div>
                 </div>
               </div>
+              <button
+                type="button"
+                className="profile-diagnostics-link"
+                onClick={() => {
+                  setStatusReturnScreen("profile");
+                  setScreen("status");
+                  void runAccountStatusChecks();
+                }}
+              >
+                <span className="profile-diagnostics-icon" aria-hidden="true">
+                  <Activity size={18} strokeWidth={1.8} />
+                </span>
+                <span>
+                  <strong>Account diagnostics</strong>
+                  <small>Check account access, event sync, and private replies</small>
+                </span>
+                <ChevronRight size={18} strokeWidth={2.2} aria-hidden="true" />
+              </button>
               <div className="profile-account-actions" aria-label="Account actions">
                 <button type="button" className="profile-inline-action" onClick={() => setLogoutConfirmationOpen(true)}>
                   <LogOut size={16} aria-hidden="true" />
@@ -3006,9 +3049,19 @@ export function HerdApp() {
                   {activeEvent.resolution?.status !== "confirmed" ? <div><span aria-hidden="true"><Hourglass size={17} strokeWidth={1.8} /></span><p><strong>{activeEvent.rsvpDeadline ? INVITATION_EXPERIENCE.replyByPrefix : INVITATION_EXPERIENCE.noReplyDeadline}</strong>{activeEvent.rsvpDeadline ? <small>{formatReplyDeadline(activeEvent.rsvpDeadline)}</small> : null}</p></div> : null}
                 </div>
                 <div className="metric-row hero-metrics">
-                  <Metric value={String(participantCount(activeEvent))} label={INVITATION_EXPERIENCE.metrics.invited} />
+                  <Metric
+                    value={String(participantCount(activeEvent))}
+                    label={INVITATION_EXPERIENCE.metrics.invited}
+                    onClick={() => setScreen("attendees")}
+                  />
                   <Metric value={String(activeEvent.minimumParticipants)} label={INVITATION_EXPERIENCE.metrics.minimum} />
-                  <Metric value={activeThirdMetric.value} label={activeThirdMetric.label} />
+                  <Metric
+                    value={activeThirdMetric.value}
+                    label={activeThirdMetric.label}
+                    onClick={activeThirdMetric.label === "responded" || activeThirdMetric.label === INVITATION_EXPERIENCE.metrics.attending
+                      ? () => setScreen("attendees")
+                      : undefined}
+                  />
                 </div>
               </section>
 
@@ -3375,7 +3428,7 @@ export function HerdApp() {
 
         {screen === "privacy" ? (
           <section className="screen-layout">
-            <AppHeader title={PRIVACY_EXPERIENCE.navigationTitle} headingId="privacy-heading" onBack={goBack} />
+            <AppHeader title={PRIVACY_EXPERIENCE.navigationTitle} headingId="privacy-heading" dividerAtHeadingStart onBack={goBack} />
             <div className="screen-scroll privacy-screen">
               <section className="privacy-hero">
                 <h2 id="privacy-heading" ref={privacyHeadingRef} tabIndex={-1}>{PRIVACY_EXPERIENCE.title}</h2>
@@ -3429,8 +3482,8 @@ export function HerdApp() {
                     >
                       <summary>{section.title} <span className="accordion-icon" aria-hidden="true">+</span></summary>
                       <div className="accordion-copy">
-                        {section.paragraphs.map((paragraph, paragraphIndex) => (
-                          <p className={paragraphIndex === 0 ? "accordion-lead" : undefined} key={paragraph}>{paragraph}</p>
+                        {section.paragraphs.map((paragraph) => (
+                          <p key={paragraph}>{paragraph}</p>
                         ))}
                         {section.showsVerificationLinks ? (
                           <div className="proof-links">

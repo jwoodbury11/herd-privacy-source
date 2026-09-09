@@ -12,15 +12,16 @@ struct EventEditorView: View {
     @State private var showsDeadline = false
     @State private var showsSendConfirmation = false
     @State private var showsAbandonDraftConfirmation = false
-    @State private var showsDeleteDraftConfirmation = false
+    @State private var showsDiscardChangesConfirmation = false
     @State private var previewedImageID: EventImageID?
     @State private var requiredPicker: RequiredPickerContext?
     @State private var isSaving = false
-    @State private var isDeleting = false
     @State private var saveErrorMessage: String?
     @State private var saveAlertTitle = "Couldn’t save event"
     @State private var confirmedEditNoticeID: UUID?
     @FocusState private var focusedField: FocusedField?
+
+    private let initialDraft: HerdEvent
 
     private enum FocusedField: Hashable {
         case title
@@ -30,6 +31,7 @@ struct EventEditorView: View {
     init(event: HerdEvent) {
         var normalizedEvent = event
         normalizedEvent.ensureEventImageSelection()
+        initialDraft = normalizedEvent
         _draft = State(initialValue: normalizedEvent)
         _previewedImageID = State(initialValue: nil)
     }
@@ -50,6 +52,10 @@ struct EventEditorView: View {
 
     private var isConfirmed: Bool {
         draft.resolution?.status == .confirmed
+    }
+
+    private var hasUnsavedChanges: Bool {
+        draft != initialDraft
     }
 
     var body: some View {
@@ -373,8 +379,7 @@ struct EventEditorView: View {
                     .fontWeight(.semibold)
                     .disabled(
                         (primaryActionTitle == "Send" && !draft.isValid) ||
-                        isSaving ||
-                        isDeleting
+                        isSaving
                     )
                     .accessibilityIdentifier("event-primary-action")
                 }
@@ -451,14 +456,14 @@ struct EventEditorView: View {
         } message: {
             Text("This unsaved draft will be deleted.")
         }
-        .alert("Delete this draft?", isPresented: $showsDeleteDraftConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                deleteSavedDraft()
+        .alert("Discard unsaved changes?", isPresented: $showsDiscardChangesConfirmation) {
+            Button("Keep editing", role: .cancel) {}
+            Button("Discard changes", role: .destructive) {
+                dismiss()
             }
-            .accessibilityIdentifier("confirm-delete-draft")
+            .accessibilityIdentifier("confirm-discard-draft-changes")
         } message: {
-            Text("This permanently deletes the draft. This can’t be undone.")
+            Text("Your saved draft will stay unchanged.")
         }
         .alert(saveAlertTitle, isPresented: Binding(
             get: { saveErrorMessage != nil },
@@ -733,24 +738,15 @@ struct EventEditorView: View {
         if draft.invitationsSent {
             dismiss()
         } else if isExistingEvent {
-            showsDeleteDraftConfirmation = true
+            if hasUnsavedChanges {
+                showsDiscardChangesConfirmation = true
+            } else {
+                dismiss()
+            }
+        } else if !hasUnsavedChanges {
+            dismiss()
         } else {
             showsAbandonDraftConfirmation = true
-        }
-    }
-
-    private func deleteSavedDraft() {
-        guard !isDeleting else { return }
-        isDeleting = true
-        Task {
-            let didDelete = await store.delete(draft)
-            isDeleting = false
-            if didDelete {
-                dismiss()
-            } else {
-                saveAlertTitle = "Couldn’t delete draft"
-                saveErrorMessage = store.errorMessage ?? "Please check your connection and try again."
-            }
         }
     }
 

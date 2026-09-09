@@ -8,6 +8,55 @@ final class HerdHostUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    func testCaptureStoreStory() {
+        func capture(_ name: String, _ app: XCUIApplication) {
+            Thread.sleep(forTimeInterval: 1)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        let app = launch(scenario: "invitee-home", additionalArguments: ["--herd-store-screenshots"])
+        let invitation = app.staticTexts["Friday dinner club"]
+        XCTAssertTrue(invitation.waitForExistence(timeout: 15))
+        invitation.tap()
+        XCTAssertTrue(app.buttons["Back to Herd events"].waitForExistence(timeout: 5))
+        capture("store-01-invitation", app)
+        let going = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "down if")).firstMatch
+        scrollToMakeHittable(going, in: app.scrollViews.firstMatch)
+        going.tap()
+        let addCondition = app.buttons["and this person (or this person) goes"]
+        scrollToMakeHittable(addCondition, in: app.scrollViews.firstMatch)
+        addCondition.tap()
+        let sam = app.staticTexts["Sam Rivera"]
+        XCTAssertTrue(sam.waitForExistence(timeout: 5))
+        sam.tap()
+        let replyScroll = app.scrollViews.firstMatch
+        replyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            .press(forDuration: 0.05, thenDragTo: replyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)))
+        capture("store-02-conditional", app)
+        app.scrollViews.firstMatch.swipeDown()
+        let guests = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guests, in: app.scrollViews.firstMatch)
+        guests.tap()
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        capture("store-03-private", app)
+        app.terminate()
+        let host = launch(scenario: "host-edit", additionalArguments: ["--herd-store-screenshots"])
+        XCTAssertTrue(host.staticTexts["Friday dinner club"].waitForExistence(timeout: 10))
+        host.staticTexts["Friday dinner club"].tap()
+        XCTAssertTrue(host.navigationBars["Edit event"].waitForExistence(timeout: 5))
+        host.scrollViews["event-editor-scroll"].swipeUp()
+        host.scrollViews["event-editor-scroll"].swipeUp()
+        capture("store-04-host", host)
+        host.terminate()
+        let confirmed = launch(scenario: "confirmed-attendees", additionalArguments: ["--herd-store-screenshots"])
+        XCTAssertTrue(confirmed.staticTexts["Friday dinner club"].waitForExistence(timeout: 10))
+        confirmed.staticTexts["Friday dinner club"].tap()
+        XCTAssertTrue(confirmed.buttons["Back to Herd events"].waitForExistence(timeout: 5))
+        capture("store-05-confirmed", confirmed)
+    }
+
     func testHostCreatesSelectsGuestSendsAndSeesResolvedResult() {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
 
@@ -36,6 +85,14 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(saveInvitees.waitForExistence(timeout: 5))
         saveInvitees.tap()
 
+        let uploadConsent = app.alerts["Save attendees to Herd?"]
+        XCTAssertTrue(uploadConsent.waitForExistence(timeout: 5))
+        uploadConsent.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Review invites"].exists)
+        saveInvitees.tap()
+        XCTAssertTrue(uploadConsent.waitForExistence(timeout: 5))
+        uploadConsent.buttons["Agree and save"].tap()
+
         let primaryAction = app.buttons["event-primary-action"]
         XCTAssertTrue(primaryAction.waitForExistence(timeout: 5))
         XCTAssertEqual(primaryAction.label, "Send")
@@ -56,7 +113,7 @@ final class HerdHostUITests: XCTestCase {
         app.buttons["Back to Herd events"].tap()
         XCTAssertTrue(eventTitle.waitForExistence(timeout: 5))
         let confirmed = app.staticTexts["Confirmed"]
-        XCTAssertTrue(app.buttons["events-status"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["events-create"].waitForExistence(timeout: 5))
         app.swipeDown()
         XCTAssertTrue(confirmed.waitForExistence(timeout: 15))
 
@@ -127,15 +184,47 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(skiingPreview.waitForExistence(timeout: 5))
         XCTAssertTrue(skiingPreview.isHittable)
         app.swipeLeft()
+        let lanPreview = app.images["event-image-preview-full-lan"]
+        XCTAssertTrue(lanPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(lanPreview.isHittable)
+        let lanPreviewName = app.staticTexts["event-image-preview-name-lan"]
+        XCTAssertTrue(lanPreviewName.waitForExistence(timeout: 5))
+        XCTAssertEqual(lanPreviewName.label, "LAN")
+        let lanScreenshot = XCTAttachment(screenshot: app.screenshot())
+        lanScreenshot.name = "event-image-preview-lan-clean-edge"
+        lanScreenshot.lifetime = .keepAlways
+        add(lanScreenshot)
+        app.swipeLeft()
+        let arcadePreview = app.images["event-image-preview-full-arcade"]
+        XCTAssertTrue(arcadePreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(arcadePreview.isHittable)
+        let arcadePreviewName = app.staticTexts["event-image-preview-name-arcade"]
+        XCTAssertTrue(arcadePreviewName.waitForExistence(timeout: 5))
+        XCTAssertEqual(arcadePreviewName.label, "Arcade")
+        let arcadeScreenshot = XCTAttachment(screenshot: app.screenshot())
+        arcadeScreenshot.name = "event-image-preview-arcade-clean-edge"
+        arcadeScreenshot.lifetime = .keepAlways
+        add(arcadeScreenshot)
+        app.swipeLeft()
+        let beachPreview = app.images["event-image-preview-full-beach"]
+        XCTAssertTrue(beachPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(beachPreview.isHittable)
+        let beachPreviewName = app.staticTexts["event-image-preview-name-beach"]
+        XCTAssertTrue(beachPreviewName.waitForExistence(timeout: 5))
+        XCTAssertEqual(beachPreviewName.label, "Beach")
+        let beachScreenshot = XCTAttachment(screenshot: app.screenshot())
+        beachScreenshot.name = "event-image-preview-beach-clean-edge"
+        beachScreenshot.lifetime = .keepAlways
+        add(beachScreenshot)
+        app.swipeLeft()
         let otherPreview = app.images["event-image-preview-full-other"]
         XCTAssertTrue(otherPreview.waitForExistence(timeout: 5))
         XCTAssertTrue(otherPreview.isHittable)
+        app.swipeLeft()
+        XCTAssertTrue(otherPreview.isHittable, "Other must remain the final page")
         app.swipeRight()
-        XCTAssertTrue(skiingPreview.waitForExistence(timeout: 5))
-        XCTAssertTrue(skiingPreview.isHittable)
-        let skiingPreviewName = app.staticTexts["event-image-preview-name-skiing"]
-        XCTAssertTrue(skiingPreviewName.waitForExistence(timeout: 5))
-        XCTAssertEqual(skiingPreviewName.label, "Skiing")
+        XCTAssertTrue(beachPreview.waitForExistence(timeout: 5))
+        XCTAssertTrue(beachPreview.isHittable)
         let previewDone = app.buttons["event-image-preview-done"]
         XCTAssertTrue(previewDone.waitForExistence(timeout: 5))
         XCTAssertEqual(previewDone.label, "Done")
@@ -145,80 +234,86 @@ final class HerdHostUITests: XCTestCase {
         add(previewScreenshot)
         previewDone.tap()
 
-        let skiing = app.buttons["event-image-skiing"]
-        XCTAssertTrue(skiing.waitForExistence(timeout: 5))
-        XCTAssertTrue(skiing.isHittable)
-        XCTAssertEqual(skiing.value as? String, "Selected")
+        let beach = app.buttons["event-image-beach"]
+        XCTAssertTrue(beach.waitForExistence(timeout: 5))
+        XCTAssertTrue(beach.isHittable)
+        XCTAssertEqual(beach.value as? String, "Selected")
 
         app.buttons["event-primary-action"].tap()
-        let cardImage = app.images["event-card-image-skiing"]
+        let cardImage = app.images["event-card-image-beach"]
         XCTAssertTrue(cardImage.waitForExistence(timeout: 10))
 
         app.staticTexts["Untitled event"].tap()
         XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
-        let reopenedSkiing = app.buttons["event-image-skiing"]
-        XCTAssertTrue(reopenedSkiing.waitForExistence(timeout: 5))
-        XCTAssertTrue(reopenedSkiing.isHittable)
-        XCTAssertEqual(reopenedSkiing.value as? String, "Selected")
+        let reopenedBeach = app.buttons["event-image-beach"]
+        XCTAssertTrue(reopenedBeach.waitForExistence(timeout: 5))
+        XCTAssertTrue(reopenedBeach.isHittable)
+        XCTAssertEqual(reopenedBeach.value as? String, "Selected")
     }
 
-    func testContactPickerAddsManualRecipientAndGroupsFilteredSelections() {
-        let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
-
+    func testDeniedContactsManualInvitesRequireConsent() {
+        let app = launch(scenario: "host-create", additionalArguments: ["--open-create", "--contacts-status", "denied"])
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
         let attendees = app.buttons["event-attendees"]
         scrollToMakeHittable(attendees, in: app)
         attendees.tap()
-
-        let manualAdd = app.buttons["manually-add-recipient"]
-        XCTAssertTrue(manualAdd.waitForExistence(timeout: 5))
-        manualAdd.tap()
-
-        let name = app.textFields["manual-recipient-name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Contact access is off"].waitForExistence(timeout: 5))
+        app.buttons["Add attendees manually"].tap()
+        XCTAssertTrue(app.navigationBars["Review invites"].waitForExistence(timeout: 5))
+        let name = app.textFields["Name"].firstMatch
+        name.tap()
         name.typeText("Manual Guest")
-
-        let phone = app.textFields["manual-recipient-phone"]
+        let phone = app.textFields["Phone number"].firstMatch
         phone.tap()
         for digit in "4155550199" {
             phone.typeText(String(digit))
         }
-
-        let save = app.buttons["save-manual-recipient"]
+        let save = app.buttons["save-invitees"]
         XCTAssertTrue(save.isEnabled)
         save.tap()
-
-        XCTAssertTrue(app.staticTexts["Manual Guest"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["contact-section-selected"].exists)
-        XCTAssertTrue(app.staticTexts["contact-section-contacts"].exists)
-
-        let search = app.textFields["Search contacts"]
-        search.tap()
-        search.typeText("Manual")
-
-        XCTAssertTrue(app.staticTexts["Manual Guest"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["contact-section-selected"].exists)
-        XCTAssertFalse(app.staticTexts["contact-section-contacts"].exists)
-
-        let clearSearch = app.buttons["clear-contact-search"]
-        XCTAssertTrue(clearSearch.waitForExistence(timeout: 5))
-        clearSearch.tap()
-        XCTAssertFalse(clearSearch.exists)
-        XCTAssertTrue(app.staticTexts["contact-section-selected"].exists)
-        XCTAssertTrue(app.staticTexts["contact-section-contacts"].exists)
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
-        XCTAssertFalse(app.buttons["Dismiss keyboard"].exists)
-
-        let keyboardReturn = app.keyboards.buttons["return"]
-        XCTAssertTrue(keyboardReturn.waitForExistence(timeout: 5))
-        keyboardReturn.tap()
-        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
-
-        app.navigationBars.buttons["Next"].tap()
+        let consent = app.alerts["Save attendees to Herd?"]
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        XCTAssertTrue(consent.staticTexts.matching(NSPredicate(format: "label == %@", "These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft.")).firstMatch.exists)
+        XCTAssertFalse(consent.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "address book")).firstMatch.exists)
+        consent.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Review invites"].exists)
+        XCTAssertEqual(name.value as? String, "Manual Guest")
+        save.tap()
+        consent.buttons["Agree and save"].tap()
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        scrollToMakeHittable(attendees, in: app)
+        attendees.tap()
         XCTAssertTrue(app.navigationBars["Review invites"].waitForExistence(timeout: 5))
-        let reviewedName = app.textFields["Name"]
-        XCTAssertTrue(reviewedName.waitForExistence(timeout: 5))
-        XCTAssertEqual(reviewedName.value as? String, "Manual Guest")
+        XCTAssertEqual(app.textFields["Name"].firstMatch.value as? String, "Manual Guest")
+        app.buttons["add-another-attendee"].tap()
+        XCTAssertEqual(app.textFields.matching(identifier: "Name").count, 2)
+        XCTAssertFalse(app.buttons["save-invitees"].isEnabled)
+    }
+
+    func testContactsPrimerContinuesToDeniedFallback() {
+        let app = launch(scenario: "host-create", additionalArguments: ["--open-create", "--contacts-status", "notDetermined", "--contacts-response", "denied"])
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+        let attendees = app.buttons["event-attendees"]
+        scrollToMakeHittable(attendees, in: app)
+        attendees.tap()
+        XCTAssertTrue(app.staticTexts["Choose from your contacts"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Allow contact access"].exists)
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.buttons["Add attendees manually"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Open Settings"].exists)
+    }
+
+    func testRestrictedContactsOffersManualEntryWithoutSettings() {
+        let app = launch(scenario: "host-create", additionalArguments: ["--open-create", "--contacts-status", "restricted"])
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+        let attendees = app.buttons["event-attendees"]
+        scrollToMakeHittable(attendees, in: app)
+        attendees.tap()
+        XCTAssertTrue(app.staticTexts["Contact access is restricted"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Open Settings"].exists)
+        app.buttons["Add attendees manually"].tap()
+        XCTAssertTrue(app.buttons["add-another-attendee"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["contacts-settings-hint"].exists)
     }
 
     func testNewEventShowsSaturdayAndDeadlineTogetherInDetails() {
@@ -345,6 +440,13 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertLessThan(logOut.frame.width, save.frame.width / 2)
         XCTAssertLessThan(logOut.frame.maxY, save.frame.minY)
 
+        let diagnostics = app.buttons["profile-account-diagnostics"]
+        XCTAssertTrue(diagnostics.exists)
+        diagnostics.tap()
+        XCTAssertTrue(app.navigationBars["Account diagnostics"].waitForExistence(timeout: 5))
+        app.navigationBars["Account diagnostics"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["profile-save-changes"].waitForExistence(timeout: 5))
+
         let moreActions = app.buttons["profile-more-actions"]
         XCTAssertTrue(moreActions.exists)
         moreActions.tap()
@@ -404,7 +506,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.buttons["profile-save-changes"].isEnabled)
     }
 
-    func testHostSavesReopensAndDeletesExistingDraft() {
+    func testSavedDraftClosesCleanlyAndOnlyWarnsAboutUnsavedChanges() {
         let app = launch(scenario: "host-edit")
 
         let draftTitle = app.staticTexts["Fixture Draft"]
@@ -422,26 +524,55 @@ final class HerdHostUITests: XCTestCase {
         app.staticTexts["Edited Fixture Draft"].tap()
         XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
         app.buttons["event-close"].tap()
+        XCTAssertTrue(app.staticTexts["Herd events"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Edited Fixture Draft"].exists)
+        XCTAssertFalse(app.alerts["Delete this draft?"].exists)
 
-        let deletion = app.alerts["Delete this draft?"]
-        XCTAssertTrue(deletion.waitForExistence(timeout: 5))
-        XCTAssertTrue(
-            deletion.staticTexts["This permanently deletes the draft. This can’t be undone."].exists
-        )
-        deletion.buttons["Cancel"].tap()
+        app.staticTexts["Edited Fixture Draft"].tap()
+        XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
+        let titleField = app.descendants(matching: .any)["event-title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        replaceText(in: titleField, with: "Unsaved draft title")
+        app.buttons["event-keyboard-done"].tap()
+        app.buttons["event-close"].tap()
+
+        let discard = app.alerts["Discard unsaved changes?"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        XCTAssertTrue(discard.staticTexts["Your saved draft will stay unchanged."].exists)
+        discard.buttons["Keep editing"].tap()
         XCTAssertTrue(app.navigationBars["Edit event"].waitForExistence(timeout: 5))
 
         app.buttons["event-close"].tap()
-        XCTAssertTrue(deletion.waitForExistence(timeout: 5))
-        deletion.buttons.matching(identifier: "confirm-delete-draft").firstMatch.tap()
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.buttons.matching(identifier: "confirm-discard-draft-changes").firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Herd events"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.staticTexts["Edited Fixture Draft"].exists)
+        XCTAssertTrue(app.staticTexts["Edited Fixture Draft"].exists)
+        XCTAssertFalse(app.staticTexts["Unsaved draft title"].exists)
     }
 
-    func testUnsavedDraftRequiresConfirmationBeforeAbandoning() {
+    func testUntouchedNewEventClosesWithoutAbandonmentConfirmation() {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create"])
 
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
+        app.buttons["event-close"].tap()
+
+        XCTAssertTrue(app.staticTexts["Herd events"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.alerts["Abandon this draft?"].exists)
+    }
+
+    func testChangedNewEventRequiresConfirmationBeforeAbandoning() {
+        let app = launch(scenario: "host-create")
+
+        let createCard = app.buttons["create-event-card"]
+        XCTAssertTrue(createCard.waitForExistence(timeout: 10))
+        createCard.tap()
+
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        let titleField = app.descendants(matching: .any)["event-title"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
+        titleField.tap()
+        titleField.typeText("Changed draft")
+        app.buttons["event-keyboard-done"].tap()
         app.buttons["event-close"].tap()
 
         let abandonment = app.alerts["Abandon this draft?"]
@@ -568,13 +699,19 @@ final class HerdHostUITests: XCTestCase {
 
         let eventCard = app.buttons["event-card-\(eventID)"]
         let createCard = app.buttons["create-event-card"]
+        let createButton = app.buttons["events-create"]
         let cardImage = app.images["event-card-image-poker"].firstMatch
         XCTAssertTrue(eventCard.exists)
-        XCTAssertTrue(createCard.exists)
+        XCTAssertFalse(createCard.exists)
+        XCTAssertTrue(createButton.exists)
         XCTAssertTrue(cardImage.exists)
         XCTAssertGreaterThanOrEqual(cardImage.frame.width, 140)
-        XCTAssertGreaterThanOrEqual(eventCard.frame.height, 226)
-        XCTAssertEqual(eventCard.frame.height, createCard.frame.height, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(eventCard.frame.height, 224)
+        XCTAssertLessThanOrEqual(eventCard.frame.height, 226)
+        XCTAssertGreaterThan(status.frame.minY, cardImage.frame.minY + 3)
+        XCTAssertLessThan(date.frame.maxY, cardImage.frame.maxY)
+        XCTAssertFalse(app.staticTexts["Your invites"].exists)
+        XCTAssertFalse(app.staticTexts["Your hosted events"].exists)
     }
 
     func testInvitationSignInUsesStandardSplashAndShowsInviteOnHome() {
@@ -757,6 +894,26 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Not responded"].exists)
     }
 
+    func testInvitedAndRespondedMetricsOpenAttendees() {
+        let app = launch(scenario: "response-progress-refresh")
+
+        let event = app.staticTexts["Response Refresh Fixture"]
+        XCTAssertTrue(event.waitForExistence(timeout: 10))
+        event.tap()
+
+        let invitedMetric = app.buttons["invitation-metric-invited"]
+        XCTAssertTrue(invitedMetric.waitForExistence(timeout: 5))
+        invitedMetric.tap()
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        app.navigationBars["Attendees"].buttons.firstMatch.tap()
+
+        let outcomeMetric = app.buttons["invitation-metric-outcome"]
+        XCTAssertTrue(outcomeMetric.waitForExistence(timeout: 5))
+        XCTAssertTrue(outcomeMetric.label.contains("responded"))
+        outcomeMetric.tap()
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+    }
+
     func testPrivacyProofKeepsSpacingWithoutTheEssentialsLabelAndCentersBoundaryIcon() {
         let app = launch(scenario: "response-progress-refresh")
 
@@ -771,7 +928,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["How privacy works"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["The essentials"].exists)
         XCTAssertTrue(app.staticTexts["privacy-answers-title"].exists)
-        XCTAssertTrue(
+        XCTAssertFalse(
             app.descendants(matching: .any)["privacy-navigation-divider"].exists
         )
 
@@ -781,7 +938,16 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(label.waitForExistence(timeout: 2))
         XCTAssertLessThan(abs(icon.frame.midY - label.frame.midY), 2)
 
+        let atTop = XCTAttachment(screenshot: app.screenshot())
+        atTop.name = "privacy-proof-no-divider-at-top"
+        atTop.lifetime = .keepAlways
+        add(atTop)
+
         let privacyScroll = app.scrollViews.firstMatch
+        let dragStart = privacyScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        dragStart.press(forDuration: 0.1, thenDragTo: dragStart.withOffset(CGVector(dx: 0, dy: -35)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertTrue(app.descendants(matching: .any)["privacy-navigation-divider"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.navigationBars["How privacy works"].exists)
         privacyScroll.swipeUp()
         privacyScroll.swipeUp()
         XCTAssertTrue(app.navigationBars["How privacy works"].waitForExistence(timeout: 5))
@@ -793,6 +959,12 @@ final class HerdHostUITests: XCTestCase {
         screenshot.name = "privacy-proof-collapsed-navigation"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+
+        privacyScroll.swipeDown()
+        privacyScroll.swipeDown()
+        privacyScroll.swipeDown()
+        XCTAssertTrue(app.staticTexts["How privacy works"].isHittable)
+        XCTAssertFalse(app.descendants(matching: .any)["privacy-navigation-divider"].exists)
     }
 
     func testConfirmedAttendeeStatusesStayInsideTheirRows() {
@@ -937,9 +1109,21 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Download Herd"].exists)
         XCTAssertTrue(app.buttons["full-app-download"].exists)
         XCTAssertFalse(app.navigationBars["New event"].exists)
+        let content = app.otherElements["full-app-handoff-content"]
+        XCTAssertLessThan(content.frame.midY, app.frame.height * 0.40)
+        XCTAssertFalse(app.descendants(matching: .any)["app-store-download-hint"].exists)
+        let contentPosition = content.frame.midY
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "handoff-upper-third"
+        before.lifetime = .keepAlways
+        add(before)
+
+        app.buttons["full-app-download"].tap()
+        assertDownloadHint(in: app, screenshotName: "handoff-download-hint")
+        XCTAssertEqual(content.frame.midY, contentPosition, accuracy: 2)
     }
 
-    func testAppClipResponseSuccessOffersOnlyGetHerd() {
+    func testAppClipResponseSuccessOffersOnlyDownloadHerd() {
         let app = launchClip(
             scenario: "invitee-home",
             additionalArguments: ["--open-response-success"]
@@ -955,9 +1139,46 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Thanks for responding"].waitForExistence(timeout: 10))
         let getHerd = app.buttons["success-download-herd"]
         XCTAssertTrue(getHerd.waitForExistence(timeout: 5))
-        XCTAssertEqual(getHerd.label, "Get Herd")
+        XCTAssertEqual(getHerd.label, "Download Herd")
         XCTAssertFalse(app.buttons["success-view-invitation"].exists)
         XCTAssertFalse(app.buttons["success-back-to-events"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["app-store-download-hint"].exists)
+        getHerd.tap()
+        assertDownloadHint(in: app, screenshotName: "response-download-hint")
+        XCTAssertFalse(app.buttons["success-view-invitation"].exists)
+        XCTAssertFalse(app.buttons["success-back-to-events"].exists)
+    }
+
+    func testAppClipDownloadHintSupportsLargeText() {
+        let app = launchClip(
+            scenario: "host-create",
+            additionalArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityM"]
+        )
+        let hostAction = app.buttons["create-event-card"]
+        XCTAssertTrue(hostAction.waitForExistence(timeout: 10))
+        hostAction.tap()
+        let download = app.buttons["full-app-download"]
+        XCTAssertTrue(download.waitForExistence(timeout: 5))
+        download.tap()
+        assertDownloadHint(in: app, screenshotName: "handoff-download-hint-large-text")
+        let hint = app.descendants(matching: .any)["app-store-download-hint"]
+        XCTAssertGreaterThan(hint.frame.minY, app.navigationBars["Host an event"].frame.maxY)
+    }
+
+    private func assertDownloadHint(in app: XCUIApplication, screenshotName: String) {
+        let hint = app.descendants(matching: .any)["app-store-download-hint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 5))
+        XCTAssertEqual(hint.label, "Once downloaded, tap Open to continue")
+        XCTAssertLessThan(hint.frame.maxY, app.frame.height - 140)
+        let animationFinished = expectation(description: "Handwriting animation finishes")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
+            animationFinished.fulfill()
+        }
+        wait(for: [animationFinished], timeout: 3)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = screenshotName
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     private func launch(

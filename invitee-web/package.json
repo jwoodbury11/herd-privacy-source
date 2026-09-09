@@ -12,6 +12,7 @@
     "test:browser-harness": "node scripts/browser-acceptance-harness.mjs",
     "test:browser-ui": "playwright test --config playwright.config.mjs",
     "qa:event-images": "node scripts/verify-event-image-edges.mjs",
+    "fix:event-image-edges": "node scripts/decontaminate-event-image-edges.mjs",
     "test": "npm run build && node scripts/run-current-tests.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
@@ -20,7 +21,7 @@
     "@peculiar/x509": "2.0.0",
     "drizzle-orm": "0.45.2",
     "lucide-react": "^1.25.0",
-    "next": "16.2.12",
+    "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "reflect-metadata": "0.2.2"
@@ -36,7 +37,7 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.12",
+    "eslint-config-next": "16.3.4",
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
@@ -50,7 +51,7 @@
     },
     "nanoid": "3.3.18",
     "postcss": "8.5.25",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "undici": "7.29.0"
   },
   "type": "module"

@@ -505,7 +505,7 @@ test("a host event appears for every invited test account after invitations are 
     requiredGroups: [],
     rsvpDeadline: new Date(Date.now() + 12 * 86_400_000).toISOString(),
     eventDescription: "Verifies host-to-invitee backend synchronization.",
-    eventImageID: "skiing",
+    eventImageID: "beach",
     createdAt: new Date().toISOString(),
     invitationsSent: false,
   };
@@ -516,13 +516,13 @@ test("a host event appears for every invited test account after invitations are 
     authorizedJsonRequest("PUT", event, sessions.get("1")),
   );
   assert.equal(draftResponse.status, 200);
-  assert.equal((await draftResponse.json()).event.eventImageID, "skiing");
+  assert.equal((await draftResponse.json()).event.eventImageID, "beach");
   assert.equal(
     await database
       .prepare("SELECT event_image_id AS eventImageID FROM events WHERE id = ?")
       .bind(eventId)
       .first("eventImageID"),
-    "skiing",
+    "beach",
   );
 
   const hostDraftEvents = await api(miniflare, "/api/events", {
@@ -530,7 +530,7 @@ test("a host event appears for every invited test account after invitations are 
   });
   const hostDraftEvent = (await hostDraftEvents.json()).events[0];
   assert.equal(hostDraftEvent.role, "host");
-  assert.equal(hostDraftEvent.eventImageID, "skiing");
+  assert.equal(hostDraftEvent.eventImageID, "beach");
   for (const digit of ["2", "3", "4", "5", "6", "7", "8", "9"]) {
     const hiddenDraftResponse = await api(miniflare, "/api/events", {
       headers: { authorization: `Bearer ${sessions.get(digit)}` },
@@ -559,7 +559,7 @@ test("a host event appears for every invited test account after invitations are 
     const invitedEvents = (await invitedEventsResponse.json()).events;
     const invitedEvent = invitedEvents.find((candidate) => candidate.id === eventId);
     assert.equal(invitedEvent.role, "invitee");
-    assert.equal(invitedEvent.eventImageID, "skiing");
+    assert.equal(invitedEvent.eventImageID, "beach");
     assert.equal(invitedEvent.invitees.filter((invitee) => invitee.isCurrentUser).length, 1);
     assert.ok(invitedEvent.inviteToken);
     invitedEventsByDigit.set(digit, invitedEvent);

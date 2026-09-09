@@ -1,5 +1,4 @@
 import SwiftUI
-import StoreKit
 import UIKit
 
 struct HomeView: View {
@@ -7,7 +6,7 @@ struct HomeView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var presentation: Presentation?
-    @State private var pastEventsExpanded = false
+    @State private var pastEventsExpanded = HerdExperience.shared.home.pastEventsInitiallyExpanded
     @State private var unconfirmedEventsExpanded = false
     private let experience = HerdExperience.shared.home
     private static let maximumDeadlineSleepInterval: TimeInterval = 31_536_000
@@ -69,17 +68,11 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity, minHeight: 160)
                             .wireframeCard()
                     } else {
-                        if !invitedEvents.isEmpty {
-                            eventSection(
-                                title: experience.invitesSectionTitle,
-                                events: invitedEvents
-                            )
+                        if store.events.isEmpty {
+                            emptyEventsState
+                        } else if !currentEvents.isEmpty {
+                            eventSection(events: currentEvents)
                         }
-                        eventSection(
-                            title: experience.hostedSectionTitle,
-                            events: hostedEvents,
-                            showsCreateAction: true
-                        )
                         if !pastEvents.isEmpty {
                             collapsibleEventSection(
                                 title: experience.pastSectionTitle,
@@ -256,12 +249,11 @@ struct HomeView: View {
         )
     }
 
-    private var invitedEvents: [HerdEvent] {
-        events(in: .invites)
-    }
-
-    private var hostedEvents: [HerdEvent] {
-        events(in: .hosted)
+    private var currentEvents: [HerdEvent] {
+        store.events.filter {
+            let section = $0.homeSection()
+            return section == .invites || section == .hosted
+        }
     }
 
     private var unconfirmedEvents: [HerdEvent] {
@@ -276,31 +268,44 @@ struct HomeView: View {
         store.events.filter { $0.homeSection() == section }
     }
 
-    private func eventSection(
-        title: String?,
-        events: [HerdEvent],
-        showsCreateAction: Bool = false
-    ) -> some View {
+    private func eventSection(events: [HerdEvent]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let title {
-                Text(title)
-                    .font(.headline)
-                    .padding(.horizontal, 4)
-            }
-
             ForEach(events) { event in
                 eventButton(for: event)
             }
+        }
+    }
 
-            if showsCreateAction {
-                CreateEventCard(experience: experience) {
-                    if HerdRuntime.isAppClip {
-                        presentation = .fullApp
-                    } else {
-                        presentation = .create(.newDraft(hostName: profileName))
-                    }
-                }
+    private var emptyEventsState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(.secondary)
+
+            Text("No upcoming events")
+                .font(.headline)
+
+            Button(experience.createEventTitle) {
+                beginHosting()
             }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 44)
+            .background(.white, in: .capsule)
+            .buttonStyle(PlainPressButtonStyle())
+            .accessibilityIdentifier("create-event-card")
+        }
+        .frame(maxWidth: .infinity, minHeight: 340, alignment: .center)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("events-empty-state")
+    }
+
+    private func beginHosting() {
+        if HerdRuntime.isAppClip {
+            presentation = .fullApp
+        } else {
+            presentation = .create(.newDraft(hostName: profileName))
         }
     }
 
@@ -371,10 +376,10 @@ struct HomeView: View {
 
             Spacer()
 
-            NavigationLink {
-                AccountStatusView()
+            Button {
+                beginHosting()
             } label: {
-                Image(systemName: "waveform.path.ecg")
+                Image(systemName: "plus")
                     .font(.system(size: 18, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(
@@ -388,8 +393,8 @@ struct HomeView: View {
                     }
             }
             .buttonStyle(PlainPressButtonStyle())
-            .accessibilityLabel("Account status")
-            .accessibilityIdentifier("events-status")
+            .accessibilityLabel(experience.createEventTitle)
+            .accessibilityIdentifier("events-create")
 
             NavigationLink {
                 ProfileView()
@@ -491,113 +496,88 @@ private struct SyncMessageCard: View {
     }
 }
 
-private struct CreateEventCard: View {
-    let experience: HerdExperience.Home
-    let action: () -> Void
-
-    var body: some View {
-        let cardPadding = CGFloat(experience.layout.cardPadding)
-        let cardMinimumHeight = CGFloat(experience.layout.cardMinimumHeight)
-
-        Button(action: action) {
-            VStack(spacing: 12) {
-                Image(systemName: "plus")
-                    .font(.title2.weight(.medium))
-                Text(experience.createEventTitle)
-                    .font(.headline)
-            }
-            .frame(height: max(0, cardMinimumHeight - (cardPadding * 2)))
-            .frame(maxWidth: .infinity)
-            .padding(cardPadding)
-            .overlay {
-                RoundedRectangle(cornerRadius: CGFloat(experience.layout.cardCornerRadius))
-                    .strokeBorder(
-                        Color.secondary.opacity(0.65),
-                        style: StrokeStyle(lineWidth: 1.25, dash: [7, 5])
-                    )
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainPressButtonStyle())
-        .accessibilityIdentifier("create-event-card")
-        .accessibilityHint(
-            HerdRuntime.isAppClip
-                ? "Opens the full app download"
-                : "Opens the event creation form"
-        )
-    }
-}
-
 private struct FullAppHandoffView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showsAppStoreOverlay = false
     private let experience = HerdExperience.shared.home.webCreateEventHandoff
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                VStack(spacing: 24) {
-                    ZStack {
-                        Circle()
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                            .frame(width: 150, height: 150)
-                        Circle()
-                            .stroke(HerdTheme.subtleBorder, lineWidth: 1)
-                            .frame(width: 104, height: 104)
-                        Image(systemName: "iphone.gen3")
-                            .font(.system(size: 46, weight: .regular))
-                        Image(systemName: "person.crop.circle.badge.plus")
-                            .font(.system(size: 26, weight: .medium))
-                            .padding(8)
-                            .background(HerdTheme.raisedSurface, in: .circle)
-                            .offset(x: 42, y: 42)
+        GeometryReader { geometry in
+            NavigationStack {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        handoffContent
+                            .padding(.horizontal, 30)
+                            .padding(.top, max(24, geometry.size.height * 0.25 - 160))
+                            .padding(.bottom, 24)
                     }
 
-                    VStack(spacing: 10) {
-                        Text(experience.heading)
-                            .font(.largeTitle.weight(.bold))
-                            .multilineTextAlignment(.center)
-                        Text(experience.body)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                    if !showsAppStoreOverlay {
+                        Button {
+                            showsAppStoreOverlay = true
+                        } label: {
+                            Text(experience.downloadButton)
+                                .font(.headline)
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(.white, in: .rect(cornerRadius: 14))
+                        }
+                        .buttonStyle(PlainPressButtonStyle())
+                        .accessibilityIdentifier("full-app-download")
+                        .padding(20)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 30)
+                .background(HerdTheme.canvas)
+                .navigationTitle(HerdExperience.shared.home.createEventTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .accessibilityLabel(experience.backButton)
+                    }
+                }
+            }
+            .herdAppStoreOverlay(isPresented: $showsAppStoreOverlay)
+        }
+    }
 
-                Button {
-                    showsAppStoreOverlay = true
-                } label: {
-                    Text(experience.downloadButton)
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(.white, in: .rect(cornerRadius: 14))
-                }
-                .buttonStyle(PlainPressButtonStyle())
-                .accessibilityIdentifier("full-app-download")
-                .padding(20)
+    private var handoffContent: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    .frame(width: 150, height: 150)
+                Circle()
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+                    .frame(width: 104, height: 104)
+                Image(systemName: "iphone.gen3")
+                    .font(.system(size: 46, weight: .regular))
+                Image(systemName: "person.crop.circle.badge.plus")
+                    .font(.system(size: 26, weight: .medium))
+                    .padding(8)
+                    .background(HerdTheme.raisedSurface, in: .circle)
+                    .offset(x: 42, y: 42)
             }
-            .background(HerdTheme.canvas)
-            .navigationTitle(HerdExperience.shared.home.createEventTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .accessibilityLabel(experience.backButton)
-                }
+
+            VStack(spacing: 10) {
+                Text(experience.heading)
+                    .font(.largeTitle.weight(.bold))
+                    .multilineTextAlignment(.center)
+                Text(experience.body)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
-        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
-            SKOverlay.AppClipConfiguration(position: .bottom)
-        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("full-app-handoff-content")
     }
 }
 
@@ -641,7 +621,7 @@ private struct AccountStatusView: View {
             .padding(.bottom, 28)
         }
         .background(HerdTheme.canvas)
-        .navigationTitle("Account status")
+        .navigationTitle("Account diagnostics")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
         .toolbar {
@@ -952,6 +932,7 @@ private struct ProfileView: View {
                         .stroke(HerdTheme.subtleBorder, lineWidth: 1)
                 }
 
+                profileDiagnosticsLink
                 profileAccountActions
 
                 if let errorMessage = authStore.errorMessage {
@@ -1246,6 +1227,45 @@ private struct ProfileView: View {
         .padding(.horizontal, 4)
     }
 
+    private var profileDiagnosticsLink: some View {
+        NavigationLink {
+            AccountStatusView()
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(HerdTheme.raisedSurface, in: .circle)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Account diagnostics")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Check account access, event sync, and private replies")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(HerdTheme.surface, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(HerdTheme.subtleBorder, lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainPressButtonStyle())
+        .accessibilityIdentifier("profile-account-diagnostics")
+    }
+
     private var profileHasChanges: Bool {
         guard let user = authStore.user else { return false }
         return name.trimmingCharacters(in: .whitespacesAndNewlines) !=
@@ -1398,7 +1418,7 @@ private struct EventCard: View {
         let cardPadding = CGFloat(experience.layout.cardPadding)
         let cardMinimumHeight = CGFloat(experience.layout.cardMinimumHeight)
 
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(statusLabel)
@@ -1428,6 +1448,7 @@ private struct EventCard: View {
                         .accessibilityIdentifier("event-card-date-\(event.id.uuidString)")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
 
                 EventSceneImage(
                     id: event.resolvedEventImageID,
@@ -2041,9 +2062,11 @@ private struct InvitationDetailView: View {
                 .padding(.top, 16)
 
             HStack(spacing: 0) {
-                InvitationMetric(
+                attendeeMetricLink(
                     value: "\(event.participantCount)",
                     label: invitationExperience.metrics.invited,
+                    eventID: event.id,
+                    accessibilityIdentifier: "invitation-metric-invited",
                     leadingInset: 0
                 )
 
@@ -2063,11 +2086,22 @@ private struct InvitationDetailView: View {
                         for: event,
                         at: context.date
                     )
-                    InvitationMetric(
-                        value: outcomeMetric.value,
-                        label: outcomeMetric.label,
-                        trailingInset: 0
-                    )
+                    if outcomeMetric.label == "responded" ||
+                        outcomeMetric.label == invitationExperience.metrics.attending {
+                        attendeeMetricLink(
+                            value: outcomeMetric.value,
+                            label: outcomeMetric.label,
+                            eventID: event.id,
+                            accessibilityIdentifier: "invitation-metric-outcome",
+                            trailingInset: 0
+                        )
+                    } else {
+                        InvitationMetric(
+                            value: outcomeMetric.value,
+                            label: outcomeMetric.label,
+                            trailingInset: 0
+                        )
+                    }
                 }
             }
             .padding(.top, 16)
@@ -2097,6 +2131,31 @@ private struct InvitationDetailView: View {
             }
             return responseCountdown(for: event, at: now)
         }
+    }
+
+    private func attendeeMetricLink(
+        value: String,
+        label: String,
+        eventID: UUID,
+        accessibilityIdentifier: String,
+        leadingInset: CGFloat = 10,
+        trailingInset: CGFloat = 10
+    ) -> some View {
+        NavigationLink {
+            InvitationAttendees(eventID: eventID)
+        } label: {
+            InvitationMetric(
+                value: value,
+                label: label,
+                leadingInset: leadingInset,
+                trailingInset: trailingInset
+            )
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(value) \(label), view attendees")
+        .accessibilityHint("Opens the attendee list")
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private func invitationLocationSummary(for event: HerdEvent) -> String {
@@ -2284,10 +2343,7 @@ private struct InvitationDetailView: View {
                             }
                         }
                     } label: {
-                        primaryReplyActionLabel(
-                            title: replyExperience.unlockButton,
-                            systemImage: "faceid"
-                        )
+                        primaryReplyActionLabel(title: replyExperience.unlockButton)
                     }
                     .buttonStyle(PlainPressButtonStyle())
                     .disabled(store.isMutating)
@@ -3590,6 +3646,11 @@ private struct InvitationPrivacyProof: View {
     private let experience = HerdExperience.shared.privacy
     @State private var expandedSectionID: String? = HerdExperience.shared.privacy.sections.first?.id
     @State private var showsCollapsedTitle = false
+    @State private var showsNavigationDivider = false
+    @ScaledMetric(relativeTo: .largeTitle) private var titleLetteringInset =
+        UIFont.systemFont(ofSize: 34, weight: .bold).ascender
+        - UIFont.systemFont(ofSize: 34, weight: .bold).capHeight
+    private let contentTopPadding: CGFloat = 14
 
     var body: some View {
         ScrollView {
@@ -3664,8 +3725,14 @@ private struct InvitationPrivacyProof: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 14)
+            .padding(.top, contentTopPadding)
             .padding(.bottom, 36)
+        }
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            // Wait until the H reaches the header, including the font's space above its capitals.
+            geometry.contentOffset.y + geometry.contentInsets.top >= contentTopPadding + titleLetteringInset
+        } action: { _, overlapsHeader in
+            showsNavigationDivider = overlapsHeader
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
             geometry.contentOffset.y + geometry.contentInsets.top > 55
@@ -3674,13 +3741,15 @@ private struct InvitationPrivacyProof: View {
         }
         .background(HerdTheme.canvas)
         .overlay(alignment: .top) {
-            Divider()
-                .accessibilityIdentifier("privacy-navigation-divider")
+            if showsNavigationDivider {
+                Divider()
+                    .accessibilityIdentifier("privacy-navigation-divider")
+            }
         }
         .navigationTitle(showsCollapsedTitle ? experience.navigationTitle : "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(HerdTheme.canvas, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(showsNavigationDivider ? .visible : .hidden, for: .navigationBar)
     }
 
     private func eyebrow(_ text: String) -> some View {
@@ -3764,10 +3833,10 @@ private struct PrivacyDisclosureSection: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
-                        .font(.subheadline.weight(index == 0 ? .medium : .regular))
-                        .foregroundStyle(index == 0 ? .primary : .secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
                 if section.showsVerificationLinks {
@@ -3887,7 +3956,7 @@ private struct InvitationResponseSuccess: View {
             }
 
             VStack(spacing: 12) {
-                if HerdRuntime.isAppClip {
+                if HerdRuntime.isAppClip && !showsAppStoreOverlay {
                     Button {
                         showsAppStoreOverlay = true
                     } label: {
@@ -3901,7 +3970,7 @@ private struct InvitationResponseSuccess: View {
                     }
                     .buttonStyle(PlainPressButtonStyle())
                     .accessibilityIdentifier("success-download-herd")
-                } else {
+                } else if !HerdRuntime.isAppClip {
                     Button(action: onViewInvitation) {
                         Text(experience.viewInvitationButton)
                             .font(.headline)
@@ -3931,13 +4000,11 @@ private struct InvitationResponseSuccess: View {
                     .accessibilityIdentifier("success-back-to-events")
                 }
             }
-            .padding(20)
+            .padding(showsAppStoreOverlay ? 0 : 20)
             .background(HerdTheme.canvas)
         }
         .background(HerdTheme.canvas)
-        .appStoreOverlay(isPresented: $showsAppStoreOverlay) {
-            SKOverlay.AppClipConfiguration(position: .bottom)
-        }
+        .herdAppStoreOverlay(isPresented: $showsAppStoreOverlay)
     }
 
 }

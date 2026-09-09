@@ -1,12 +1,14 @@
 # Cross-platform experience parity
 
-Herd has one product experience with two renderers. The web experience is the
+Herd has one product experience with three renderers: web, the downloaded
+iPhone app, and the App Clip. The web experience is the
 design, content, information-architecture, and interaction source of truth for
-every shared surface. A difference between web and iPhone must be caused by a
-real platform capability, not by independent product decisions.
+every shared surface. A difference among web, downloaded app, and App Clip must
+be caused by a real platform capability, not by independent product decisions.
 
 React and SwiftUI may use different code and native implementation patterns.
-They do not need structural code parity. They do need user-visible parity in
+The two native targets may also share SwiftUI source. None of the renderers need
+structural code parity. They do need user-visible parity in
 screen inventory, content order, copy, control meaning, validation, and
 loading, empty, error, confirmation, success, and completed states.
 
@@ -66,50 +68,62 @@ web origin and publishes the signed app identifier to the web runtime.
 The App Clip uses the native guest experience, including authentication,
 invitation detail, private replies, attendee visibility, refresh, and profile
 management. Hosting entry points lead to the full-app download handoff because
-App Clips cannot use Contacts. Its reply-success screen has one `Get Herd`
-action. It stores sessions and protected reply material in its own default
+App Clips cannot use Contacts. Its reply-success screen has one `Download Herd`
+action. Both native download entry points keep Apple's full-app card and show
+“Once downloaded, tap Open to continue” above it in bundled Gochi Hand, with a
+short handwriting reveal and downward arrow. Reduce Motion shows the complete
+note immediately. The hosting handoff content stays near the upper third of
+the page before and during the card presentation; the content can scroll on
+smaller displays. The font and its SIL Open Font License are in `HerdHost/Fonts`.
+It stores sessions and protected reply material in its own default
 Keychain; on iOS 15.4 and later the system makes those items available to the
 corresponding full app through the signed parent/App Clip association. Neither
 target declares a custom Keychain-sharing group.
 
 ## Intentional differences
 
-| Experience | iPhone | Web |
-| --- | --- | --- |
-| Full event authoring | Creates and edits drafts in the native event editor and contact picker | New events open the iPhone handoff; hosted drafts retain shared detail and bounded management actions but not the full editor |
-| Add people | Uses the system Contacts picker, with manual entry available | Uses manual entry because browsers do not provide dependable cross-browser Contacts access |
-| Address suggestions | Uses MapKit search suggestions | Uses browser address autofill; adding a third-party geocoder requires a separate privacy and provider review |
-| Protect an opened reply | May use Face ID to protect the local screen | Uses the authenticated account session because browsers cannot require Face ID consistently |
+| Experience | Downloaded iPhone app | Web | App Clip |
+| --- | --- | --- | --- |
+| Full event authoring | Creates and edits drafts in the native event editor and contact picker | New events open the iPhone handoff; hosted drafts retain shared detail and bounded management actions but not the full editor | New events open the iPhone handoff; the shared guest experience remains native |
+| Add people | Uses the system Contacts picker, with manual entry available | Uses manual entry because browsers do not provide dependable cross-browser Contacts access | Hosting entry points hand off to the downloaded app because App Clips cannot use Contacts |
+| Address suggestions | Uses MapKit search suggestions | Uses browser address autofill; adding a third-party geocoder requires a separate privacy and provider review | Not shown because full event authoring hands off to the downloaded app |
+
+Viewing a saved reply uses the authenticated account session on all three surfaces.
 
 Everything else is presumed to require parity. Add a difference to this table
 before shipping it, with the platform constraint that requires it.
 
 ## Home-screen contract
 
-Both home screens now:
+All three home screens now:
 
 - show `Herd events` without a greeting or platform-only eyebrow;
 - use profile initials in the same circular control;
-- group current events into `Your invites` and `Your hosted events`;
+- show invited and hosted current events together in one chronological list,
+  without separate `Your invites` or `Your hosted events` headings;
 - move all other events into `Past events` at local midnight after the event date;
 - move events whose reply deadline has passed without confirmation into the final
   `Events never confirmed` section, with a note that they automatically delete
   five days after the reply deadline;
-- show section headings only when more than one event group is populated;
-- label cards `Hosting` or `Invited` consistently;
-- use the same event metrics, countdown states, spacing, card radius, and create-card height;
-- show the same `Host an event` card when the list is empty or populated.
+- use the same event metrics, countdown states, spacing, and card radius;
+- put event creation in the circular plus control in the header; and
+- show a centered `No upcoming events` state with a `Host an event` action only
+  when the account has no event cards at all.
 
-The web create card routes to the iPhone handoff. Sent hosted events open the
-shared event-detail experience on both platforms. An unsent hosted draft opens
-the full editor on iPhone and the bounded hosted-draft detail on web, as recorded
-in the exception table above.
+The web and App Clip creation actions route to the downloaded-iPhone-app
+handoff. Sent hosted events open the shared event-detail experience on every
+applicable renderer. An unsent hosted draft opens the full editor in the
+downloaded app and the bounded hosted-draft detail on web, as recorded in the
+exception table above.
+
+`Account diagnostics` is a profile setting on all three renderers. It must not
+occupy a primary action in the Herd Events header.
 
 ## Shared account and invitation contract
 
 The `profile`, `invitation`, `attendees`, `reply`, `privacy`, and `success`
-sections of `HerdExperience.json` are the content contract for both renderers.
-Together they require both platforms to use the same:
+sections of `HerdExperience.json` are the content contract for all three
+renderers. Together they require every applicable renderer to use the same:
 
 - profile field order, sync/privacy note, save and logout order, and logout warning;
 - event hero, status semantics, metadata, metrics, guest-list entry, and resolution states;
@@ -119,16 +133,22 @@ Together they require both platforms to use the same:
 - unavailable-response language and account-wide saved-reply recovery; and
 - successful-response summary and return actions.
 
+On the privacy screen, the navigation divider stays hidden at rest and while
+only the space above the heading has scrolled. It appears when the top of the
+heading lettering reaches the navigation edge, and hides again on return. The
+compact navigation title still appears only after the large title has scrolled
+out of view. This applies to web, iPhone, and App Clip.
+
 Selecting a reply is local editing state. It must never show `Responded` or
 perform a network write until the explicit encrypted-reply submit action
 succeeds.
 
-For invitation details, both renderers use `invited` and `min attendees` in the
+For invitation details, all renderers use `invited` and `min attendees` in the
 metric strip, `Your encrypted reply has been sent` beside the lock, and
 `View my encrypted reply` for the primary unlock action. An unreadable local
 reply changes to the replacement action instead of repeating an unusable unlock.
-Primary reply actions share one filled treatment; platform-native Face ID and
-keyboard controls may use their native symbols while keeping equivalent meaning.
+Primary reply actions share one filled treatment. Native keyboard controls may
+use their platform symbols while keeping equivalent meaning.
 
 Existing draft hosted events expose the same `Allow attendees to add guests`
 boolean. iPhone uses the native switch and web uses an accessible `role=switch`
@@ -137,8 +157,10 @@ event, and disable mutation after invitations freeze the event policy.
 
 ## Visual regression evidence
 
-Paired reference screenshots and the screen-by-screen decision matrix live in
-`docs/parity-audit-2026-07-31/`. Capture both renderers at the same mobile
-device class and data state whenever a shared experience changes.
+Matched reference screenshots and the screen-by-screen decision matrix live in
+`docs/parity-audit-2026-07-31/`. Capture all applicable renderers at the same
+mobile device class and data state whenever a shared experience changes,
+including the App Clip whenever its shared SwiftUI experience or handoff
+behavior is affected.
 
 The latest executable audit is recorded in `docs/parity-audit-2026-08-18.md`.
