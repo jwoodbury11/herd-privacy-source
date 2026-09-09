@@ -310,6 +310,25 @@ export function assertReleaseContinuity(previous, result) {
   }
 }
 
+export function assertWitnessHistory(previous, result) {
+  const history = result.releaseHistory ?? [];
+  if (!Array.isArray(history) || history.length > 16) throw new TypeError("Invalid release history.");
+  let prior = previous;
+  if (history.length && (history[0].manifestSha256 !== previous.manifestSha256 ||
+      history[0].releaseId !== previous.releaseId ||
+      history[0].releaseCreatedAt !== previous.releaseCreatedAt)) {
+    throw new TypeError("Release history does not start at the durable witness.");
+  }
+  for (const next of [...history, result]) {
+    assertReleaseContinuity(prior, next);
+    if (next.releaseCreatedAt < prior.releaseCreatedAt ||
+        (next.releaseCreatedAt === prior.releaseCreatedAt && next.manifestSha256 !== prior.manifestSha256)) {
+      throw new TypeError("Historical release timestamp rewound or changed at the same timestamp.");
+    }
+    prior = next;
+  }
+}
+
 function validatePriorWitness(value, targetName) {
   if (value === null || value === undefined) return null;
   if (
@@ -362,9 +381,10 @@ export async function runChecks(env, store) {
         const result = await verifyTarget(target, {
           fetchImpl: sitesAuthorizedFetch(env, target),
           previousResponseTransparency: prior?.responseTransparency ?? null,
+          previousReleaseWitness: prior,
         });
         if (prior) {
-          assertReleaseContinuity(prior, result);
+          assertWitnessHistory(prior, result);
           if (result.releaseCreatedAt < prior.releaseCreatedAt) {
             throw new TypeError("release creation timestamp moved backwards; possible release rollback detected.");
           }
