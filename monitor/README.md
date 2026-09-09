@@ -23,9 +23,14 @@ witness is stored separately from the latest health status and is never erased b
 a fetch failure or failed check. `STATUS_KV` is a required independently backed
 mirror; a failed KV write makes the check red without rolling the witness back.
 The same last-good record stores the signed manifest predecessor link and the
-evaluator-key epoch fingerprint. It rejects a skipped predecessor, a changed
-image/key tuple under an existing epoch ID, an incomplete three-key epoch
-rotation, and any change to the lifetime-global response-transparency key.
+evaluator-key epoch fingerprint. When releases were missed, it follows at most 16 digest-bound continuity records
+and verifies each historical manifest with the independently pinned release key.
+The chain must reach the exact durable witness, keep timestamps increasing, and
+pass the same epoch and lifetime-global transparency-key checks at every step.
+Missing evidence, an unanchored chain, a changed stable policy/key tuple under an
+existing epoch, or an incomplete three-key rotation fails closed. This recovers
+release continuity without claiming historical deployments were healthy or
+resetting the persisted response-log witness.
 
 Each target status also includes a check duration and one bounded operational
 failure class. The class distinguishes configuration, availability, release

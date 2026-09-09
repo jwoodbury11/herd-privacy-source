@@ -1679,12 +1679,78 @@ function artifactBinding(artifact, reference, label) {
   }
 }
 
+// Recover missed releases only through digest-bound continuity evidence and
+// independently signed manifests. Historical deployments are not claimed healthy.
+export async function verifyReleaseHistory(manifest, manifestSha256, previous, target, fetchImpl = fetch) {
+  if (!previous || manifestSha256 === previous.manifestSha256 ||
+      (manifest.previousRelease?.releaseId === previous.releaseId &&
+       manifest.previousRelease?.manifestSha256 === previous.manifestSha256)) return [];
+  const history = [];
+  const seen = new Set([manifestSha256]);
+  let current = manifest;
+  for (let depth = 0; depth < 16; depth += 1) {
+    const references = current.evidence.transitions.filter(
+      (item) => item.name === "release-continuity.json" &&
+        item.mediaType === "application/vnd.herd.release-continuity.v1+json",
+    );
+    if (references.length !== 1 || !current.previousRelease) {
+      throw new TypeError("Release history does not reach the last witnessed manifest.");
+    }
+    const evidence = await fetchReference(fetchImpl, references[0], "historical release continuity", target.allowedEvidenceOrigins);
+    const continuity = parseCanonicalJson(evidence.bytes, "historical release continuity");
+    const ref = continuity.previousManifest;
+    if (continuity.schemaVersion !== 1 || !ref ||
+        ref.releaseId !== current.previousRelease.releaseId ||
+        ref.sha256 !== current.previousRelease.manifestSha256 || seen.has(ref.sha256)) {
+      throw new TypeError("Historical continuity conflicts with its signed predecessor or contains a cycle.");
+    }
+    const get = async (url, digest, label) => {
+      safeHttpsUrl(url, label);
+      sha256String(digest, label);
+      if (!target.allowedEvidenceOrigins.includes(new URL(url).origin)) {
+        throw new TypeError(`${label} uses an unapproved evidence origin.`);
+      }
+      const fetched = await fetchBounded(fetchImpl, url, MAX_EVIDENCE_BYTES, label);
+      if (await sha256Hex(fetched.bytes) !== digest) throw new TypeError(`${label} digest mismatch.`);
+      return fetched.bytes;
+    };
+    const [bytes, signature] = await Promise.all([
+      get(ref.url, ref.sha256, "historical manifest"),
+      get(ref.signatureUrl, ref.signatureSha256, "historical manifest signature"),
+    ]);
+    await verifySignature(bytes, parseCanonicalJson(signature, "historical signature"), target.releaseSigningKey, MANIFEST_TYPE);
+    const older = await normalizeCriticalManifest(parseCanonicalJson(bytes, "historical manifest"), target.requireProduction);
+    if (older.releaseId !== ref.releaseId || older.createdAt >= current.createdAt ||
+        older.artifacts.web.publicOrigin !== target.expectedWebOrigin ||
+        !sameJson(older.trust.releaseManifestSigning, target.releaseSigningKey)) {
+      throw new TypeError("Historical manifest identity, origin, release key, or timestamp is inconsistent.");
+    }
+    history.unshift({
+      releaseId: older.releaseId,
+      previousRelease: older.previousRelease,
+      manifestSha256: ref.sha256,
+      releaseCreatedAt: older.createdAt,
+      evaluatorKeyEpoch: await evaluatorKeyEpochWitness(older),
+    });
+    if (ref.sha256 === previous.manifestSha256) {
+      if (ref.releaseId !== previous.releaseId || older.createdAt !== previous.releaseCreatedAt) {
+        throw new TypeError("Historical anchor differs from the durable witness.");
+      }
+      return history;
+    }
+    seen.add(ref.sha256);
+    current = older;
+  }
+  throw new TypeError("Release history exceeds the 16-manifest recovery limit.");
+}
+
 export async function verifyTarget(
   targetValue,
   {
     fetchImpl = fetch,
     now = () => new Date(),
     previousResponseTransparency = null,
+    previousReleaseWitness = null,
     liveAttestationVerifier = verifyLiveEvaluatorAttestation,
   } = {},
 ) {
@@ -1842,6 +1908,7 @@ export async function verifyTarget(
   const checkedAt = now().toISOString();
   timestamp(checkedAt, "monitor checkedAt");
   const evaluatorKeyEpoch = await evaluatorKeyEpochWitness(manifest);
+  const releaseHistory = await verifyReleaseHistory(manifest, wellKnown.manifest.sha256, previousReleaseWitness, target, fetchImpl);
   return {
     schemaVersion: 1,
     target: target.name,
@@ -1852,6 +1919,7 @@ export async function verifyTarget(
     evaluatorKeyEpoch,
     releaseStage: manifest.releaseStage,
     releaseCreatedAt: manifest.createdAt,
+    ...(releaseHistory.length ? { releaseHistory } : {}),
     environment: deployment.environment,
     deployedAt: deployment.deployedAt,
     wellKnownSha256: await sha256Hex(wellKnownFetch.bytes),
