@@ -313,8 +313,7 @@
       {
         "title": "How is my reply kept private?",
         "paragraphs": [
-          "On Herd’s servers, your response is anonymized under a private, event-specific ballot ID and is not personally linked to your name, phone number, or account.",
-          "Your conditions are never shown to hosts or guests."
+          "Herd anonymizes your reply with a private, event-specific ballot ID, separate from your name, phone number, and account. Hosts and guests never see your conditions."
         ],
         "showsPolicyIdentifiers": false,
         "showsVerificationLinks": false
@@ -322,7 +321,7 @@
       {
         "title": "Can I see my reply on another device?",
         "paragraphs": [
-          "Yes. Once you sign in to your account, you can view and update your private reply from any supported device until the event is confirmed or replies close."
+          "Yes. Sign in on any supported device to view and update your private reply until the event is confirmed or replies close."
         ],
         "showsPolicyIdentifiers": false,
         "showsVerificationLinks": false
@@ -330,8 +329,8 @@
       {
         "title": "What can other people see?",
         "paragraphs": [
-          "Before confirmation, guests who have replied can see who else has responded, but not what anyone chose.",
-          "After confirmation, people can see the event result and attendance. Your minimum and required-person conditions remain private."
+          "Before confirmation, guests who’ve replied can see who else has replied, but not anyone’s choices.",
+          "After confirmation, people can see the result and attendance. Your minimum and required-person conditions stay private."
         ],
         "showsPolicyIdentifiers": false,
         "showsVerificationLinks": false

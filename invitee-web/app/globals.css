@@ -2025,7 +2025,6 @@ summary:focus-visible {
 .accordion-copy { margin: -3px 16px 17px; color: var(--muted); font-size: 12px; line-height: 1.62; }
 .accordion-copy p { margin: 0; }
 .accordion-copy p + p { margin-top: 10px; }
-.accordion-copy .accordion-lead { color: var(--text); font-weight: 600; }
 .accordion-copy ol { margin: 0; padding-left: 18px; }
 .accordion-copy li + li { margin-top: 9px; }
 .accordion-copy strong { color: var(--text); }

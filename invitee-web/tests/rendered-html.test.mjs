@@ -878,9 +878,10 @@ test("web app uses authenticated server APIs instead of browser-only product sta
   assert.match(experience.privacy.flowPrivacyLabel, /never shown to the host or guests/i);
   const privacySection = experience.privacy.sections.find((section) => /kept private/i.test(section.title));
   const deviceSection = experience.privacy.sections.find((section) => /another device/i.test(section.title));
-  assert.match(privacySection.paragraphs[0], /On Herd’s servers, your response is anonymized/i);
-  assert.match(privacySection.paragraphs[0], /not personally linked to your name, phone number, or account/i);
-  assert.match(privacySection.paragraphs[1], /never shown to hosts or guests/i);
+  assert.match(privacySection.paragraphs[0], /Herd anonymizes your reply/i);
+  assert.match(privacySection.paragraphs[0], /private, event-specific ballot ID/i);
+  assert.match(privacySection.paragraphs[0], /separate from your name, phone number, and account/i);
+  assert.match(privacySection.paragraphs[0], /Hosts and guests never see your conditions/i);
   assert.match(deviceSection.paragraphs[0], /any supported device/i);
   assert.doesNotMatch(JSON.stringify(experience.privacy), /Herd can inspect|Herd can read|not anonymous to Herd/i);
   assert.match(experience.privacy.sourceURL, /github\.com\/jwoodbury11\/herd-privacy-source/);

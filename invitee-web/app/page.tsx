@@ -3482,8 +3482,8 @@ export function HerdApp() {
                     >
                       <summary>{section.title} <span className="accordion-icon" aria-hidden="true">+</span></summary>
                       <div className="accordion-copy">
-                        {section.paragraphs.map((paragraph, paragraphIndex) => (
-                          <p className={paragraphIndex === 0 ? "accordion-lead" : undefined} key={paragraph}>{paragraph}</p>
+                        {section.paragraphs.map((paragraph) => (
+                          <p key={paragraph}>{paragraph}</p>
                         ))}
                         {section.showsVerificationLinks ? (
                           <div className="proof-links">

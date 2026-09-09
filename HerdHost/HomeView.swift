@@ -3825,10 +3825,10 @@ private struct PrivacyDisclosureSection: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { index, paragraph in
+                ForEach(Array(section.paragraphs.enumerated()), id: \.offset) { _, paragraph in
                     Text(paragraph)
-                        .font(.subheadline.weight(index == 0 ? .medium : .regular))
-                        .foregroundStyle(index == 0 ? .primary : .secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
 
                 if section.showsVerificationLinks {
