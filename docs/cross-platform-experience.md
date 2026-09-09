@@ -87,7 +87,8 @@ target declares a custom Keychain-sharing group.
 | Full event authoring | Creates and edits drafts in the native event editor and contact picker | New events open the iPhone handoff; hosted drafts retain shared detail and bounded management actions but not the full editor | New events open the iPhone handoff; the shared guest experience remains native |
 | Add people | Uses the system Contacts picker, with manual entry available | Uses manual entry because browsers do not provide dependable cross-browser Contacts access | Hosting entry points hand off to the downloaded app because App Clips cannot use Contacts |
 | Address suggestions | Uses MapKit search suggestions | Uses browser address autofill; adding a third-party geocoder requires a separate privacy and provider review | Not shown because full event authoring hands off to the downloaded app |
-| Protect an opened reply | May use Face ID to protect the local screen | Uses the authenticated account session because browsers cannot require Face ID consistently | May use Face ID to protect the local screen |
+
+Viewing a saved reply uses the authenticated account session on all three surfaces.
 
 Everything else is presumed to require parity. Add a difference to this table
 before shipping it, with the platform constraint that requires it.
@@ -146,8 +147,8 @@ For invitation details, all renderers use `invited` and `min attendees` in the
 metric strip, `Your encrypted reply has been sent` beside the lock, and
 `View my encrypted reply` for the primary unlock action. An unreadable local
 reply changes to the replacement action instead of repeating an unusable unlock.
-Primary reply actions share one filled treatment; platform-native Face ID and
-keyboard controls may use their native symbols while keeping equivalent meaning.
+Primary reply actions share one filled treatment. Native keyboard controls may
+use their platform symbols while keeping equivalent meaning.
 
 Existing draft hosted events expose the same `Allow attendees to add guests`
 boolean. iPhone uses the native switch and web uses an accessible `role=switch`
