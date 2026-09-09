@@ -688,7 +688,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.unlockButton, "View my reply");
   assert.match(
     swiftHome,
-    /primaryReplyActionLabel\(\s*title: replyExperience\.unlockButton,\s*systemImage: "faceid"\s*\)/u,
+    /primaryReplyActionLabel\(title: replyExperience\.unlockButton\)/u,
   );
   assert.match(
     swiftHome,
@@ -697,7 +697,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal((swiftHome.match(/primaryReplyActionLabel\(/gu) ?? []).length, 4);
   assert.match(
     swiftHome,
-    /if replyIsUnavailable \{[\s\S]*?primaryReplyActionLabel\(title: replyExperience\.replaceButton\)[\s\S]*?accessibilityIdentifier\("reply-replace-unavailable"\)[\s\S]*?\} else \{[\s\S]*?systemImage: "faceid"[\s\S]*?accessibilityIdentifier\("reply-unlock"\)/u,
+    /if replyIsUnavailable \{[\s\S]*?primaryReplyActionLabel\(title: replyExperience\.replaceButton\)[\s\S]*?accessibilityIdentifier\("reply-replace-unavailable"\)[\s\S]*?\} else \{[\s\S]*?primaryReplyActionLabel\(title: replyExperience\.unlockButton\)[\s\S]*?accessibilityIdentifier\("reply-unlock"\)/u,
   );
   assert.match(
     swiftEditor,

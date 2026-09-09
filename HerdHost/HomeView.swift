@@ -2343,10 +2343,7 @@ private struct InvitationDetailView: View {
                             }
                         }
                     } label: {
-                        primaryReplyActionLabel(
-                            title: replyExperience.unlockButton,
-                            systemImage: "faceid"
-                        )
+                        primaryReplyActionLabel(title: replyExperience.unlockButton)
                     }
                     .buttonStyle(PlainPressButtonStyle())
                     .disabled(store.isMutating)
