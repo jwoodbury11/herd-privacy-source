@@ -43,6 +43,10 @@
     ".zip"
   ],
   "includes": [
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-lan.imageset/event-scene-lan.png", "binarySha256": "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673" },
+    { "path": "invitee-web/public/event-images/lan.png", "binarySha256": "138db09280d9aed58dd7a4617c960d3ea2b458089c8429d04a3ac95761a04673" },
+    { "path": "HerdHost/Assets.xcassets/EventScenes/event-scene-arcade.imageset/event-scene-arcade.png", "binarySha256": "dc85718bf0768bf1eedad16ab478c9e9e6b9624b4648b51e0b7995d7e2449868" },
+    { "path": "invitee-web/public/event-images/arcade.png", "binarySha256": "dc85718bf0768bf1eedad16ab478c9e9e6b9624b4648b51e0b7995d7e2449868" },
     { "path": "LICENSE" },
     { "path": "README.md" },
     { "path": "SECURITY.md" },
@@ -141,6 +145,7 @@
     { "path": "invitee-web/scripts/browser-acceptance-harness.mjs" },
     { "path": "invitee-web/scripts/run-current-tests.mjs" },
     { "path": "invitee-web/scripts/verify-event-image-edges.mjs" },
+    { "path": "invitee-web/scripts/decontaminate-event-image-edges.mjs" },
     { "path": "invitee-web/README.md" },
     { "path": "invitee-web/package.json" },
     { "path": "invitee-web/package-lock.json" },
