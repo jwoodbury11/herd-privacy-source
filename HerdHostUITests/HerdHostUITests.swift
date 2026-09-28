@@ -596,13 +596,22 @@ final class HerdHostUITests: XCTestCase {
 
         let actions = app.buttons["event-actions-menu"]
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
-        actions.tap()
-        let deleteAction = app.buttons["delete-hosted-event"]
-        XCTAssertTrue(deleteAction.waitForExistence(timeout: 5))
-        deleteAction.tap()
-
         let confirmation = app.alerts["Delete this event?"]
-        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        func openDeletionConfirmation() {
+            actions.tap()
+            let deleteAction = app.buttons["delete-hosted-event"]
+            XCTAssertTrue(deleteAction.waitForExistence(timeout: 5))
+            let ready = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isHittable == true"),
+                object: deleteAction
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
+            deleteAction.tap()
+            // The menu dismisses before the app presents the destructive alert.
+            // Wait on both openings, including after cancelling the first alert.
+            XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        }
+        openDeletionConfirmation()
         XCTAssertTrue(
             confirmation.staticTexts[
                 "This permanently deletes the event for you and everyone invited. This can’t be undone."
@@ -615,9 +624,8 @@ final class HerdHostUITests: XCTestCase {
         confirmation.buttons["Cancel"].tap()
         XCTAssertTrue(eventTitle.exists)
 
-        actions.tap()
-        app.buttons["delete-hosted-event"].tap()
-        app.buttons["confirm-delete-hosted-event"].firstMatch.tap()
+        openDeletionConfirmation()
+        confirmation.buttons["confirm-delete-hosted-event"].firstMatch.tap()
 
         XCTAssertTrue(app.staticTexts["Herd events"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Deletable Fixture Event"].exists)
