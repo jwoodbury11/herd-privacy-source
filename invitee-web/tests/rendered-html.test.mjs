@@ -23,6 +23,45 @@ async function render(pathname = "/", bindings = {}) {
   );
 }
 
+test("invitation links request the Safari App Clip card and retain the web fallback", async (t) => {
+  const previousBundleID = process.env.HERD_IOS_APP_CLIP_BUNDLE_ID;
+  const previousOrigin = process.env.HERD_PUBLIC_APP_URL;
+  process.env.HERD_IOS_APP_CLIP_BUNDLE_ID = "com.jameswoodbury.HerdPrototype.Clip";
+  process.env.HERD_PUBLIC_APP_URL = "https://app.herd.test";
+  t.after(() => {
+    if (previousBundleID === undefined) delete process.env.HERD_IOS_APP_CLIP_BUNDLE_ID;
+    else process.env.HERD_IOS_APP_CLIP_BUNDLE_ID = previousBundleID;
+    if (previousOrigin === undefined) delete process.env.HERD_PUBLIC_APP_URL;
+    else process.env.HERD_PUBLIC_APP_URL = previousOrigin;
+  });
+
+  // A harmless, invalid token exercises crawler metadata even without a DB.
+  const response = await render("/invite/first-recipient-probe");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+  const html = await response.text();
+  assert.match(html, /<meta name="apple-itunes-app" content="app-id=6793711077, app-clip-bundle-id=com\.jameswoodbury\.HerdPrototype\.Clip, app-clip-display=card"\/?\s*>/u);
+  assert.match(html, /<link rel="canonical" href="https:\/\/app\.herd\.test\/invite\/first-recipient-probe"/u);
+  assert.match(html, /<meta property="og:url" content="https:\/\/app\.herd\.test\/invite\/first-recipient-probe"/u);
+  assert.match(html, /<meta property="og:image" content="https:\/\/app\.herd\.test\/link-previews\/poker\.png"/u);
+  assert.doesNotMatch(html, /app-argument=|http-equiv="refresh"/iu);
+  assert.match(html, /class="app-shell screen-welcome"/u);
+});
+
+test("invitation links keep working without App Clip configuration", async (t) => {
+  const previousBundleID = process.env.HERD_IOS_APP_CLIP_BUNDLE_ID;
+  delete process.env.HERD_IOS_APP_CLIP_BUNDLE_ID;
+  t.after(() => {
+    if (previousBundleID !== undefined) process.env.HERD_IOS_APP_CLIP_BUNDLE_ID = previousBundleID;
+  });
+  const response = await render("/invite/web-fallback-probe");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("location"), null);
+  const html = await response.text();
+  assert.doesNotMatch(html, /name="apple-itunes-app"/u);
+  assert.match(html, /<meta property="og:image"/u);
+});
+
 test("publishes the non-redirecting iOS universal-link association", async () => {
   const response = await render("/.well-known/apple-app-site-association");
   assert.equal(response.status, 200);

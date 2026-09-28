@@ -74,7 +74,11 @@ export async function generateMetadata({ params }: InvitationPageProps): Promise
       images: [imageURL],
     },
     other: appClipBundleID
-      ? { "apple-itunes-app": `app-clip-bundle-id=${appClipBundleID}` }
+      ? {
+        // Plain SMS links open the website. Ask Safari to present the App Clip
+        // card there too, while leaving the invitation usable in other browsers.
+        "apple-itunes-app": `app-id=6793711077, app-clip-bundle-id=${appClipBundleID}, app-clip-display=card`,
+      }
       : undefined,
   };
 }
