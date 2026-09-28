@@ -5,17 +5,15 @@ import test from "node:test";
 const source = async (name) =>
   readFile(new URL(`../HerdHost/${name}`, import.meta.url), "utf8");
 
-test("Contacts disclosure, explicit upload consent, and manual fallback remain connected", async () => {
+test("Contacts disclosure, direct attendee save, and manual fallback remain connected", async () => {
   const [flow, api, editor, home] = await Promise.all([
     source("AttendeeFlowView.swift"), source("APIClient.swift"),
     source("EventEditorView.swift"), source("HomeView.swift"),
   ]);
   assert.match(flow, /permissionButton\("Continue", primary: true, action: contactService.requestAccess\)/u);
   assert.doesNotMatch(flow, /Allow contact access|ManualRecipientSheet|ContactsDesignPreview/u);
-  assert.match(flow, /Button\("Agree and save", action: save\)/u);
-  const consent = flow.slice(flow.indexOf('.alert("Save attendees to Herd?"'), flow.indexOf('.navigationBarTitleDisplayMode(.inline)', flow.indexOf('.alert("Save attendees to Herd?"')));
-  assert.match(consent, /These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft\./u);
-  assert.doesNotMatch(consent, /address book|contacts/u);
+  assert.match(flow, /Button\("Save", action: save\)/u);
+  assert.doesNotMatch(flow, /showsUploadConsent|Save attendees to Herd\?|Agree and save/u);
   assert.match(flow, /permissionButton\("Add attendees manually"[\s\S]*?action: beginManualReview/u);
   assert.match(flow, /onChange\(of: scenePhase\)[\s\S]*?contactService.refresh\(\)/u);
   assert.match(flow, /add-another-attendee/u);

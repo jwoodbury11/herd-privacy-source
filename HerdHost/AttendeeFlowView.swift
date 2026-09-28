@@ -620,7 +620,6 @@ private enum InviteeReviewField: Hashable {
 }
 
 private struct InviteeReviewView: View {
-    @State private var showsUploadConsent = false
     @Binding var invitees: [Invitee]
     let excludedPhoneKeys: Set<String>
     let allowsManualEntry: Bool
@@ -783,12 +782,6 @@ private struct InviteeReviewView: View {
         }
         .background(HerdTheme.canvas)
         .navigationTitle("Review invites")
-        .alert("Save attendees to Herd?", isPresented: $showsUploadConsent) {
-            Button("Cancel", role: .cancel) {}
-            Button("Agree and save", action: save)
-        } message: {
-            Text("These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft.")
-        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let onCancel {
@@ -804,10 +797,7 @@ private struct InviteeReviewView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    if invitees.isEmpty { save() }
-                    else { showsUploadConsent = true }
-                }
+                Button("Save", action: save)
                     .fontWeight(.semibold)
                     .disabled(!canSave)
                     .accessibilityIdentifier("save-invitees")
