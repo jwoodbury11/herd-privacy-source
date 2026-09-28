@@ -793,6 +793,28 @@ final class EventStore {
         }
     }
 
+    func savedReplyAwaitsRequirements(for event: HerdEvent) async -> Bool {
+        guard let context = currentOperationContext,
+              event.role == .invitee,
+              event.resolution?.status == .confirmed,
+              event.hasBallot || event.hasResponse,
+              event.canChangeReply(),
+              let inviteToken = event.inviteToken else { return false }
+        do {
+            // Read only this account's reply without opening the private editor
+            // or retaining its conditions in the event cache.
+            let ballot = try await apiClient.fetchSimplifiedBallot(inviteToken: inviteToken)
+            try requireCurrentOperation(context)
+            try Task.checkCancellation()
+            return ballot?.response == .going
+        } catch APIError.unauthorized {
+            if operationIsCurrent(context) { handleUnauthorized() }
+            return false
+        } catch {
+            return false
+        }
+    }
+
     @discardableResult
     func unlockPrivateResponse(for event: HerdEvent) async -> Bool {
         guard let context = currentOperationContext else { return false }

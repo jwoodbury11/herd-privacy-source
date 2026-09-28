@@ -1003,9 +1003,17 @@ final class HerdHostUITests: XCTestCase {
         app.launchArguments = ["--herd-ui-testing", "invitee-home"]
         app.launchEnvironment["HERD_UI_TEST_LOCAL_ORIGIN"] = origin
         app.launch()
-        signIn(app, phoneNumber: "1")
+        signIn(app, phoneNumber: "2")
         XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 15))
         app.staticTexts[title].tap()
+        let unmetNotice = app.staticTexts["You’re not committed yet"]
+        scrollToMakeHittable(unmetNotice, in: app.scrollViews.firstMatch)
+        XCTAssertTrue(unmetNotice.exists)
+        XCTAssertTrue(app.staticTexts["The event is confirmed, but your requirements haven’t been met yet. If they’re met, your status will automatically change from “Can’t commit” to “Going.”"].exists)
+        let noticeScreenshot = XCTAttachment(screenshot: app.screenshot())
+        noticeScreenshot.name = "unmet-requirements-card"
+        noticeScreenshot.lifetime = .keepAlways
+        add(noticeScreenshot)
         let guests = app.staticTexts["See the full guest list"]
         scrollToMakeHittable(guests, in: app.scrollViews.firstMatch)
         guests.tap()
@@ -1035,6 +1043,8 @@ final class HerdHostUITests: XCTestCase {
         screenshot.name = "confirmed-joining-live-observer"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertFalse(unmetNotice.exists)
     }
 
     func testConfirmedAttendeeStatusesStayInsideTheirRows() {

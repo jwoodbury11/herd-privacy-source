@@ -1225,6 +1225,14 @@ summary:focus-visible {
   font-size: 12px;
 }
 
+.unmet-requirements-callout p:not(.eyebrow) {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
 .reply-section {
   padding: 32px 0 10px;
   border: 0;

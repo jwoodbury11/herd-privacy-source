@@ -1624,6 +1624,7 @@ private struct InvitationDetailView: View {
     @State private var privateMinimumParticipants = 2
     @State private var privateRequiredGroups: [RSVPConditionGroup] = []
     @State private var savedPrivateDraft: PrivateResponseDraft?
+    @State private var savedReplyAwaitsRequirements = false
     @State private var showsCollapsedEventTitle = false
     @State private var showsEventDeletionConfirmation = false
     @State private var eventBeingEdited: HerdEvent?
@@ -1665,6 +1666,13 @@ private struct InvitationDetailView: View {
                                     attendeeDetails(event)
                                 }
                                 privacyCallout(event)
+                                if event.role == .invitee,
+                                   event.resolution?.status == .confirmed,
+                                   event.hasBallot || event.hasResponse,
+                                   savedReplyAwaitsRequirements,
+                                   event.canChangeReply() {
+                                    unmetRequirementsCallout
+                                }
                             }
                             .padding(.top, -4)
 
@@ -1890,6 +1898,12 @@ private struct InvitationDetailView: View {
         .task(id: eventID) {
             guard let inviteToken = event?.inviteToken else { return }
             _ = await store.openInvitation(inviteToken: inviteToken)
+        }
+        .task(id: event) {
+            guard let event else { return }
+            let awaitsRequirements = await store.savedReplyAwaitsRequirements(for: event)
+            guard !Task.isCancelled else { return }
+            savedReplyAwaitsRequirements = awaitsRequirements
         }
         .overlay(alignment: .bottom) {
             if confirmedReplyNoticeID != nil || addressCopiedNoticeID != nil {
@@ -2273,6 +2287,20 @@ private struct InvitationDetailView: View {
         }
         .buttonStyle(PlainPressButtonStyle())
         .wireframeCard()
+    }
+
+    private var unmetRequirementsCallout: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(invitationExperience.unmetRequirementsCallout.title)
+                .font(.headline)
+            Text(invitationExperience.unmetRequirementsCallout.body)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .wireframeCard()
+        .accessibilityIdentifier("unmet-requirements-callout")
     }
 
     private func replyCard(_ event: HerdEvent) -> some View {

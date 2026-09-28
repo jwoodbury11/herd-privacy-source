@@ -179,6 +179,10 @@
       "peopleInvitedSuffix": "people invited",
       "action": "See the full guest list"
     },
+    "unmetRequirementsCallout": {
+      "title": "You’re not committed yet",
+      "body": "The event is confirmed, but your requirements haven’t been met yet. If they’re met, your status will automatically change from “Can’t commit” to “Going.”"
+    },
     "privacyCallout": {
       "title": "Herd is thoughtfully designed to remove all downsides of answering honestly.",
       "body": "Your conditions are hidden from hosts and guests and stored without your identity.",

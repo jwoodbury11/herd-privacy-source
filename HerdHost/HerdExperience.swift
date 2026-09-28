@@ -198,6 +198,11 @@ struct HerdExperience: Decodable {
             let action: String
         }
 
+        struct UnmetRequirementsCallout: Decodable {
+            let title: String
+            let body: String
+        }
+
         struct EventActions: Decodable {
             let moreLabel: String
             let editButton: String
@@ -235,6 +240,7 @@ struct HerdExperience: Decodable {
         let metrics: Metrics
         let attendeeEntry: AttendeeEntry
         let privacyCallout: PrivacyCallout
+        let unmetRequirementsCallout: UnmetRequirementsCallout
         let eventActions: EventActions
         let resolution: Resolution
         let unavailableTitle: String
