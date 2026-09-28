@@ -127,6 +127,7 @@ async function createHarness(options = {}) {
   });
   const fetchMock = options.fetchMock ?? createFetchMock();
   if (!options.fetchMock) {
+    let messageSequence = 0;
     fetchMock.disableNetConnect();
     fetchMock
       .get("https://api.twilio.com")
@@ -134,7 +135,7 @@ async function createHarness(options = {}) {
         method: "POST",
         path: `/2010-04-01/Accounts/${messagingAccountSid}/Messages.json`,
       })
-      .reply(201, () => ({ sid: `SM${"9".repeat(32)}`, status: "accepted" }))
+      .reply(201, () => ({ sid: `SM${(++messageSequence).toString(16).padStart(32, "0")}`, status: "accepted" }))
       .persist();
   }
   const defaultDeliveryBindings = options.fetchMock
@@ -696,7 +697,7 @@ test("event PUT rejects the authenticated host's normalized phone number", async
   );
 });
 
-test("hosts and permitted attendees can add guests until confirmation makes the event final", async (t) => {
+test("hosts and permitted attendees can expand a sent roster while host rules lock at confirmation", async (t) => {
   const { miniflare, database } = await createHarness();
   t.after(() => miniflare.dispose());
 
@@ -776,26 +777,9 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
       .first("count"),
     1,
   );
-  // Confirmation is terminal even when the original reply deadline is still
-  // in the future. Neither replies nor the frozen roster can change afterward.
-  await database
-    .prepare("UPDATE event_resolutions SET status = 'confirmed' WHERE event_id = ?")
-    .bind(eventId)
-    .run();
-
-  const confirmedReplyChange = await api(
-    miniflare,
-    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
-    authorizedJsonRequest("PUT", {
-      response: "cant_commit",
-      minimumParticipants: null,
-      requiredGroups: [],
-    }, sessions.get("2")),
-  );
-  assert.equal(confirmedReplyChange.status, 409);
-  assert.equal((await confirmedReplyChange.json()).error.code, "event_already_confirmed");
-
-  const confirmedAttendeeAddition = await api(
+  // A protocol-v2 roster can expand after replies begin. The existing
+  // pseudonymous ballot stays intact and the cached result is recalculated.
+  const postReplyAddition = await api(
     miniflare,
     `/api/events/${eventId}/attendees`,
     authorizedJsonRequest("POST", {
@@ -806,9 +790,45 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
       }],
     }, sessions.get("1")),
   );
-  assert.equal(confirmedAttendeeAddition.status, 409);
-  assert.equal((await confirmedAttendeeAddition.json()).error.code, "event_already_confirmed");
-
+  assert.equal(postReplyAddition.status, 200, await postReplyAddition.clone().text());
+  assert.equal(
+    await database
+      .prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
+      .bind(eventId)
+      .first("count"),
+    1,
+  );
+  const refreshedAccountTwo = await api(miniflare, "/api/events", {
+    headers: { authorization: `Bearer ${sessions.get("2")}` },
+  });
+  const refreshedAccountTwoEvent = (await refreshedAccountTwo.json()).events.find(
+    (candidate) => candidate.id === eventId,
+  );
+  assert.equal(refreshedAccountTwoEvent.hasBallot, true);
+  assert.equal(refreshedAccountTwoEvent.responseRevision, 1);
+  assert.equal(refreshedAccountTwoEvent.privateResponsePolicy, null);
+  const confirmingBallot = await api(
+    miniflare,
+    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
+    authorizedJsonRequest("PUT", {
+      response: "going",
+      minimumParticipants: 2,
+      requiredGroups: [],
+    }, sessions.get("2")),
+  );
+  assert.equal(confirmingBallot.status, 200, await confirmingBallot.clone().text());
+  const resolvedEvents = await api(miniflare, "/api/events", {
+    headers: { authorization: `Bearer ${sessions.get("2")}` },
+  });
+  const resolvedEvent = (await resolvedEvents.json()).events.find(
+    (candidate) => candidate.id === eventId,
+  );
+  assert.equal(resolvedEvent.resolution.status, "confirmed");
+  assert.deepEqual(resolvedEvent.resolution.attendingMemberIds, [
+    "host",
+    accountTwoInvitee.id,
+  ]);
+  assert.equal(resolvedEvent.privateResponsePolicy, null);
   const confirmedHostEvents = await api(miniflare, "/api/events", {
     headers: { authorization: `Bearer ${sessions.get("1")}` },
   });
@@ -870,62 +890,6 @@ test("hosts and permitted attendees can add guests until confirmation makes the 
     );
   }
 
-  // A protocol-v2 roster can expand after replies begin. The existing
-  // pseudonymous ballot stays intact and the cached result is recalculated.
-  await database
-    .prepare("UPDATE event_resolutions SET status = 'pending' WHERE event_id = ?")
-    .bind(eventId)
-    .run();
-  const postReplyAddition = await api(
-    miniflare,
-    `/api/events/${eventId}/attendees`,
-    authorizedJsonRequest("POST", {
-      invitees: [{
-        id: "74000000-0000-4000-8000-000000000004",
-        displayName: testAccountNameForAlias("4"),
-        phoneNumber: "+14155550104",
-      }],
-    }, sessions.get("1")),
-  );
-  assert.equal(postReplyAddition.status, 200, await postReplyAddition.clone().text());
-  assert.equal(
-    await database
-      .prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
-      .bind(eventId)
-      .first("count"),
-    1,
-  );
-  const refreshedAccountTwo = await api(miniflare, "/api/events", {
-    headers: { authorization: `Bearer ${sessions.get("2")}` },
-  });
-  const refreshedAccountTwoEvent = (await refreshedAccountTwo.json()).events.find(
-    (candidate) => candidate.id === eventId,
-  );
-  assert.equal(refreshedAccountTwoEvent.hasBallot, true);
-  assert.equal(refreshedAccountTwoEvent.responseRevision, 1);
-  assert.equal(refreshedAccountTwoEvent.privateResponsePolicy, null);
-  const confirmingBallot = await api(
-    miniflare,
-    `/api/invites/${attendeeEvent.inviteToken}/ballot`,
-    authorizedJsonRequest("PUT", {
-      response: "going",
-      minimumParticipants: 2,
-      requiredGroups: [],
-    }, sessions.get("2")),
-  );
-  assert.equal(confirmingBallot.status, 200, await confirmingBallot.clone().text());
-  const resolvedEvents = await api(miniflare, "/api/events", {
-    headers: { authorization: `Bearer ${sessions.get("2")}` },
-  });
-  const resolvedEvent = (await resolvedEvents.json()).events.find(
-    (candidate) => candidate.id === eventId,
-  );
-  assert.equal(resolvedEvent.resolution.status, "confirmed");
-  assert.deepEqual(resolvedEvent.resolution.attendingMemberIds, [
-    "host",
-    accountTwoInvitee.id,
-  ]);
-  assert.equal(resolvedEvent.privateResponsePolicy, null);
   const disabledEventId = "74000000-0000-4000-8000-000000000011";
   const disabledEvent = {
     ...event,
@@ -1652,4 +1616,104 @@ test("signed-out callers cannot probe removed invitation fixtures", async (t) =>
   t.after(() => miniflare.dispose());
   const response = await api(miniflare, "/api/invites/poker-party");
   assert.equal(response.status, 401);
+});
+
+test("confirmed events grow until the next day and reconsider saved conditional replies", async (t) => {
+  const { miniflare, database } = await createHarness();
+  t.after(() => miniflare.dispose());
+  const sessions = new Map();
+  for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+    const response = await api(miniflare, "/api/auth/request-code", jsonRequest("POST", { phoneNumber: digit }));
+    assert.equal(response.status, 200);
+    sessions.set(digit, (await response.json()).accessToken);
+  }
+  const eventId = "74000000-0000-4000-8000-000000000101";
+  const guest = (digit) => ({
+    id: `74000000-0000-4000-8000-00000000010${digit}`,
+    displayName: testAccountNameForAlias(digit),
+    phoneNumber: `+1415555010${digit}`,
+  });
+  const event = {
+    id: eventId, title: "Growing confirmed volleyball", hostName: testAccountNameForAlias("1"),
+    eventDate: new Date(Date.now() + 2 * 86_400_000).toISOString(), endDate: null,
+    rsvpDeadline: new Date(Date.now() + 86_400_000).toISOString(),
+    locationName: "", locationAddress: "", eventDescription: "", minimumParticipants: 4,
+    requiredGroups: [], allowsAttendeesToAddGuests: true, invitationsSent: true,
+    invitees: ["2", "3", "4", "5", "6"].map(guest), createdAt: new Date().toISOString(),
+  };
+  const created = await api(miniflare, `/api/events/${eventId}`, authorizedJsonRequest("PUT", event, sessions.get("1")));
+  assert.equal(created.status, 200, await created.clone().text());
+  const read = async (digit = "1") => {
+    const response = await api(miniflare, "/api/events", { headers: { authorization: `Bearer ${sessions.get(digit)}` } });
+    assert.equal(response.status, 200, await response.clone().text());
+    return (await response.json()).events.find((item) => item.id === eventId);
+  };
+  const reply = async (digit, minimum = 2, requiredGroups = [], response = "going") => {
+    const ownEvent = await read(digit);
+    return api(miniflare, `/api/invites/${ownEvent.inviteToken}/ballot`, authorizedJsonRequest("PUT", {
+      response, minimumParticipants: response === "going" ? minimum : null, requiredGroups,
+    }, sessions.get(digit)));
+  };
+  assert.equal((await reply("2", 6)).status, 200);
+  for (const digit of ["3", "4", "5"]) assert.equal((await reply(digit)).status, 200);
+  const initiallyConfirmed = await read();
+  assert.equal(initiallyConfirmed.resolution.status, "confirmed");
+  assert.equal(initiallyConfirmed.resolution.attendingMemberIds.length, 4);
+  assert.equal(initiallyConfirmed.resolution.guestStates.find((state) => state.memberId === guest("2").id).status, "cant_commit");
+  const confirmedAt = initiallyConfirmed.resolution.resolvedAt;
+  const notificationCount = await database.prepare("SELECT COUNT(*) AS count FROM resolution_notifications WHERE event_id = ?").bind(eventId).first("count");
+  const originalBallots = await database.prepare("SELECT * FROM ballot_revisions WHERE event_id = ? ORDER BY ballot_id, revision").bind(eventId).all();
+
+  // The original RSVP deadline and event start have passed; joining is still open.
+  await database.prepare("UPDATE events SET event_date = ?, rsvp_deadline = ? WHERE id = ?")
+    .bind(new Date(Date.now() - 60 * 60_000).toISOString(), new Date(Date.now() - 2 * 60 * 60_000).toISOString(), eventId).run();
+  const added = await api(miniflare, `/api/events/${eventId}/attendees`, authorizedJsonRequest("POST", {
+    invitees: ["7", "8", "9"].map(guest),
+  }, sessions.get("3")));
+  assert.equal(added.status, 200, await added.clone().text());
+  assert.equal((await added.json()).event.resolution.status, "confirmed");
+  const newDeliveries = await database.prepare("SELECT status, last_error_code FROM invitation_deliveries WHERE event_id = ? AND invitee_id IN (?, ?, ?)")
+    .bind(eventId, guest("7").id, guest("8").id, guest("9").id).all();
+  assert.equal(newDeliveries.results.length, 3);
+  assert.ok(newDeliveries.results.every((row) => row.status === "sent"), JSON.stringify(newDeliveries.results));
+  assert.equal((await reply("6")).status, 200);
+  const grown = await read();
+  assert.equal(grown.resolution.attendingMemberIds.length, 6);
+  assert.equal(grown.resolution.guestStates.find((state) => state.memberId === guest("2").id).status, "going");
+  assert.equal(grown.resolution.resolvedAt, confirmedAt);
+  const originalAfter = await database.prepare("SELECT * FROM ballot_revisions WHERE event_id = ? AND ballot_id IN (SELECT ballot_id FROM ballot_revisions WHERE event_id = ? ORDER BY created_at LIMIT 4) ORDER BY ballot_id, revision").bind(eventId, eventId).all();
+  assert.deepEqual(originalAfter.results, originalBallots.results, "automatic eligibility must not rewrite anyone’s saved reply");
+
+  // New conditional guests, including named-person dependencies, are reconsidered too.
+  const group = [{ id: "75000000-0000-4000-8000-000000000101", memberIDs: [guest("8").id] }];
+  assert.equal((await reply("7", 2, group)).status, 200);
+  assert.equal((await read()).resolution.attendingMemberIds.length, 6);
+  const [eighthReply, ninthReply] = await Promise.all([
+    reply("8"), reply("9", 2, [], "cant_commit"), read(),
+  ]);
+  assert.equal(eighthReply.status, 200);
+  assert.equal(ninthReply.status, 200);
+  assert.equal((await read()).resolution.attendingMemberIds.length, 8);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS count FROM resolution_notifications WHERE event_id = ?").bind(eventId).first("count"), notificationCount);
+  const withdrawal = await reply("3", 2, [], "cant_commit");
+  assert.equal(withdrawal.status, 409);
+  assert.equal((await withdrawal.json()).error.code, "attendance_already_committed");
+  assert.equal((await reply("2", 6)).status, 200, "exact retries stay idempotent after automatic promotion");
+
+  // One minute inside the next-day window remains open; beyond it rejects all new writes.
+  await database.prepare("UPDATE events SET event_date = ?, rsvp_deadline = ? WHERE id = ?")
+    .bind(new Date(Date.now() - 86_400_000 + 60_000).toISOString(), new Date(Date.now() - 2 * 86_400_000).toISOString(), eventId).run();
+  assert.equal((await reply("9", 9)).status, 200);
+  await database.prepare("UPDATE events SET event_date = ? WHERE id = ?")
+    .bind(new Date(Date.now() - 86_400_000 - 60_000).toISOString(), eventId).run();
+  const tooLate = await reply("9");
+  assert.equal(tooLate.status, 409);
+  assert.equal((await tooLate.json()).error.code, "rsvp_closed");
+  const lateAddition = await api(miniflare, `/api/events/${eventId}/attendees`, authorizedJsonRequest("POST", {
+    invitees: [{ id: "74000000-0000-4000-8000-000000000110", displayName: "Late guest", phoneNumber: "+14155550110" }],
+  }, sessions.get("1")));
+  assert.equal(lateAddition.status, 409);
+  assert.equal((await lateAddition.json()).error.code, "rsvp_closed");
+  assert.equal((await read()).resolution.resolvedAt, confirmedAt);
+  assert.equal((await read()).resolution.attendingMemberIds.length, 9);
 });

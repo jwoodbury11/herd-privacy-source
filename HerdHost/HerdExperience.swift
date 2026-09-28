@@ -303,6 +303,7 @@ struct HerdExperience: Decodable {
         let previewButton: String
         let previewTitle: String
         let confirmedLockedMessage: String
+        let joiningClosedMessage: String
         let confirmedPreviewLabel: String
         let confirmedPreviewBody: String
         let noReplyHistoryTemplate: String

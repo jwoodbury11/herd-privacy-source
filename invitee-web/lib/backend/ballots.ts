@@ -1,3 +1,4 @@
+import { acceptsAttendance } from "@/lib/attendance-window";
 import type { HerdBindings } from "@/db";
 
 import { getAuthenticatedSession } from "./auth";
@@ -224,15 +225,9 @@ export async function putOwnBallot(
 ): Promise<StoredSimplifiedBallot> {
   const { access, event } = await requireAccess(request, db, bindings, rawToken);
   const resolution = await db
-    .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
+    .prepare("SELECT status, attending_member_ids AS attendingMemberIds FROM event_resolutions WHERE event_id = ?")
     .bind(access.eventId)
-    .first<{ status: string }>();
-  if (resolution?.status === "confirmed") {
-    throw new ApiError(409, "event_already_confirmed", "Confirmed events can’t accept reply changes.");
-  }
-  if (event.rsvpDeadline && event.rsvpDeadline <= new Date().toISOString()) {
-    throw new ApiError(409, "rsvp_closed", "Replies are closed for this event.");
-  }
+    .first<{ status: string; attendingMemberIds: string | null }>();
   const allowedMemberIds = new Set(event.invitees.map(({ id }) => id));
   const draft = validateDraft(
     payload,
@@ -264,6 +259,14 @@ export async function putOwnBallot(
       createdAt: current.createdAt,
     };
   }
+  // Exact retries above remain idempotent, including after confirmation/close.
+  if (!acceptsAttendance(event, resolution?.status)) {
+    throw new ApiError(409, "rsvp_closed", "Joining is closed for this event.");
+  }
+  if (resolution?.status === "confirmed" &&
+      (JSON.parse(resolution.attendingMemberIds ?? "[]") as string[]).includes(access.inviteeId)) {
+    throw new ApiError(409, "attendance_already_committed", "Your attendance is confirmed and can’t be changed.");
+  }
   const revision = (current?.revision ?? 0) + 1;
   const createdAt = new Date().toISOString();
   const canonicalContent = JSON.stringify({
@@ -277,13 +280,17 @@ export async function putOwnBallot(
     requiredGroups: storedGroups,
   });
   const contentDigest = await digest(canonicalContent);
-  await db
+  const inserted = await db
     .prepare(
       `INSERT INTO ballot_revisions (
          ballot_id, revision, protocol_version, key_version, event_id,
          response, minimum_participants, required_groups, source,
          correction_reason, content_digest, created_at
-       ) VALUES (?, ?, 2, 1, ?, ?, ?, ?, 'user', NULL, ?, ?)`,
+       ) SELECT ?, ?, 2, 1, ?, ?, ?, ?, 'user', NULL, ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM event_resolutions r, json_each(r.attending_member_ids) member
+           WHERE r.event_id = ? AND r.status = 'confirmed' AND member.value = ?
+         )`,
     )
     .bind(
       ballotId,
@@ -294,8 +301,13 @@ export async function putOwnBallot(
       JSON.stringify(storedGroups),
       contentDigest,
       createdAt,
+      access.eventId,
+      access.inviteeId,
     )
     .run();
+  if ((inserted.meta.changes ?? 0) !== 1) {
+    throw new ApiError(409, "attendance_already_committed", "Your attendance is confirmed and can’t be changed.");
+  }
   // A reply is the only input needed to resolve a v2 event. Evaluate it in
   // the same request so confirmation never depends on a client refresh or a
   // later scheduler pass.

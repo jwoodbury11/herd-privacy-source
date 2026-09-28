@@ -746,7 +746,7 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.previewTitle, "How your reply shows up to others");
   assert.equal(
     experience.reply.confirmedLockedMessage,
-    "You cannot change your response to a confirmed event.",
+    "Your attendance is confirmed and can’t be changed.",
   );
   assert.equal(
     experience.reply.noReplyHistoryTemplate,
@@ -764,8 +764,8 @@ test("the web and iPhone shared screens consume one experience contract", async 
   assert.equal(experience.reply.notConfirmedPreviewTitle, "This event was not confirmed");
   assert.equal(experience.reply.notConfirmedPreviewBody, "Zero information is shown to anybody.");
   assert.match(page, /previewOutcome !== "confirmed"[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewLabel[\s\S]*className="reply-preview-hidden"[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewTitle[\s\S]*REPLY_EXPERIENCE\.notConfirmedPreviewBody/u);
-  assert.match(page, /className="confirmed-reply-edit-guard"[\s\S]*REPLY_EXPERIENCE\.confirmedLockedMessage[\s\S]*showConfirmedReplyNotice/u);
-  assert.match(swiftHome, /\.disabled\(event\.resolution\?\.status == \.confirmed\)[\s\S]*confirmed-reply-edit-guard/u);
+  assert.match(page, /className="confirmed-reply-edit-guard"[\s\S]*replyLockMessage[\s\S]*showConfirmedReplyNotice/u);
+  assert.match(swiftHome, /\.disabled\(!event\.canChangeReply\(\)\)[\s\S]*confirmed-reply-edit-guard/u);
   assert.match(swiftHome, /private struct ReplyVisibilityPreview[\s\S]*Text\(confirmedBody \?\? experience\.confirmedPreviewBody\)[\s\S]*if mode != \.confirmed \{[\s\S]*Text\(experience\.notConfirmedPreviewLabel\)[\s\S]*Text\(experience\.notConfirmedPreviewTitle\)[\s\S]*Text\(experience\.notConfirmedPreviewBody\)/u);
   assert.doesNotMatch(page, /No response by deadline/u);
   assert.doesNotMatch(swiftHome, /No response by deadline/u);

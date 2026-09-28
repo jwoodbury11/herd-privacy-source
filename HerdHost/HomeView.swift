@@ -1895,7 +1895,7 @@ private struct InvitationDetailView: View {
             if confirmedReplyNoticeID != nil || addressCopiedNoticeID != nil {
                 Text(addressCopiedNoticeID != nil
                     ? "Address copied to clipboard"
-                    : replyExperience.confirmedLockedMessage)
+                    : replyLockMessage)
                     .font(.subheadline.weight(.semibold))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 18)
@@ -2391,16 +2391,16 @@ private struct InvitationDetailView: View {
                     )
                     .padding(.top, 16)
                 }
-                .disabled(event.resolution?.status == .confirmed)
-                .allowsHitTesting(event.resolution?.status != .confirmed)
+                .disabled(!event.canChangeReply())
+                .allowsHitTesting(event.canChangeReply())
                 .overlay {
-                    if event.resolution?.status == .confirmed {
+                    if !event.canChangeReply() {
                         Button(action: showConfirmedReplyNotice) {
                             Color.clear
                                 .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(replyExperience.confirmedLockedMessage)
+                        .accessibilityLabel(replyLockMessage)
                         .accessibilityIdentifier("confirmed-reply-edit-guard")
                     }
                 }
@@ -2919,7 +2919,14 @@ private struct InvitationDetailView: View {
             : replyExperience.sentButton
     }
 
+    private var replyLockMessage: String {
+        event?.currentUserAttendanceCommitted == true
+            ? replyExperience.confirmedLockedMessage
+            : replyExperience.joiningClosedMessage
+    }
+
     private func replyHasUnsavedChanges(for event: HerdEvent) -> Bool {
+        guard event.canChangeReply() else { return false }
         guard let currentDraft = currentPrivateDraft else { return false }
         return !(event.hasResponse || event.hasBallot) ||
             currentDraft != savedPrivateDraft ||
@@ -3117,7 +3124,7 @@ private struct InvitationAttendees: View {
 
     private var canAddAttendees: Bool {
         guard let event else { return false }
-        guard event.resolution?.status != .confirmed else { return false }
+        guard event.acceptsAttendance(), event.invitees.count < 19 else { return false }
         return event.isHosted || event.allowsAttendeesToAddGuests
     }
 

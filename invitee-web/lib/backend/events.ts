@@ -1,3 +1,4 @@
+import { acceptsAttendance } from "@/lib/attendance-window";
 import { getActiveAccountKeyEpoch } from "./account-keys";
 import { deriveBallotId } from "./ballot-identifiers";
 import { getAuthConfig } from "./config";
@@ -1238,15 +1239,8 @@ export async function addEventAttendees(
     .prepare("SELECT status FROM event_resolutions WHERE event_id = ?")
     .bind(eventId)
     .first<{ status: string }>();
-  if (resolution?.status === "confirmed") {
-    throw new ApiError(
-      409,
-      "event_already_confirmed",
-      "Attendees can’t be added after an event is confirmed.",
-    );
-  }
-  if (!stored.rsvpDeadline || stored.rsvpDeadline <= nowIso) {
-    throw new ApiError(409, "rsvp_closed", "Attendees can’t be added after replies close.");
+  if (!acceptsAttendance(stored, resolution?.status, Date.parse(nowIso))) {
+    throw new ApiError(409, "rsvp_closed", "Joining is closed for this event.");
   }
   assertInvitationDeliveryReady(bindings, { invitees: newInvitees });
 
@@ -1306,9 +1300,9 @@ export async function addEventAttendees(
     );
   }
   statements.push(
-    // A roster edit invalidates only the cached result and the obsolete v1
-    // frozen policy. Protocol-v2 ballot revisions are intentionally retained.
-    db.prepare("DELETE FROM event_resolutions WHERE event_id = ?").bind(eventId),
+    // Preserve an existing confirmation and committed attendance. Only a
+    // provisional result and the obsolete v1 policy are invalidated; v2 replies remain.
+    db.prepare("DELETE FROM event_resolutions WHERE event_id = ? AND status <> 'confirmed'").bind(eventId),
     db.prepare("DELETE FROM event_policies WHERE event_id = ?").bind(eventId),
     db.prepare("UPDATE events SET updated_at = ? WHERE id = ?").bind(nowIso, eventId),
     ...prepareInvitationDeliveryStatements(db, bindings, nextEvent, nowIso),
