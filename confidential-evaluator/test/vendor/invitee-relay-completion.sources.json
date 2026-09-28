@@ -1,44 +1,60 @@
 {
   "bundle": {
     "path": "test/vendor/invitee-relay-completion.mjs",
-    "sha256": "a1e6903ab5e6f60eb23d7837b667b47c67cc04ad0a1e22c36c3f940b26302af6"
+    "sha256": "71e7264902a46d7b444363be37864d5c78b73750ca324e68dddb5f6610fdcd70"
   },
   "sources": [
     {
-      "path": "scripts/generate-invitee-contract-fixture.mjs",
-      "sha256": "b619403aa90272584be20c33e916370782a37cb31cb74b0759bb6af2b8df77a6"
+      "path": "../invitee-web/lib/attendance-window.ts",
+      "sha256": "b28a4b6d09b035b5df42cf8f36ec7247c52dc6a292460c29bb45c8e5804f1b6f"
+    },
+    {
+      "path": "../invitee-web/lib/backend/account-keys.ts",
+      "sha256": "baa7d2994f2b5f1876c2b52b05ca58f44468cffbfd6889f70bafba079ecc128a"
     },
     {
       "path": "../invitee-web/lib/backend/ballot-identifiers.ts",
       "sha256": "d20461fd0011603665c1192226b1e71ee502bb777252141c88dabb9e721eb986"
     },
     {
-      "path": "../invitee-web/lib/backend/resolutions.ts",
-      "sha256": "1308384c39c38677b2a5bde4a99865b81f96c6fd2ec479568df87d07e4566883"
+      "path": "../invitee-web/lib/backend/config.ts",
+      "sha256": "4f91d749fd03e25252d800b8f157c84e88a4b38c79e39c375e2699291c48a130"
     },
     {
       "path": "../invitee-web/lib/backend/crypto.ts",
       "sha256": "897063bbee6acb9f74bc3a35435534e9e45cd91f8f77322c0bfc47148fbfcae3"
     },
     {
-      "path": "../invitee-web/lib/backend/config.ts",
-      "sha256": "4f91d749fd03e25252d800b8f157c84e88a4b38c79e39c375e2699291c48a130"
-    },
-    {
       "path": "../invitee-web/lib/backend/evaluator-trust.ts",
       "sha256": "e4a96eef435ce01899d52baf1caaa055adaae68b19cb274bc2dcbeec6ce660d9"
+    },
+    {
+      "path": "../invitee-web/lib/backend/events.ts",
+      "sha256": "2b05b386b49549664962d846493fb4d7d2bb1a2ed3d3ddc75df153ead632b8ba"
     },
     {
       "path": "../invitee-web/lib/backend/http.ts",
       "sha256": "1caa60a17ef2db94770cbd71ae98e80bf7f49728089a1fb100c770a8b66b0b70"
     },
     {
+      "path": "../invitee-web/lib/backend/invitation-delivery.ts",
+      "sha256": "b32ff33842057549a0335d99a2f8045a0919a7ec571ff169dfa04fcccdf17274"
+    },
+    {
       "path": "../invitee-web/lib/backend/invite-tokens.ts",
       "sha256": "37cc4b5bba4da8c18528bbb70056634964f6c044e258e2d49a2f59f313da3f60"
     },
     {
+      "path": "../invitee-web/lib/backend/policy.ts",
+      "sha256": "f5472819723e216189d93e58f9e138bfec4dc5d33a4d588e9789f546eb25145f"
+    },
+    {
       "path": "../invitee-web/lib/backend/resolution-notifications.ts",
       "sha256": "e622af19b98ae5a2702e420df64aaf576deb2e1793b1a6804127535bb6c2cd54"
+    },
+    {
+      "path": "../invitee-web/lib/backend/resolutions.ts",
+      "sha256": "1308384c39c38677b2a5bde4a99865b81f96c6fd2ec479568df87d07e4566883"
     },
     {
       "path": "../invitee-web/lib/backend/response-envelopes.ts",
@@ -50,7 +66,11 @@
     },
     {
       "path": "../invitee-web/lib/backend/simple-resolutions.ts",
-      "sha256": "85295bcfee51a99e47da2c6a38dde340fbf79065f0de8c2ac8f3f407a86ffe58"
+      "sha256": "222869d591519c7e1040c4e3c2fadd4787f1c8e97594d513123a4a55f94b49a5"
+    },
+    {
+      "path": "../invitee-web/lib/event-images.ts",
+      "sha256": "c843bd91ebbe2ba06b6a9df9dcf0a4c79c3cbc6f91467705b91fd4f8370dcead"
     },
     {
       "path": "../invitee-web/lib/privacy/private-response-crypto.ts",
@@ -63,6 +83,10 @@
     {
       "path": "../invitee-web/lib/privacy/trust-verification.ts",
       "sha256": "275906a54165fd12a206b77ed11e59efbd8e7f1439abe697061a1535d99d5472"
+    },
+    {
+      "path": "scripts/generate-invitee-contract-fixture.mjs",
+      "sha256": "b619403aa90272584be20c33e916370782a37cb31cb74b0759bb6af2b8df77a6"
     }
   ]
 }
