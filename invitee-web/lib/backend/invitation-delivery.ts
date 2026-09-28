@@ -1,3 +1,4 @@
+import { acceptsAttendance } from "@/lib/attendance-window";
 import type { HerdBindings } from "@/db";
 
 import { getAuthConfig, getInvitationDeliveryConfig } from "./config";
@@ -46,6 +47,7 @@ type DeliveryDispatchRow = {
   eventDate: string | null;
   eventTimeZone: string | null;
   rsvpDeadline: string | null;
+  resolutionStatus: string | null;
 };
 
 type InvitationDispatchOptions = {
@@ -290,11 +292,11 @@ async function dispatchOne(
   options: { replyReset?: boolean } = {},
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  if (!row.rsvpDeadline || row.rsvpDeadline <= nowIso) {
+  if (!acceptsAttendance({ ...row, invitationsSent: true }, row.resolutionStatus ?? undefined, Date.parse(nowIso))) {
     if (!(await acquirePendingDelivery(db, row.id, nowIso))) return;
     await updateDispatchResult(db, row.id, "failed", {
       errorCode: "rsvp_closed_before_delivery",
-      errorMessage: "The reply deadline passed before this invitation could be delivered.",
+      errorMessage: "Joining closed before this invitation could be delivered.",
     });
     return;
   }
@@ -309,11 +311,11 @@ async function dispatchOne(
   }
 
   const dispatchStartedAt = new Date().toISOString();
-  if (row.rsvpDeadline <= dispatchStartedAt) {
+  if (!acceptsAttendance({ ...row, invitationsSent: true }, row.resolutionStatus ?? undefined, Date.parse(dispatchStartedAt))) {
     if (!(await acquirePendingDelivery(db, row.id, dispatchStartedAt))) return;
     await updateDispatchResult(db, row.id, "failed", {
       errorCode: "rsvp_closed_before_delivery",
-      errorMessage: "The reply deadline passed before this invitation could be delivered.",
+      errorMessage: "Joining closed before this invitation could be delivered.",
     });
     return;
   }
@@ -429,10 +431,12 @@ export async function dispatchEventInvitations(
               events.title,
               events.event_date AS eventDate,
               events.event_time_zone AS eventTimeZone,
-              events.rsvp_deadline AS rsvpDeadline
+              events.rsvp_deadline AS rsvpDeadline,
+              event_resolutions.status AS resolutionStatus
        FROM invitation_deliveries
        JOIN invitees ON invitees.id = invitation_deliveries.invitee_id
        JOIN events ON events.id = invitation_deliveries.event_id
+       LEFT JOIN event_resolutions ON event_resolutions.event_id = events.id
        WHERE invitation_deliveries.event_id = ?
          AND invitation_deliveries.status = 'pending'
        ORDER BY invitation_deliveries.created_at ASC, invitation_deliveries.id ASC`,

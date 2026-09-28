@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { acceptsAttendance } from "@/lib/attendance-window";
 import { Activity, ArrowDown, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, Clock, ContactRound, Crown, EyeOff, HardDrive, Hourglass, Info, KeyRound, Link2, LockKeyhole, LogOut, MapPin, MoreHorizontal, Network, Plus, RefreshCw, Send, ShieldCheck, Smartphone, Trash2, UserRound, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { herdExperience } from "@/lib/experience";
@@ -1240,10 +1241,18 @@ export function HerdApp() {
   const invitedPeople = activeEvent?.invitees ?? [];
   const canAddAttendees = Boolean(
     activeEvent &&
-    activeEvent.resolution?.status !== "confirmed" &&
+    acceptsAttendance(activeEvent, activeEvent.resolution?.status, now) &&
     activeEvent.invitees.length < 19 &&
     (activeEvent.role === "host" || activeEvent.allowsAttendeesToAddGuests),
   );
+  const currentInviteeId = invitedPeople.find((person) => person.isCurrentUser)?.id;
+  const attendanceCommitted = activeEvent?.resolution?.status === "confirmed"
+    && Boolean(currentInviteeId && activeEvent.resolution.attendingMemberIds?.includes(currentInviteeId));
+  const replyLocked = !activeEvent || attendanceCommitted
+    || !acceptsAttendance(activeEvent, activeEvent.resolution?.status, now);
+  const replyLockMessage = attendanceCommitted
+    ? REPLY_EXPERIENCE.confirmedLockedMessage
+    : REPLY_EXPERIENCE.joiningClosedMessage;
   const conditionCandidates = invitedPeople.filter((person) => !person.isCurrentUser);
   const replyPreviewName = invitedPeople.find((person) => person.isCurrentUser)?.displayName
     || currentUser?.name
@@ -3118,13 +3127,13 @@ export function HerdApp() {
                 {privateResponseState === "loading" ? (
                   <p className="edit-note" role="status">{REPLY_EXPERIENCE.openingSaved}</p>
                 ) : null}
-                <div className={`confirmed-reply-editor ${activeEvent.resolution?.status === "confirmed" ? "is-locked" : ""}`}>
+                <div className={`confirmed-reply-editor ${replyLocked ? "is-locked" : ""}`}>
                 <div
                   className="reply-choice-group"
                   role="radiogroup"
                   aria-labelledby="reply-choice-label"
                   aria-busy={privateResponseState === "loading"}
-                  inert={activeEvent.resolution?.status === "confirmed" || privateResponseState === "loading"
+                  inert={replyLocked || privateResponseState === "loading"
                     ? true
                     : undefined}
                 >
@@ -3253,11 +3262,11 @@ export function HerdApp() {
                   </span>
                 </button>
                 </div>
-                {activeEvent.resolution?.status === "confirmed" ? (
+                {replyLocked ? (
                   <button
                     type="button"
                     className="confirmed-reply-edit-guard"
-                    aria-label={REPLY_EXPERIENCE.confirmedLockedMessage}
+                    aria-label={replyLockMessage}
                     onClick={showConfirmedReplyNotice}
                   />
                 ) : null}
@@ -3267,7 +3276,7 @@ export function HerdApp() {
                   {replyError ? <p className="inline-error" role="alert">{replyError}</p> : null}
                   <button
                     className="primary-button"
-                    disabled={!replyHasUnsavedChanges || authPending || privateResponseState === "loading"}
+                    disabled={replyLocked || !replyHasUnsavedChanges || authPending || privateResponseState === "loading"}
                     onClick={() => void (
                       submitReply()
                     )}
@@ -3819,7 +3828,7 @@ export function HerdApp() {
         ) : null}
         {confirmedReplyNotice ? (
           <div className="bottom-toast" role="status">
-            {REPLY_EXPERIENCE.confirmedLockedMessage}
+            {replyLockMessage}
           </div>
         ) : null}
         {addressCopiedNotice ? (

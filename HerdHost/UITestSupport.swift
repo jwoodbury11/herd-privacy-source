@@ -28,6 +28,17 @@ struct HerdUITestEnvironment {
 
     let scenario: Scenario
 
+    // Explicit UI-test launches may exercise the real isolated local backend.
+    // Release builds exclude this file; remote origins are never accepted.
+    var localBackendURL: URL? {
+        guard let raw = ProcessInfo.processInfo.environment["HERD_UI_TEST_LOCAL_ORIGIN"],
+              let url = URL(string: raw), url.scheme == "http", url.host == "127.0.0.1",
+              url.port != nil else { return nil }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = "localhost"
+        return components?.url
+    }
+
     static var current: HerdUITestEnvironment? {
         let arguments = ProcessInfo.processInfo.arguments
         guard
@@ -52,6 +63,7 @@ struct HerdUITestEnvironment {
     }
 
     func makeSessionStore() -> any SessionStoring {
+        if localBackendURL != nil { return HerdUITestSessionStore(session: nil) }
         if Self.isStoreScreenshot && scenario == .inviteeHome {
             return HerdUITestSessionStore(session: AuthSession(
                 user: HerdUser(id: "ui-invitee-account", phoneNumber: Self.inviteePhoneNumber, name: "Alex Morgan", address: ""),
@@ -87,12 +99,12 @@ struct HerdUITestEnvironment {
 
     func makeAPIClient() -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [HerdUITestURLProtocol.self]
+        if localBackendURL == nil { configuration.protocolClasses = [HerdUITestURLProtocol.self] }
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         let session = URLSession(configuration: configuration)
         return APIClient(
-            baseURL: Self.fixtureOrigin,
+            baseURL: localBackendURL ?? Self.fixtureOrigin,
             urlSession: session,
             evaluatorURLSession: session
         )

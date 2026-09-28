@@ -437,6 +437,27 @@ struct HerdEvent: Identifiable, Codable, Hashable, Sendable {
     var resolution: EventResolution?
     var invitationDelivery: InvitationDeliverySummary?
 
+    var attendanceClosesAt: Date? {
+        if resolution?.status == .confirmed, let eventDate {
+            return eventDate.addingTimeInterval(24 * 60 * 60)
+        }
+        return rsvpDeadline
+    }
+
+    func acceptsAttendance(at now: Date = .now) -> Bool {
+        invitationsSent && attendanceClosesAt.map { now < $0 } == true
+    }
+
+    var currentUserAttendanceCommitted: Bool {
+        guard resolution?.status == .confirmed,
+              let invitee = invitees.first(where: \.isCurrentUser) else { return false }
+        return resolution?.attendingMemberIds?.contains(invitee.id.uuidString.lowercased()) == true
+    }
+
+    func canChangeReply(at now: Date = .now) -> Bool {
+        acceptsAttendance(at: now) && !currentUserAttendanceCommitted
+    }
+
     init(
         id: UUID,
         title: String,

@@ -266,7 +266,8 @@
     "submittingButton": "Saving…",
     "previewButton": "Preview how others see it",
     "previewTitle": "How your reply shows up to others",
-    "confirmedLockedMessage": "You cannot change your response to a confirmed event.",
+    "confirmedLockedMessage": "Your attendance is confirmed and can’t be changed.",
+    "joiningClosedMessage": "Joining is closed for this event.",
     "confirmedPreviewLabel": "If the event is confirmed:",
     "confirmedPreviewBody": "Your attendance conditions are never shown to anyone.",
     "noReplyHistoryTemplate": "This user has not responded to {missed} of {total} confirmed events they were invited to.",
@@ -321,7 +322,7 @@
       {
         "title": "Can I see my reply on another device?",
         "paragraphs": [
-          "Yes. Sign in on any supported device to view and update your private reply until the event is confirmed or replies close."
+          "Yes. Sign in on any supported device to view and update your private reply until your attendance is confirmed or joining closes."
         ],
         "showsPolicyIdentifiers": false,
         "showsVerificationLinks": false

@@ -1,3 +1,5 @@
+import { ApiError } from "./http";
+import { getEventById } from "./events";
 import type { HerdBindings } from "@/db";
 
 import { deriveBallotId, deriveBallotMemberId } from "./ballot-identifiers";
@@ -108,43 +110,49 @@ async function loadLatestBallots(
   return mapped.filter((ballot): ballot is EvaluatedBallot => ballot !== null);
 }
 
+type StoredResolution = {
+  status: string;
+  attendingMemberIds: string | null;
+  resolvedAt: string | null;
+  policyHash: string;
+};
+
 async function persistResolution(
   db: D1Database,
   eventId: string,
   inputDigest: string,
   resolution: EventResolution,
   nowIso: string,
-): Promise<void> {
+  expected: StoredResolution | null,
+  expectedRevisionCount: number,
+): Promise<boolean> {
   const attendingMemberIds = resolution.status === "confirmed"
     ? JSON.stringify(resolution.attendingMemberIds ?? [])
     : null;
-  const resolvedAt = resolution.status === "pending" ? null : resolution.resolvedAt;
-  await db
+  const resolvedAt = "resolvedAt" in resolution ? resolution.resolvedAt : null;
+  const result = await db
     .prepare(
       `INSERT INTO event_resolutions
         (event_id, policy_hash, status, batch_hash, attending_member_ids,
          resolved_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (SELECT COUNT(*) FROM ballot_revisions WHERE event_id = ?) = ?
        ON CONFLICT(event_id) DO UPDATE SET
          policy_hash = excluded.policy_hash,
          status = CASE
            WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.status
            ELSE excluded.status
          END,
-         batch_hash = CASE
-           WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.batch_hash
-           ELSE excluded.batch_hash
-         END,
-         attending_member_ids = CASE
-           WHEN event_resolutions.status = 'confirmed'
-             THEN event_resolutions.attending_member_ids
-           ELSE excluded.attending_member_ids
-         END,
+         batch_hash = excluded.batch_hash,
+         attending_member_ids = excluded.attending_member_ids,
          resolved_at = CASE
            WHEN event_resolutions.status = 'confirmed' THEN event_resolutions.resolved_at
            ELSE excluded.resolved_at
          END,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at
+       WHERE event_resolutions.policy_hash IS ?
+         AND event_resolutions.status IS ?
+         AND event_resolutions.attending_member_ids IS ?`,
     )
     .bind(
       eventId,
@@ -155,8 +163,14 @@ async function persistResolution(
       resolvedAt,
       nowIso,
       nowIso,
+      eventId,
+      expectedRevisionCount,
+      expected?.policyHash ?? null,
+      expected?.status ?? null,
+      expected?.attendingMemberIds ?? null,
     )
     .run();
+  return (result.meta.changes ?? 0) === 1;
 }
 
 /**
@@ -169,18 +183,22 @@ export async function getSimpleEventResolution(
   bindings: HerdBindings,
   event: ResolutionEvent,
   nowIso = new Date().toISOString(),
+  attempt = 0,
 ): Promise<EventResolution | null> {
   if (!event.invitationsSent || !event.rsvpDeadline) return null;
 
   const stored = await db
     .prepare(
       `SELECT status, attending_member_ids AS attendingMemberIds,
-              resolved_at AS resolvedAt
+              resolved_at AS resolvedAt, policy_hash AS policyHash
        FROM event_resolutions WHERE event_id = ?`,
     )
     .bind(event.id)
-    .first<{ status: string; attendingMemberIds: string | null; resolvedAt: string | null }>();
+    .first<StoredResolution>();
 
+  // Guard the commit against any reply accepted while evaluation is in flight.
+  const revisionCount = await db.prepare("SELECT COUNT(*) AS count FROM ballot_revisions WHERE event_id = ?")
+    .bind(event.id).first<number>("count") ?? 0;
   const ballots = await loadLatestBallots(db, bindings, event);
   const memberIdByInviteeId = new Map(
     await Promise.all(event.invitees.map(async ({ id }) => [
@@ -189,40 +207,24 @@ export async function getSimpleEventResolution(
     ] as const)),
   );
   const ballotByInviteeId = new Map(ballots.map((ballot) => [ballot.inviteeId, ballot]));
-  if (stored?.status === "confirmed" && stored.resolvedAt) {
-    // Confirmation is terminal, but rebuild the presentation-only guest states
-    // from the immutable roster and latest ballots so every read has the same
-    // useful shape as the confirming request.
-    const attendingMemberIds = JSON.parse(stored.attendingMemberIds ?? "[]") as string[];
-    const attendingInviteeIds = new Set(attendingMemberIds.filter((id) => id !== "host"));
-    return {
-      status: "confirmed",
-      attendingMemberIds,
-      attendanceRevealed: true,
-      guestStates: event.invitees.map(({ id }) => {
-        const ballot = ballotByInviteeId.get(id);
-        return {
-          memberId: id,
-          status: attendingInviteeIds.has(id)
-            ? "going"
-            : ballot
-              ? "cant_commit"
-              : "no_response",
-          missedDeadline: false,
-        };
-      }),
-      resolvedAt: stored.resolvedAt,
-    };
-  }
-  const attending = new Set(
-    ballots.filter((ballot) => ballot.response === "going").map((ballot) => ballot.memberId),
-  );
+  const wasConfirmed = stored?.status === "confirmed";
+  const committedInviteeIds = new Set<string>(wasConfirmed
+    ? JSON.parse(stored.attendingMemberIds ?? "[]") as string[]
+    : []);
+  const committedMemberIds = new Set(event.invitees.flatMap(({ id }) => {
+    const memberId = memberIdByInviteeId.get(id);
+    return committedInviteeIds.has(id) && memberId ? [memberId] : [];
+  }));
+  const attending = new Set([
+    ...committedMemberIds,
+    ...ballots.filter((ballot) => ballot.response === "going").map((ballot) => ballot.memberId),
+  ]);
   let changed = true;
   while (changed) {
     changed = false;
     const participantCount = attending.size + 1;
     for (const ballot of ballots) {
-      if (!attending.has(ballot.memberId)) continue;
+      if (!attending.has(ballot.memberId) || committedMemberIds.has(ballot.memberId)) continue;
       if (
         ballot.minimumParticipants === null ||
         ballot.minimumParticipants > participantCount ||
@@ -254,6 +256,7 @@ export async function getSimpleEventResolution(
     minimumParticipants: event.minimumParticipants,
     requiredGroups: event.requiredGroups,
     inviteeIds: event.invitees.map(({ id }) => id),
+    committedInviteeIds: [...committedInviteeIds].sort(),
     ballots: ballots.map((ballot) => ({
       memberId: ballot.memberId,
       response: ballot.response,
@@ -264,35 +267,37 @@ export async function getSimpleEventResolution(
   }));
 
   let resolution: EventResolution;
-  if (confirmed) {
+  if (wasConfirmed || confirmed) {
     resolution = {
       status: "confirmed",
-      attendingMemberIds: ["host", ...attendingInviteeIds],
+      attendingMemberIds: [...new Set(["host", ...committedInviteeIds, ...attendingInviteeIds])],
       attendanceRevealed: true,
       guestStates: event.invitees.map(({ id }) => {
         const ballot = ballotByInviteeId.get(id);
         const memberId = memberIdByInviteeId.get(id)!;
         return {
           memberId: id,
-          status: ballot?.response === "cant_commit"
-            ? "cant_commit"
-            : attending.has(memberId)
-              ? "going"
-              : ballot
-                ? "cant_commit"
-                : "no_response",
+          status: attending.has(memberId)
+            ? "going"
+            : ballot ? "cant_commit" : "no_response",
           missedDeadline: false,
         };
       }),
-      resolvedAt: nowIso,
+      resolvedAt: wasConfirmed && stored.resolvedAt ? stored.resolvedAt : nowIso,
     };
   } else if (nowIso >= event.rsvpDeadline) {
     resolution = { status: "not_confirmed", resolvedAt: nowIso };
   } else {
     resolution = { status: "pending" };
   }
-  await persistResolution(db, event.id, inputDigest, resolution, nowIso);
-  if (resolution.status !== "pending") {
+  if (!await persistResolution(db, event.id, inputDigest, resolution, nowIso, stored, revisionCount)) {
+    // A concurrent join/read won. Re-evaluate from its committed roster instead
+    // of overwriting it with an older snapshot or returning stale attendance.
+    if (attempt >= 4) throw new ApiError(503, "event_busy", "Please try again.");
+    const currentEvent = await getEventById(db, event.id);
+    return currentEvent ? getSimpleEventResolution(db, bindings, currentEvent, nowIso, attempt + 1) : null;
+  }
+  if (!wasConfirmed && resolution.status !== "pending") {
     try {
       await sendResolutionTransitionNotifications(
         db,

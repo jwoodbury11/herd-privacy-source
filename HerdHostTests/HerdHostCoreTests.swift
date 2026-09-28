@@ -1552,3 +1552,35 @@ private struct InteropVector: Decodable {
     let expectedDraft: PrivateResponsePlaintextV1
     let expectedEnvelopeHash: String
 }
+
+final class ConfirmedJoiningWindowTests: XCTestCase {
+    func testJoiningContinuesAfterDeadlineAndStartUntilExactly24HoursLater() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var event = HerdEvent.newDraft(hostName: "Host")
+        event.eventDate = start
+        event.rsvpDeadline = start.addingTimeInterval(-3600)
+        event.invitationsSent = true
+        event.resolution = EventResolution(status: .confirmed, attendingMemberIds: ["host"], attendanceRevealed: true, resolvedAt: start.addingTimeInterval(-7200))
+        XCTAssertTrue(event.acceptsAttendance(at: start.addingTimeInterval(1)))
+        XCTAssertTrue(event.canChangeReply(at: start.addingTimeInterval(86399)))
+        XCTAssertFalse(event.acceptsAttendance(at: start.addingTimeInterval(86400)))
+        XCTAssertFalse(event.canChangeReply(at: start.addingTimeInterval(86401)))
+        event.resolution = EventResolution(status: .pending)
+        XCTAssertFalse(event.acceptsAttendance(at: start))
+    }
+
+    func testAutomaticPromotionLocksOnlyTheCommittedGuest() {
+        let start = Date().addingTimeInterval(3600)
+        let guest = Invitee(id: UUID(), displayName: "Guest", phoneNumber: "+14155550102", isCurrentUser: true)
+        var event = HerdEvent.newDraft(hostName: "Host")
+        event.eventDate = start
+        event.rsvpDeadline = start.addingTimeInterval(-7200)
+        event.invitationsSent = true
+        event.invitees = [guest]
+        event.resolution = EventResolution(status: .confirmed, attendingMemberIds: ["host"], attendanceRevealed: true)
+        XCTAssertTrue(event.canChangeReply())
+        event.resolution = EventResolution(status: .confirmed, attendingMemberIds: ["host", guest.id.uuidString.lowercased()], attendanceRevealed: true)
+        XCTAssertTrue(event.acceptsAttendance())
+        XCTAssertFalse(event.canChangeReply())
+    }
+}

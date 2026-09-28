@@ -596,13 +596,22 @@ final class HerdHostUITests: XCTestCase {
 
         let actions = app.buttons["event-actions-menu"]
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
-        actions.tap()
-        let deleteAction = app.buttons["delete-hosted-event"]
-        XCTAssertTrue(deleteAction.waitForExistence(timeout: 5))
-        deleteAction.tap()
-
         let confirmation = app.alerts["Delete this event?"]
-        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        func openDeletionConfirmation() {
+            actions.tap()
+            let deleteAction = app.buttons["delete-hosted-event"]
+            XCTAssertTrue(deleteAction.waitForExistence(timeout: 5))
+            let ready = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isHittable == true"),
+                object: deleteAction
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
+            deleteAction.tap()
+            // The menu dismisses before the app presents the destructive alert.
+            // Wait on both openings, including after cancelling the first alert.
+            XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        }
+        openDeletionConfirmation()
         XCTAssertTrue(
             confirmation.staticTexts[
                 "This permanently deletes the event for you and everyone invited. This can’t be undone."
@@ -615,9 +624,8 @@ final class HerdHostUITests: XCTestCase {
         confirmation.buttons["Cancel"].tap()
         XCTAssertTrue(eventTitle.exists)
 
-        actions.tap()
-        app.buttons["delete-hosted-event"].tap()
-        app.buttons["confirm-delete-hosted-event"].firstMatch.tap()
+        openDeletionConfirmation()
+        confirmation.buttons["confirm-delete-hosted-event"].firstMatch.tap()
 
         XCTAssertTrue(app.staticTexts["Herd events"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Deletable Fixture Event"].exists)
@@ -965,6 +973,68 @@ final class HerdHostUITests: XCTestCase {
         privacyScroll.swipeDown()
         XCTAssertTrue(app.staticTexts["How privacy works"].isHittable)
         XCTAssertFalse(app.descendants(matching: .any)["privacy-navigation-divider"].exists)
+    }
+
+    func testConfirmedJoiningRefreshesFromAnotherAccount() async throws {
+        guard let origin = ProcessInfo.processInfo.environment["HERD_UI_TEST_LOCAL_ORIGIN"],
+              let baseURL = URL(string: origin), baseURL.host == "127.0.0.1" else {
+            throw XCTSkip("Start confirmed-joining-harness.mjs and set HERD_UI_TEST_LOCAL_ORIGIN.")
+        }
+        func api(_ path: String, token: String? = nil, body: [String: Any]? = nil, method: String = "GET") async throws -> [String: Any] {
+            var request = URLRequest(url: URL(string: path, relativeTo: baseURL)!)
+            request.httpMethod = method
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+            let (data, response) = try await URLSession.shared.data(for: request)
+            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let auth = try await api("/api/auth/request-code", body: ["phoneNumber": "6"], method: "POST")
+        let token = try XCTUnwrap(auth["accessToken"] as? String)
+        let listing = try await api("/api/events", token: token)
+        let event = try XCTUnwrap((listing["events"] as? [[String: Any]])?.first)
+        let title = try XCTUnwrap(event["title"] as? String)
+        let invite = try XCTUnwrap(event["inviteToken"] as? String)
+        let before = try XCTUnwrap(event["resolution"] as? [String: Any])
+        XCTAssertEqual((before["attendingMemberIds"] as? [String])?.count, 4)
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--herd-ui-testing", "invitee-home"]
+        app.launchEnvironment["HERD_UI_TEST_LOCAL_ORIGIN"] = origin
+        app.launch()
+        signIn(app, phoneNumber: "1")
+        XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 15))
+        app.staticTexts[title].tap()
+        let guests = app.staticTexts["See the full guest list"]
+        scrollToMakeHittable(guests, in: app.scrollViews.firstMatch)
+        guests.tap()
+        XCTAssertTrue(app.navigationBars["Attendees"].waitForExistence(timeout: 5))
+        let conditionalName = app.staticTexts["Two Brown"]
+        XCTAssertTrue(conditionalName.exists)
+        func conditionalStatus(_ status: String) -> Bool {
+            app.staticTexts.matching(identifier: "attendee-status").allElementsBoundByIndex.contains {
+                $0.label == status && abs($0.frame.midY - conditionalName.frame.midY) < 20
+            }
+        }
+        XCTAssertTrue(conditionalStatus("Can’t commit"))
+        XCTAssertTrue(app.buttons["add-event-attendees"].exists)
+        _ = try await api("/api/invites/\(invite)/ballot", token: token, body: [
+            "response": "going", "minimumParticipants": 2, "requiredGroups": []
+        ], method: "PUT")
+        let refreshed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            conditionalStatus("Going")
+        }, object: nil)
+        await fulfillment(of: [refreshed], timeout: 8)
+        XCTAssertTrue(app.navigationBars["Attendees"].exists)
+        let afterListing = try await api("/api/events", token: token)
+        let after = try XCTUnwrap((afterListing["events"] as? [[String: Any]])?.first?["resolution"] as? [String: Any])
+        XCTAssertEqual((after["attendingMemberIds"] as? [String])?.count, 6)
+        XCTAssertEqual(after["resolvedAt"] as? String, before["resolvedAt"] as? String)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "confirmed-joining-live-observer"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testConfirmedAttendeeStatusesStayInsideTheirRows() {
