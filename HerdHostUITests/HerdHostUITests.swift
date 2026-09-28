@@ -1009,7 +1009,10 @@ final class HerdHostUITests: XCTestCase {
         let unmetNotice = app.staticTexts["You’re not committed yet"]
         scrollToMakeHittable(unmetNotice, in: app.scrollViews.firstMatch)
         XCTAssertTrue(unmetNotice.exists)
-        XCTAssertTrue(app.staticTexts["The event is confirmed, but your requirements haven’t been met yet. If they’re met, your status will automatically change from “Can’t commit” to “Going.”"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "The event is confirmed, but your requirements haven’t been met yet. If they’re met, your status will automatically change from “Can’t commit” to “Going.”"
+        )).firstMatch.exists)
         let noticeScreenshot = XCTAttachment(screenshot: app.screenshot())
         noticeScreenshot.name = "unmet-requirements-card"
         noticeScreenshot.lifetime = .keepAlways
