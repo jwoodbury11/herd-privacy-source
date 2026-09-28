@@ -83,15 +83,10 @@ final class HerdHostUITests: XCTestCase {
 
         let saveInvitees = app.buttons["save-invitees"]
         XCTAssertTrue(saveInvitees.waitForExistence(timeout: 5))
+        XCTAssertEqual(saveInvitees.label, "Save")
         saveInvitees.tap()
-
-        let uploadConsent = app.alerts["Save attendees to Herd?"]
-        XCTAssertTrue(uploadConsent.waitForExistence(timeout: 5))
-        uploadConsent.buttons["Cancel"].tap()
-        XCTAssertTrue(app.navigationBars["Review invites"].exists)
-        saveInvitees.tap()
-        XCTAssertTrue(uploadConsent.waitForExistence(timeout: 5))
-        uploadConsent.buttons["Agree and save"].tap()
+        XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["Save attendees to Herd?"].exists)
 
         let primaryAction = app.buttons["event-primary-action"]
         XCTAssertTrue(primaryAction.waitForExistence(timeout: 5))
@@ -251,7 +246,7 @@ final class HerdHostUITests: XCTestCase {
         XCTAssertEqual(reopenedBeach.value as? String, "Selected")
     }
 
-    func testDeniedContactsManualInvitesRequireConsent() {
+    func testDeniedContactsManualInvitesSaveDirectly() {
         let app = launch(scenario: "host-create", additionalArguments: ["--open-create", "--contacts-status", "denied"])
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 10))
         let attendees = app.buttons["event-attendees"]
@@ -270,17 +265,10 @@ final class HerdHostUITests: XCTestCase {
         }
         let save = app.buttons["save-invitees"]
         XCTAssertTrue(save.isEnabled)
+        XCTAssertEqual(save.label, "Save")
         save.tap()
-        let consent = app.alerts["Save attendees to Herd?"]
-        XCTAssertTrue(consent.waitForExistence(timeout: 5))
-        XCTAssertTrue(consent.staticTexts.matching(NSPredicate(format: "label == %@", "These attendees’ names and phone numbers will be stored on Herd’s servers to manage the event and deliver invitations, including when you save an event draft.")).firstMatch.exists)
-        XCTAssertFalse(consent.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "address book")).firstMatch.exists)
-        consent.buttons["Cancel"].tap()
-        XCTAssertTrue(app.navigationBars["Review invites"].exists)
-        XCTAssertEqual(name.value as? String, "Manual Guest")
-        save.tap()
-        consent.buttons["Agree and save"].tap()
         XCTAssertTrue(app.navigationBars["New event"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["Save attendees to Herd?"].exists)
         scrollToMakeHittable(attendees, in: app)
         attendees.tap()
         XCTAssertTrue(app.navigationBars["Review invites"].waitForExistence(timeout: 5))
