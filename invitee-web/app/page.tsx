@@ -1054,6 +1054,7 @@ export function HerdApp() {
   const [replyPreviewOutcome, setReplyPreviewOutcome] = useState<"confirmed" | "not-confirmed">("confirmed");
   const [successPreviewOutcome, setSuccessPreviewOutcome] = useState<"confirmed" | "not-confirmed">("confirmed");
   const [savedReplyFingerprint, setSavedReplyFingerprint] = useState<string | null>(null);
+  const [savedReplyChoice, setSavedReplyChoice] = useState<Reply>(null);
   const [events, setEvents] = useState<ApiEvent[]>([]);
   const [lastEventsUpdatedAt, setLastEventsUpdatedAt] = useState<number | null>(null);
   const [eventsRefreshPending, setEventsRefreshPending] = useState(false);
@@ -1151,6 +1152,7 @@ export function HerdApp() {
     setEvents([]);
     setSelectedEvent(null);
     setCurrentUser(null);
+    setSavedReplyChoice(null);
     setInviteMetadata(null);
     setPrivateResponseState("idle");
     setProfileName("");
@@ -1447,6 +1449,7 @@ export function HerdApp() {
         const draft = body.ballot;
         if (!draft) {
           setSavedReplyFingerprint(null);
+          setSavedReplyChoice(null);
           setReply(null);
           setMinimum(selectedEvent.minimumParticipants);
           setConditionGroups([]);
@@ -1468,6 +1471,7 @@ export function HerdApp() {
         setMinimum(savedMinimum);
         setConditionGroups(savedConditionGroups);
         setSavedReplyFingerprint(fingerprint);
+        setSavedReplyChoice(savedReply);
         setPrivateResponseState("ready");
       } catch (error) {
         if (cancelled) return;
@@ -1672,6 +1676,7 @@ export function HerdApp() {
     setMinimum(event.minimumParticipants);
     setReply(null);
     setSavedReplyFingerprint(null);
+    setSavedReplyChoice(null);
     setConditionGroups([]);
     setInviteMetadata(null);
     setReplyError("");
@@ -2383,6 +2388,7 @@ export function HerdApp() {
           : event
       ));
       setReply(submittedReply);
+      setSavedReplyChoice(submittedReply);
       setSavedReplyFingerprint(
         replyDraftFingerprint(
           submittedReply,
@@ -3117,6 +3123,17 @@ export function HerdApp() {
                   </button>
                 </div>
               </section>
+
+              {activeEvent.role === "invitee"
+                && activeEvent.resolution?.status === "confirmed"
+                && (activeEvent.hasBallot || activeEvent.hasResponse)
+                && savedReplyChoice === "yes"
+                && !replyLocked ? (
+                  <section className="privacy-callout unmet-requirements-callout" data-testid="unmet-requirements-callout">
+                    <h3>{INVITATION_EXPERIENCE.unmetRequirementsCallout.title}</h3>
+                    <p>{INVITATION_EXPERIENCE.unmetRequirementsCallout.body}</p>
+                  </section>
+                ) : null}
 
               {activeEvent.role !== "host" ? <section className="reply-section">
                 <div className="section-heading">
