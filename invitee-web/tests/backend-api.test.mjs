@@ -139,7 +139,7 @@ async function createHarness(options = {}) {
       .reply(201, (request) => {
         sentMessages.push(new Response(request.body).text()
           .then((body) => new URLSearchParams(body)));
-        return { sid: `SM${(++messageSequence).toString(16).padStart(32, "0")}`, status: "accepted" };
+        return { sid: `${options.messageSidPrefix ?? "SM"}${(++messageSequence).toString(16).padStart(32, "0")}`, status: "accepted" };
       })
       .persist();
   }
@@ -464,7 +464,7 @@ test("real phone numbers use Twilio Verify before a session is created", async (
 });
 
 test("automatic invitations attach the selected artwork and are sent only once", async (t) => {
-  const { miniflare, database, sentMessages } = await createHarness();
+  const { miniflare, database, sentMessages } = await createHarness({ messageSidPrefix: "MM" });
   t.after(() => miniflare.dispose());
   const signIn = await api(miniflare, "/api/auth/request-code",
     jsonRequest("POST", { phoneNumber: "1" }));
@@ -502,6 +502,8 @@ test("automatic invitations attach the selected artwork and are sent only once",
     assert.ok(image.length < 5_000_000, "MMS artwork must fit Twilio's media limit");
     assert.equal(await database.prepare("SELECT status FROM invitation_deliveries WHERE event_id = ?")
       .bind(event.id).first("status"), "sent");
+    assert.match(await database.prepare("SELECT provider_message_sid FROM invitation_deliveries WHERE event_id = ?")
+      .bind(event.id).first("provider_message_sid"), /^MM[0-9a-f]{32}$/u);
 
     const savedAgain = await api(miniflare, `/api/events/${event.id}`,
       authorizedJsonRequest("PUT", sentEvent, accessToken));
