@@ -396,7 +396,7 @@ async function dispatchOne(
     }
 
     const providerMessageSid =
-      typeof payload.sid === "string" && /^SM[0-9a-fA-F]{32}$/u.test(payload.sid)
+      typeof payload.sid === "string" && /^(?:SM|MM)[0-9a-fA-F]{32}$/u.test(payload.sid)
         ? payload.sid
         : null;
     if (!providerMessageSid) {
