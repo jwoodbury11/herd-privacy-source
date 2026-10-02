@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     const db = await getD1();
     if (body.action === "preview") {
       const { recipients, message, expiresAt } = await prepareSmsRsvp(db, bindings, eventId, body.audience);
-      return jsonResponse({ recipientCount: recipients.length, message, expiresAt });
+      return jsonResponse({ recipientCount: recipients.length, message, personalizedEventLinkAtEnd: true, expiresAt });
     }
     if (body.action !== "send") throw new ApiError(400, "invalid_action", "Choose preview or send.");
     const batchId = requireUuid(body.batchId, "batch ID");
