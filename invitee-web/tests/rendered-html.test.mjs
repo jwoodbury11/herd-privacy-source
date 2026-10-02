@@ -143,6 +143,22 @@ test("publishes an exact validated runtime release pointer without an outbound f
   assert.equal(await response.text(), pointer);
 });
 
+test("independent deployment metadata distinguishes source from historical trust evidence", async () => {
+  const sourceRevision = "a".repeat(40);
+  const response = await render("/.well-known/herd-release.json", {
+    HERD_DEPLOYMENT_REVISION: sourceRevision,
+    HERD_ARTIFACT_RELEASE_ID: "2026.10.02.2",
+    HERD_RELEASE_POINTER_URL: "https://storage.googleapis.com/herd-release-evidence/releases/2026.10.02.2/herd-release.json",
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const value = await response.json();
+  assert.equal(value.schemaVersion, 2);
+  assert.equal(value.sourceRevision, sourceRevision);
+  assert.equal(value.trustConfiguration.releaseId, "2026.10.02.2");
+  assert.equal(value.manifest, undefined);
+});
+
 test("publishes the exact client asset manifest for independent monitoring", async () => {
   const [privateManifest, publicManifest] = await Promise.all([
     readFile(new URL("../dist/client/.vite/manifest.json", import.meta.url)),

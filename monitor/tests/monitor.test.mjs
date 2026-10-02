@@ -153,6 +153,29 @@ test("accepts a public release pointer from an explicitly pinned evidence origin
   );
 });
 
+test("runtime monitoring permits independent web deployments while witnessing live privacy", async () => {
+  const fixture = monitoredFixture();
+  fixture.target.mode = "runtime";
+  for (const resource of fixture.deployment.monitoredResources) {
+    if (resource.name !== "apple-app-site-association") fixture.responses.delete(resource.url);
+  }
+  const result = await verifyMonitoredTarget(fixture, {
+    fetchImpl: mockFetch(fixture.responses),
+    now: () => new Date("2026-08-02T12:00:00.000Z"),
+  });
+  assert.equal(result.mode, "runtime");
+  assert.deepEqual(result.resources.map(({ name }) => name), ["apple-app-site-association"]);
+  assert.deepEqual(result.releaseArtifacts, []);
+  assert.ok(result.responseTransparency);
+  assert.ok(result.evaluatorAttestation);
+  await assert.rejects(verifyMonitoredTarget(fixture, {
+    fetchImpl: mockFetch(fixture.responses),
+    liveAttestationVerifier: async () => { throw new Error("invalid live attestation"); },
+  }), /invalid live attestation/u);
+  fixture.responses.delete(`${fixture.responseLog.url}?after=0&limit=500`);
+  await assert.rejects(verifyMonitoredTarget(fixture, { fetchImpl: mockFetch(fixture.responses) }), /404/u);
+});
+
 test("production live attestation requires an independent root/origin and exact signed relay endpoint", async () => {
   const missing = monitoredFixture();
   delete missing.target.evaluatorAttestation;

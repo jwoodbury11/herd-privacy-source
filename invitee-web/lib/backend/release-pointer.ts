@@ -104,6 +104,20 @@ export async function releasePointerResponse(
   if (!expectedReleaseId) {
     throw new ApiError(500, "server_misconfigured", "The artifact release identity is not configured.");
   }
+  const sourceRevision = bindings.HERD_DEPLOYMENT_REVISION?.trim();
+  if (sourceRevision) {
+    if (!/^[0-9a-f]{40}$/u.test(sourceRevision)) {
+      throw new ApiError(500, "server_misconfigured", "The deployed source revision is invalid.");
+    }
+    // Trust settings can outlive a web deployment. Do not present the old
+    // all-platform release archive as evidence for newly deployed web bytes.
+    return Response.json({
+      schemaVersion: 2,
+      sourceRevision,
+      sourceUrl: `https://github.com/jwoodbury11/herd-privacy-source/tree/${sourceRevision}`,
+      trustConfiguration: { releaseId: expectedReleaseId, evidenceUrl: configuredUrl.toString() },
+    }, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+  }
   const configuredPointer = bindings.HERD_RELEASE_POINTER_JSON;
   if (configuredPointer?.trim()) {
     return pointerResponse(new TextEncoder().encode(configuredPointer), expectedReleaseId);

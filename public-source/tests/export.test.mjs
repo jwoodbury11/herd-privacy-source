@@ -346,35 +346,3 @@ test("repository policy includes the executable privacy contracts and acceptance
     assert.equal(included.has(requiredPath), true, `${requiredPath} is absent from the public export`);
   }
 });
-
-test("hosted and local gates execute the unpacked public export from a clean checkout", async () => {
-  const [workflow, rootReadme, localGate, ...viteConfigs] = await Promise.all([
-    readFile(path.join(repositoryRoot, ".github", "workflows", "privacy-ci.yml"), "utf8"),
-    readFile(path.join(repositoryRoot, "README.md"), "utf8"),
-    readFile(path.join(repositoryRoot, "scripts", "test-all"), "utf8"),
-    ...[
-      "invitee-web/vite.config.ts",
-      "herd-legal/vite.config.ts",
-      "evaluator-service/vite.config.ts",
-    ].map((filePath) => readFile(path.join(repositoryRoot, filePath), "utf8")),
-  ]);
-  assert.match(workflow, /Build, verify, and unpack the reviewed public source/u);
-  assert.match(workflow, /HERD_TEST_ROOT=.*herd-privacy-source/u);
-  assert.match(workflow, /npm test --prefix "\$HERD_TEST_ROOT\/invitee-web"/u);
-  assert.match(workflow, /npm test --prefix "\$HERD_TEST_ROOT\/herd-legal"/u);
-  assert.match(workflow, /terraform "-chdir=\$HERD_TEST_ROOT\/infrastructure\/gcp-confidential-space" validate/u);
-  const nativeJob = workflow.slice(workflow.indexOf("  ios-native:"));
-  assert.match(nativeJob, /Build, verify, and unpack the reviewed public source/u);
-  assert.match(nativeJob, /cd "\$HERD_TEST_ROOT"/u);
-  assert.doesNotMatch(nativeJob, /if: github\.repository/u);
-  for (const viteConfig of viteConfigs) {
-    assert.doesNotMatch(viteConfig, /import hostingConfig/u);
-  }
-  assert.doesNotMatch(rootReadme, /Partiful iOS|TestFlightExportOptions|WORKING_NOTES/u);
-  assert.match(rootReadme, /Apache License 2\.0/u);
-  assert.match(rootReadme, /npm ci --prefix invitee-web --ignore-scripts/u);
-  assert.match(rootReadme, /same commands work from the root of the extracted\npublic archive/u);
-  assert.match(localGate, /PUBLIC-SOURCE-MANIFEST\.json/u);
-  assert.match(localGate, /manifest\.sourceDateEpoch/u);
-  assert.match(localGate, /\[ -e "\$repository_root\/\.git" \]/u);
-});

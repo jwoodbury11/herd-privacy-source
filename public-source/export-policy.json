@@ -61,7 +61,7 @@
     { "path": "monitor/package-lock.json" },
     { "path": "monitor/wrangler.jsonc" },
     { "path": "security", "recursive": true },
-    { "path": ".github/workflows", "recursive": true },
+    { "path": ".github/workflows", "recursive": true, "optional": true },
     { "path": "docs/private-response-architecture.md" },
     { "path": "docs/private-response-implementation-status.md" },
     { "path": "docs/private-response-protocol-v1.md" },

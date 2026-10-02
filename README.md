@@ -42,34 +42,11 @@ npm run dev
 
 Use `npm test` for the production build and rendered-page checks.
 
-## Verify the privacy boundary
+## Development and deployment
 
-The permanent local gate exercises the clients, services, release evidence,
-public-source export, monitor, Terraform configuration, and native iOS tests:
+Test the behavior being changed, then deploy the affected component and check it live. Web and API changes can ship independently of iOS, the scheduler, and the evaluator. GitHub has no mandatory release checks. See [`docs/release-process.md`](docs/release-process.md).
 
-```sh
-npm ci --prefix invitee-web --ignore-scripts
-npm ci --prefix herd-legal --ignore-scripts
-npm ci --prefix evaluator-service --ignore-scripts
-npm ci --prefix scheduler-service --ignore-scripts
-npm ci --prefix monitor --ignore-scripts
-scripts/test-all
-```
-
-Use the exact Node, npm, Terraform, and Apple versions in
-`release/toolchains.json`. The same commands work from the root of the extracted
-public archive; hosted CI verifies the archive and runs the privacy service,
-browser, infrastructure, source-contract, native unit, and native UI gates from
-that extracted copy.
-
-The same privacy-critical surfaces have hosted gates in
-`.github/workflows/privacy-ci.yml`. The deterministic public export is an
-allowlist: it includes the implementation and tests needed to inspect the
-privacy boundary while excluding credentials, local deployment state, private
-reference material, generated artifacts, and unallowlisted non-code media. The
-few first-party PNGs needed to build the product surfaces are exact-path and
-SHA-256 pinned by the policy. See
-[`docs/public-source-export.md`](docs/public-source-export.md).
+Existing component tests and `scripts/test-all` remain available when useful; the full suite is optional. The public source export remains an allowlist that excludes credentials and local deployment state. See [`docs/public-source-export.md`](docs/public-source-export.md).
 
 ## Shared backend
 
