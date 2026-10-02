@@ -1819,6 +1819,7 @@ test("SMS follow-ups target only unanswered guests, allow no to yes, and keep co
   assert.match(previewBody.message, /1: I’m down\n2: Can’t come/);
   assert.match(previewBody.message, /Herd is thoughtfully designed to remove all the downsides to answering honestly/);
   assert.match(previewBody.message, /tomorrow,/);
+  assert.equal(previewBody.personalizedEventLinkAtEnd, true);
   assert.doesNotMatch(JSON.stringify(previewBody), /phoneNumber|inviteToken|ballotId/);
   assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM sms_rsvp_prompts").first("n"), 0);
   const disabled = await operatorRequest(request);
@@ -1972,11 +1973,14 @@ test("SMS canary sends approved copy only to the allowlisted number and creates 
   const sourceBatch = await op({ action: "send", eventId: sourceId, audience: "unanswered", batchId: "79000000-0000-4000-8000-000000000301" });
   assert.equal((await sourceBatch.json()).total, 0, "the restriction blocks every other unanswered guest");
   const send = { action: "send", eventId: testId, audience: "unanswered", batchId: "79000000-0000-4000-8000-000000000302", message: preview.message };
+  assert.equal((await op({ ...send, message: "x".repeat(1600) })).status, 400);
+  assert.deepEqual(sentMessages, [], "an overlong reminder plus link is rejected before sending");
   const result = await op(send);
   assert.equal(result.status, 200, await result.clone().text());
   assert.deepEqual((await result.json()).counts, { sent: 1 });
   assert.equal((await op(send)).status, 200);
-  assert.deepEqual((await Promise.all(sentMessages)).map((fields) => ({ to: fields.get("To"), body: fields.get("Body") })), [{ to: "+14155550105", body: preview.message }]);
+  const ownLink = `https://app.herdprivacy.com/invite/${encodeURIComponent(before.inviteToken)}`;
+  assert.deepEqual((await Promise.all(sentMessages)).map((fields) => ({ to: fields.get("To"), body: fields.get("Body") })), [{ to: "+14155550105", body: `${preview.message}\n\n${ownLink}` }]);
   const incoming = (digit, sequence) => {
     const params = new URLSearchParams({ AccountSid: messagingAccountSid, MessageSid: `SM${sequence.toString(16).padStart(32, "0")}`, From: `+1415555010${digit}`, To: "+14155550999", Body: "1" });
     const canonical = "https://app.herdprivacy.com/api/webhooks/twilio/sms" + [...params.keys()].sort().map((k) => k + params.get(k)).join("");

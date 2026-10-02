@@ -7,6 +7,7 @@ import { deriveBallotId } from "./ballot-identifiers";
 import { ApiError } from "./http";
 import { saveSmsBallot } from "./sms-ballots";
 import { smsResponse } from "./twilio-webhook";
+import { openSealedInviteToken, type StoredInviteToken } from "./invite-tokens";
 
 export function smsTestPhone(bindings: HerdBindings): string | null {
   const phone = bindings.HERD_SMS_RSVP_TEST_PHONE?.trim();
@@ -125,14 +126,24 @@ export async function sendSmsRsvp(db: D1Database, bindings: HerdBindings, eventI
   const message = approvedMessage ?? prepared.message;
   if (!message.trim() || message.length > 1_600) throw new ApiError(400, "invalid_sms_copy", "The message must contain between 1 and 1600 characters.");
   const now = new Date().toISOString();
-  const prompts = prepared.recipients.map((recipient) => ({ id: randomUuid(), recipient }));
+  const prompts = await Promise.all(prepared.recipients.map(async (recipient) => {
+    const stored = await db.prepare(`SELECT token_ciphertext AS tokenCiphertext,
+      token_nonce AS tokenNonce, token_storage_version AS tokenStorageVersion
+      FROM invitees WHERE event_id = ? AND id = ?`)
+      .bind(eventId, recipient.id).first<StoredInviteToken>();
+    if (!stored) throw new ApiError(409, "invite_not_found", "The invitation is no longer available.");
+    const token = await openSealedInviteToken(getAuthConfig(bindings).pepper, eventId, recipient.id, stored);
+    const body = `${message.trimEnd()}\n\n${config.publicAppUrl}/invite/${encodeURIComponent(token)}`;
+    if (body.length > 1_600) throw new ApiError(400, "sms_too_long", "The reminder and event link exceed 1600 characters.");
+    return { id: randomUuid(), recipient, body };
+  }));
   if (prompts.length === 0) return existing;
   // Freeze the full audience before dispatch. Unique batch/guest rows prevent
   // two operator retries from sending the same reminder twice.
   await db.batch(prompts.map(({ id, recipient }) => db.prepare(`INSERT INTO sms_rsvp_prompts
     (id, batch_id, event_id, invitee_id, status, provider_message_sid, created_at, expires_at)
     VALUES (?, ?, ?, ?, 'pending', NULL, ?, ?)`).bind(id, batchId, eventId, recipient.id, now, prepared.expiresAt)));
-  for (const { id, recipient } of prompts) {
+  for (const { id, recipient, body } of prompts) {
     // Recheck at dispatch so replies submitted after preview are excluded too.
     if (!await isUnanswered(db, bindings, eventId, recipient.id)) {
       await db.prepare("UPDATE sms_rsvp_prompts SET status = 'suppressed' WHERE id = ?").bind(id).run();
@@ -145,7 +156,7 @@ export async function sendSmsRsvp(db: D1Database, bindings: HerdBindings, eventI
       const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.twilio.accountSid)}/Messages.json`, {
         method: "POST",
         headers: { authorization: `Basic ${btoa(`${config.twilio.apiKeySid}:${config.twilio.apiKeySecret}`)}`, "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ To: recipient.phoneNumber, From: from, MessagingServiceSid: config.twilio.messagingServiceSid, Body: message }),
+        body: new URLSearchParams({ To: recipient.phoneNumber, From: from, MessagingServiceSid: config.twilio.messagingServiceSid, Body: body }),
         signal: AbortSignal.timeout(10_000),
       });
       const payload = await response.json().catch(() => ({})) as { sid?: string; status?: string };
