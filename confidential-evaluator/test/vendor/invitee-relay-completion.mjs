@@ -2441,6 +2441,9 @@ var CONFIRMED_JOINING_WINDOW_MS = 24 * 60 * 60 * 1e3;
 // invitee-web/lib/backend/account-keys.ts
 var DEVICE_SWITCH_VERIFICATION_WINDOW_MS = 10 * 60 * 1e3;
 
+// invitee-web/lib/event-images.ts
+var DEFAULT_EVENT_IMAGE_ID = "poker";
+
 // invitee-web/lib/backend/invitation-delivery.ts
 var STALE_DISPATCH_MS = 2 * 6e4;
 function emptyCounts() {
@@ -2516,9 +2519,6 @@ async function getInvitationDeliverySummaries(db, eventIds) {
   }
   return summaries;
 }
-
-// invitee-web/lib/event-images.ts
-var DEFAULT_EVENT_IMAGE_ID = "poker";
 
 // invitee-web/lib/backend/policy.ts
 function policyFromRow(row) {

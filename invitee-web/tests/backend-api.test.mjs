@@ -126,6 +126,7 @@ async function createHarness(options = {}) {
     return left.localeCompare(right);
   });
   const fetchMock = options.fetchMock ?? createFetchMock();
+  const sentMessages = [];
   if (!options.fetchMock) {
     let messageSequence = 0;
     fetchMock.disableNetConnect();
@@ -135,7 +136,11 @@ async function createHarness(options = {}) {
         method: "POST",
         path: `/2010-04-01/Accounts/${messagingAccountSid}/Messages.json`,
       })
-      .reply(201, () => ({ sid: `SM${(++messageSequence).toString(16).padStart(32, "0")}`, status: "accepted" }))
+      .reply(201, (request) => {
+        sentMessages.push(new Response(request.body).text()
+          .then((body) => new URLSearchParams(body)));
+        return { sid: `SM${(++messageSequence).toString(16).padStart(32, "0")}`, status: "accepted" };
+      })
       .persist();
   }
   const defaultDeliveryBindings = options.fetchMock
@@ -192,6 +197,7 @@ async function createHarness(options = {}) {
   return {
     miniflare,
     database,
+    sentMessages,
     async updateBindings(overrides) {
       Object.assign(harnessBindings, overrides);
       await miniflare.setOptions({
@@ -455,6 +461,53 @@ test("real phone numbers use Twilio Verify before a session is created", async (
     .first();
   assert.equal(storedChallenge.status, "verified");
   assert.equal(storedChallenge.codeHash, null);
+});
+
+test("automatic invitations attach the selected artwork and are sent only once", async (t) => {
+  const { miniflare, database, sentMessages } = await createHarness();
+  t.after(() => miniflare.dispose());
+  const signIn = await api(miniflare, "/api/auth/request-code",
+    jsonRequest("POST", { phoneNumber: "1" }));
+  const { accessToken } = await signIn.json();
+
+  for (const [index, imageID] of ["fishing", "beach", "lan", "arcade"].entries()) {
+    const event = {
+      id: `71000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+      title: "Picture invitation test", hostName: testAccountNameForAlias("1"),
+      eventDate: new Date(Date.now() + 14 * 86_400_000).toISOString(),
+      endDate: new Date(Date.now() + 14 * 86_400_000 + 7_200_000).toISOString(),
+      rsvpDeadline: new Date(Date.now() + 12 * 86_400_000).toISOString(),
+      eventTimeZone: "America/Los_Angeles",
+      locationName: "Test", locationAddress: "", minimumParticipants: 2,
+      invitees: [{
+        id: `72000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+        displayName: testAccountNameForAlias("2"), phoneNumber: "+14155550102",
+      }],
+      requiredGroups: [], eventDescription: "", eventImageID: imageID,
+      createdAt: new Date().toISOString(), invitationsSent: true,
+    };
+    const response = await api(miniflare, `/api/events/${event.id}`,
+      authorizedJsonRequest("PUT", event, accessToken));
+    assert.equal(response.status, 200, await response.clone().text());
+    const sentEvent = (await response.json()).event;
+    assert.equal(sentMessages.length, index + 1);
+    const message = await sentMessages[index];
+    assert.equal(message.get("To"), "+14155550102");
+    assert.equal(message.get("MessagingServiceSid"), messagingServiceSid);
+    assert.equal(message.get("MediaUrl"), `https://app.herdprivacy.com/event-images/${imageID}.png`);
+    assert.match(message.get("Body"), /Open the invitation and reply privately\./u);
+    assert.match(message.get("Body"), /Reply STOP to opt out; HELP for help\./u);
+    assert.match(message.get("Body"), /\nhttps:\/\/app\.herdprivacy\.com\/invite\/[A-Za-z0-9_-]+$/u);
+    const image = await readFile(path.join(projectRoot, "public", "event-images", `${imageID}.png`));
+    assert.ok(image.length < 5_000_000, "MMS artwork must fit Twilio's media limit");
+    assert.equal(await database.prepare("SELECT status FROM invitation_deliveries WHERE event_id = ?")
+      .bind(event.id).first("status"), "sent");
+
+    const savedAgain = await api(miniflare, `/api/events/${event.id}`,
+      authorizedJsonRequest("PUT", sentEvent, accessToken));
+    assert.equal(savedAgain.status, 200, await savedAgain.clone().text());
+    assert.equal(sentMessages.length, index + 1, "Saving again must not resend the MMS");
+  }
 });
 
 test("a host event appears for every invited test account after invitations are sent", async (t) => {

@@ -1,4 +1,5 @@
 import { acceptsAttendance } from "@/lib/attendance-window";
+import { DEFAULT_EVENT_IMAGE_ID, EVENT_IMAGE_IDS, eventImagePath, type EventImageID } from "@/lib/event-images";
 import type { HerdBindings } from "@/db";
 
 import { getAuthConfig, getInvitationDeliveryConfig } from "./config";
@@ -44,6 +45,7 @@ type DeliveryDispatchRow = {
   tokenStorageVersion: number | null;
   hostName: string;
   title: string;
+  eventImageID: string | null;
   eventDate: string | null;
   eventTimeZone: string | null;
   rsvpDeadline: string | null;
@@ -338,6 +340,12 @@ async function dispatchOne(
   }
 
   const invitationUrl = `${config.publicAppUrl}/invite/${encodeURIComponent(token)}`;
+  const imageID = EVENT_IMAGE_IDS.includes(row.eventImageID as EventImageID)
+    ? row.eventImageID as EventImageID
+    : DEFAULT_EVENT_IMAGE_ID;
+  // Attach public artwork directly so Messages need not fetch a link preview.
+  // This URL contains no invitation token or event/attendee information.
+  const mediaUrl = `${config.publicAppUrl}${eventImagePath(imageID)}`;
   const body = invitationMessageBody(row, invitationUrl, options);
   if (body.length > 1_600) {
     await updateDispatchResult(db, row.id, "failed", {
@@ -362,6 +370,7 @@ async function dispatchOne(
           To: row.phoneNumber,
           MessagingServiceSid: config.twilio.messagingServiceSid,
           Body: body,
+          MediaUrl: mediaUrl,
         }),
         signal: controller.signal,
       },
@@ -429,6 +438,7 @@ export async function dispatchEventInvitations(
               invitees.token_storage_version AS tokenStorageVersion,
               events.host_name AS hostName,
               events.title,
+              events.event_image_id AS eventImageID,
               events.event_date AS eventDate,
               events.event_time_zone AS eventTimeZone,
               events.rsvp_deadline AS rsvpDeadline,
