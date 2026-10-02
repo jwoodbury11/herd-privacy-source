@@ -628,3 +628,24 @@ export const invitationDeliveries = sqliteTable(
     ),
   ],
 );
+
+// Delivery context only; no SMS body, reply, or identity-to-ballot mapping.
+export const smsRsvpPrompts = sqliteTable("sms_rsvp_prompts", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull(),
+  eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  inviteeId: text("invitee_id").notNull().references(() => invitees.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["pending", "dispatching", "sent", "failed", "unknown", "suppressed"] }).notNull(),
+  providerMessageSid: text("provider_message_sid"),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+}, (table) => [
+  uniqueIndex("sms_rsvp_prompts_batch_guest_unique").on(table.batchId, table.inviteeId),
+  index("sms_rsvp_prompts_event_idx").on(table.eventId),
+]);
+
+export const smsRsvpReceipts = sqliteTable("sms_rsvp_receipts", {
+  messageHash: text("message_hash").primaryKey(),
+  eventId: text("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  createdAt: text("created_at").notNull(),
+});

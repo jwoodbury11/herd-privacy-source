@@ -54,6 +54,10 @@ export type HerdBindings = {
   TWILIO_VERIFY_SERVICE_SID?: string;
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_MESSAGING_SERVICE_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  HERD_SMS_FROM_NUMBER?: string;
+  HERD_SMS_RSVP_ENABLED?: string;
+  HERD_SMS_RSVP_TEST_PHONE?: string;
 };
 
 let cachedBindings: HerdBindings | null = null;
