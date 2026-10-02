@@ -1,4 +1,6 @@
-# Independent Herd release and transparency monitor
+# Independent Herd runtime monitor
+
+Production targets use `"mode": "runtime"` and pin `wellKnownUrl` to the immutable signed trust configuration. This keeps evaluator attestation, response-log continuity, and Apple association checks active without tying web deployments to old asset hashes or downloading historical release artifacts. The status reports the mode explicitly. The optional legacy `release` mode below remains useful for inspecting a historical release.
 
 This Cloudflare Worker is designed to run in an account separate from Herd's
 production account. Every five minutes it verifies the public release pointer,

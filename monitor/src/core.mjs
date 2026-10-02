@@ -422,6 +422,7 @@ function normalizeTransparency(value, index) {
 }
 
 async function normalizeTarget(value) {
+  const hasMode = isObject(value) && Object.hasOwn(value, "mode");
   const hasResponseTransparency = isObject(value) && Object.hasOwn(value, "responseTransparency");
   const hasEvaluatorAttestation = isObject(value) && Object.hasOwn(value, "evaluatorAttestation");
   exactKeys(
@@ -433,6 +434,7 @@ async function normalizeTarget(value) {
       "allowedEvidenceOrigins",
       "requireProduction",
       "releaseSigningKey",
+      ...(hasMode ? ["mode"] : []),
       ...(hasResponseTransparency ? ["responseTransparency"] : []),
       ...(hasEvaluatorAttestation ? ["evaluatorAttestation"] : []),
     ],
@@ -454,6 +456,8 @@ async function normalizeTarget(value) {
   if (typeof value.requireProduction !== "boolean") {
     throw new TypeError("monitor target requireProduction must be boolean.");
   }
+  const mode = value.mode ?? "release";
+  if (mode !== "runtime" && mode !== "release") throw new TypeError("monitor target mode is invalid.");
   let responseTransparency = null;
   if (hasResponseTransparency) {
     exactKeys(
@@ -505,6 +509,7 @@ async function normalizeTarget(value) {
   }
   return {
     name: string(value.name, "monitor target name", { maximum: 120, pattern: RELEASE_ID }),
+    mode,
     wellKnownUrl,
     expectedWebOrigin,
     allowedEvidenceOrigins: [...allowedEvidenceOrigins].sort(),
@@ -1873,7 +1878,9 @@ export async function verifyTarget(
   ) throw new TypeError("monitored web hashes differ from the release manifest.");
 
   const [resourceResults, publishedArtifacts] = await Promise.all([
-    Promise.all(deployment.monitoredResources.map(async (resource) => {
+    Promise.all(deployment.monitoredResources.filter((resource) =>
+      target.mode !== "runtime" || resource.name === APPLE_APP_SITE_ASSOCIATION_NAME,
+    ).map(async (resource) => {
       if (new URL(resource.url).origin !== target.expectedWebOrigin) throw new TypeError(`${resource.name} is outside the configured web origin.`);
       const fetched = await fetchBounded(fetchImpl, resource.url, Math.min(resource.size + 1, MAX_RESOURCE_BYTES), `monitored resource ${resource.name}`);
       if (fetched.bytes.byteLength !== resource.size || (await sha256Hex(fetched.bytes)) !== resource.sha256) {
@@ -1887,7 +1894,7 @@ export async function verifyTarget(
       }
       return { name: resource.name, sha256: resource.sha256, size: resource.size };
     })),
-    verifyPublishedReleaseEvidence(fetchImpl, manifest, target),
+    target.mode === "runtime" ? [] : verifyPublishedReleaseEvidence(fetchImpl, manifest, target),
   ]);
   const responseTransparency = target.responseTransparency
     ? await witnessResponseTransparency(target.responseTransparency, {
@@ -1912,6 +1919,7 @@ export async function verifyTarget(
   return {
     schemaVersion: 1,
     target: target.name,
+    mode: target.mode,
     ok: true,
     checkedAt,
     releaseId: manifest.releaseId,

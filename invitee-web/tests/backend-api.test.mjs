@@ -152,6 +152,8 @@ async function createHarness(options = {}) {
         TWILIO_API_KEY_SECRET: "test-messaging-secret",
         TWILIO_VERIFY_SERVICE_SID: verifyServiceSid,
         TWILIO_MESSAGING_SERVICE_SID: messagingServiceSid,
+        TWILIO_AUTH_TOKEN: "sms-webhook-auth-token",
+        HERD_SMS_FROM_NUMBER: "+14155550999",
       };
   const harnessBindings = {
     HERD_DEPLOYMENT_PROFILE: "test",
@@ -1771,4 +1773,224 @@ test("confirmed events grow until the next day and reconsider saved conditional 
   assert.equal((await lateAddition.json()).error.code, "rsvp_closed");
   assert.equal((await read()).resolution.resolvedAt, confirmedAt);
   assert.equal((await read()).resolution.attendingMemberIds.length, 9);
+});
+
+test("SMS follow-ups target only unanswered guests, allow no to yes, and keep confirmed yes final", async (t) => {
+  const operator = "sms-operator-0123456789-abcdefghijklmnopqrstuvwxyz";
+  const { miniflare, updateBindings } = await createHarness({ bindings: { HERD_OPERATOR_TOKEN: operator } });
+  let database = await miniflare.getD1Database("DB");
+  t.after(() => miniflare.dispose());
+  const sessions = new Map();
+  for (const digit of ["1", "2", "3", "4", "5"]) {
+    const auth = await api(miniflare, "/api/auth/request-code", jsonRequest("POST", { phoneNumber: digit }));
+    sessions.set(digit, (await auth.json()).accessToken);
+  }
+  const eventId = "78000000-0000-4000-8000-000000000101";
+  const guest = (digit) => ({ id: `78000000-0000-4000-8000-00000000010${digit}`, displayName: testAccountNameForAlias(digit), phoneNumber: `+1415555010${digit}` });
+  const event = {
+    id: eventId, title: "SMS volleyball", hostName: testAccountNameForAlias("1"),
+    eventDate: new Date(Date.now() + 86_400_000).toISOString(), eventTimeZone: "America/Los_Angeles", endDate: null,
+    rsvpDeadline: new Date(Date.now() + 3_600_000).toISOString(), locationName: "Test park", locationAddress: "", eventDescription: "",
+    minimumParticipants: 2, requiredGroups: [], invitationsSent: true, invitees: ["2", "3", "4"].map(guest), createdAt: new Date().toISOString(),
+  };
+  const created = await api(miniflare, `/api/events/${eventId}`, authorizedJsonRequest("PUT", event, sessions.get("1")));
+  assert.equal(created.status, 200, await created.clone().text());
+  const read = async (digit = "1") => {
+    const r = await api(miniflare, "/api/events", { headers: { authorization: `Bearer ${sessions.get(digit)}` } });
+    assert.equal(r.status, 200, await r.clone().text());
+    return (await r.json()).events.find((e) => e.id === eventId);
+  };
+  const ordinaryReply = async (digit, response) => api(miniflare, `/api/invites/${(await read(digit)).inviteToken}/ballot`, authorizedJsonRequest("PUT", { response, minimumParticipants: response === "going" ? 2 : null, requiredGroups: [] }, sessions.get(digit)));
+  assert.equal((await ordinaryReply("2", "going")).status, 200);
+  assert.equal((await ordinaryReply("4", "cant_commit")).status, 200);
+  assert.equal((await read()).resolution.status, "confirmed");
+  const notificationCount = await database.prepare("SELECT COUNT(*) AS n FROM resolution_notifications WHERE event_id = ?").bind(eventId).first("n");
+  const operatorRequest = (body, key = operator) => api(miniflare, "/api/internal/sms-rsvp", authorizedJsonRequest("POST", body, key));
+  const batchId = "78000000-0000-4000-8000-000000000201";
+  const request = { action: "send", eventId, audience: "unanswered", batchId };
+  assert.equal((await operatorRequest(request, "incorrect-operator-token-01234567890")).status, 401);
+  for (const audience of ["all", "going", "cant_commit"]) {
+    assert.equal((await operatorRequest({ ...request, audience })).status, 400);
+  }
+  const preview = await operatorRequest({ ...request, action: "preview" });
+  assert.equal(preview.status, 200, await preview.clone().text());
+  const previewBody = await preview.json();
+  assert.equal(previewBody.recipientCount, 1, "neither existing yes nor existing no receives the follow-up");
+  assert.match(previewBody.message, /1: I’m down\n2: Can’t come/);
+  assert.match(previewBody.message, /Herd is thoughtfully designed to remove all the downsides to answering honestly/);
+  assert.match(previewBody.message, /tomorrow,/);
+  assert.doesNotMatch(JSON.stringify(previewBody), /phoneNumber|inviteToken|ballotId/);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM sms_rsvp_prompts").first("n"), 0);
+  const disabled = await operatorRequest(request);
+  assert.equal(disabled.status, 409);
+  assert.equal((await disabled.json()).error.code, "sms_rsvp_disabled");
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM sms_rsvp_prompts").first("n"), 0);
+  await updateBindings({ HERD_SMS_RSVP_ENABLED: "true" });
+  database = await miniflare.getD1Database("DB");
+  const sent = await operatorRequest(request);
+  assert.equal(sent.status, 200, await sent.clone().text());
+  assert.deepEqual((await sent.json()).counts, { sent: 1 });
+  assert.equal((await operatorRequest(request)).status, 200);
+  const prompts = await database.prepare("SELECT invitee_id FROM sms_rsvp_prompts").all();
+  assert.deepEqual(prompts.results, [{ invitee_id: guest("3").id }]);
+  const incoming = (digit, body, id, overrides = {}, badSignature = false) => {
+    const params = new URLSearchParams({ AccountSid: messagingAccountSid, MessageSid: `SM${id.toString(16).padStart(32, "0")}`, From: `+1415555010${digit}`, To: "+14155550999", Body: body, ...overrides });
+    const canonical = "https://app.herdprivacy.com/api/webhooks/twilio/sms" + [...params.keys()].sort().map((k) => k + params.get(k)).join("");
+    const signature = createHmac("sha1", badSignature ? "wrong" : "sms-webhook-auth-token").update(canonical).digest("base64");
+    return api(miniflare, "/api/webhooks/twilio/sms", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature }, body: params.toString() });
+  };
+  const ballotCount = () => database.prepare("SELECT COUNT(*) AS n FROM ballot_revisions WHERE event_id=?").bind(eventId).first("n");
+  const before = await ballotCount();
+  assert.equal((await incoming("3", "1", 1, {}, true)).status, 403);
+  assert.equal((await incoming("3", "1", 2, { To: "+14155550888" })).status, 403);
+  assert.equal((await incoming("3", "1", 3, { AccountSid: `AC${"9".repeat(32)}` })).status, 403);
+  assert.doesNotMatch(await (await incoming("5", "1", 4)).text(), /<Message>/); // Not invited.
+  assert.doesNotMatch(await (await incoming("2", "2", 5)).text(), /<Message>/); // Not prompted.
+  assert.doesNotMatch(await (await incoming("3", "STOP", 6)).text(), /<Message>/);
+  assert.doesNotMatch(await (await incoming("3", "1", 7, { OptOutType: "STOP" })).text(), /<Message>/);
+  assert.match(await (await incoming("3", "yes", 8)).text(), /reply 1 to attend or 2/);
+  assert.equal(await ballotCount(), before);
+  const no = await incoming("3", "2", 9);
+  assert.equal(no.status, 200, await no.clone().text());
+  assert.match(await no.text(), /won&apos;t count as attending/);
+  assert.equal((await read()).resolution.attendingMemberIds.length, 2);
+  assert.equal((await read()).resolution.guestStates.find((g) => g.memberId === guest("3").id).status, "cant_commit");
+  const yes = await incoming("3", " 1 ", 10);
+  assert.equal(yes.status, 200, await yes.clone().text());
+  assert.match(await yes.text(), /confirmed Going/);
+  const afterYes = await read();
+  assert.equal(afterYes.resolution.attendingMemberIds.length, 3);
+  assert.equal(afterYes.resolution.guestStates.find((g) => g.memberId === guest("3").id).status, "going");
+  const ownBallot = await api(miniflare, `/api/invites/${(await read("3")).inviteToken}/ballot`, { headers: { authorization: `Bearer ${sessions.get("3")}` } });
+  assert.equal((await ownBallot.json()).ballot.response, "going", "existing web and native clients read the same saved RSVP");
+  const savedCount = await ballotCount();
+  // Simulate a worker stopping after saving yes but before publishing attendance.
+  await database.prepare("UPDATE event_resolutions SET attending_member_ids = ? WHERE event_id = ?")
+    .bind(JSON.stringify(afterYes.resolution.attendingMemberIds.filter((id) => id !== guest("3").id)), eventId).run();
+  assert.match(await (await incoming("3", "2", 11)).text(), /cannot be changed to no/);
+  assert.equal((await ordinaryReply("3", "cant_commit")).status, 409);
+  assert.equal((await incoming("3", "2", 9)).status, 200); // An old NO cannot overwrite the newer YES.
+  const concurrentRetries = await Promise.all([incoming("3", "1", 10), incoming("3", "1", 10)]);
+  assert.ok(concurrentRetries.every((reply) => reply.status === 200));
+  assert.equal(await ballotCount(), savedCount);
+  assert.equal((await read()).resolution.attendingMemberIds.length, 3);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM sms_rsvp_receipts").first("n"), 2);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM resolution_notifications WHERE event_id = ?").bind(eventId).first("n"), notificationCount, "SMS replies must not broadcast another event confirmation");
+  assert.equal((await ordinaryReply("4", "going")).status, 200, "earlier no remains changeable to yes in the app without another reminder");
+  assert.equal((await (await operatorRequest({ ...request, action: "preview" })).json()).recipientCount, 0);
+  // Another event accepting the same bare digits makes the reply ambiguous.
+  const secondId = "78000000-0000-4000-8000-000000000301";
+  const secondGuestId = "78000000-0000-4000-8000-000000000302";
+  const second = { ...event, id: secondId, title: "Different event", invitees: [
+    { ...guest("3"), id: secondGuestId },
+    { ...guest("4"), id: "78000000-0000-4000-8000-000000000304" },
+  ] };
+  assert.equal((await api(miniflare, `/api/events/${secondId}`, authorizedJsonRequest("PUT", second, sessions.get("1")))).status, 200);
+  const replyToSecond = async (digit, response) => {
+    const allEvents = await api(miniflare, "/api/events", { headers: { authorization: `Bearer ${sessions.get(digit)}` } });
+    const token = (await allEvents.json()).events.find((e) => e.id === secondId).inviteToken;
+    return api(miniflare, `/api/invites/${token}/ballot`, authorizedJsonRequest("PUT", { response, minimumParticipants: response === "going" ? 2 : null, requiredGroups: [] }, sessions.get(digit)));
+  };
+  assert.equal((await replyToSecond("3", "going")).status, 200);
+  const secondRequest = { ...request, eventId: secondId, batchId: "78000000-0000-4000-8000-000000000401" };
+  const secondPreview = await operatorRequest({ ...secondRequest, action: "preview" });
+  assert.equal((await secondPreview.json()).recipientCount, 1);
+  assert.equal((await replyToSecond("4", "cant_commit")).status, 200);
+  const changedSincePreview = await operatorRequest(secondRequest);
+  assert.equal(changedSincePreview.status, 200);
+  assert.equal((await changedSincePreview.json()).total, 0, "someone who answered after preview is excluded at send time");
+  await database.prepare("INSERT INTO sms_rsvp_prompts (id,batch_id,event_id,invitee_id,status,created_at,expires_at) VALUES (?,?,?,?, 'sent',?,?)")
+    .bind("ambiguous-prompt", "other-batch", secondId, secondGuestId, new Date().toISOString(), new Date(Date.now() + 3_600_000).toISOString()).run();
+  assert.match(await (await incoming("3", "1", 12)).text(), /more than one event/);
+  assert.equal(await ballotCount(), savedCount + 1);
+  await updateBindings({ HERD_SMS_RSVP_ENABLED: "false" });
+  database = await miniflare.getD1Database("DB");
+  assert.doesNotMatch(await (await incoming("3", "1", 13)).text(), /<Message>/, "disabled means no automated outbound reply either");
+  await updateBindings({ HERD_SMS_RSVP_ENABLED: "true" });
+  database = await miniflare.getD1Database("DB");
+  await database.prepare("UPDATE sms_rsvp_prompts SET expires_at=?").bind(new Date(Date.now() - 1_000).toISOString()).run();
+  assert.doesNotMatch(await (await incoming("3", "1", 14)).text(), /<Message>/);
+  assert.equal(await ballotCount(), savedCount + 1);
+  const receipts = await database.prepare("SELECT * FROM sms_rsvp_receipts").all();
+  assert.doesNotMatch(JSON.stringify(receipts.results), /phone|invitee|body|response|ballot|1415555/iu);
+});
+
+test("SMS canary sends approved copy only to the allowlisted number and creates no other notifications", async (t) => {
+  const operator = "sms-canary-operator-0123456789-abcdefghijklmnopqrstuvwxyz";
+  const { miniflare, sentMessages, updateBindings } = await createHarness({ bindings: { HERD_OPERATOR_TOKEN: operator } });
+  t.after(() => miniflare.dispose());
+  let database = await miniflare.getD1Database("DB");
+  const sessions = new Map();
+  for (const digit of ["1", "2", "5"]) {
+    const auth = await api(miniflare, "/api/auth/request-code", jsonRequest("POST", { phoneNumber: digit }));
+    sessions.set(digit, (await auth.json()).accessToken);
+  }
+  const sourceId = "79000000-0000-4000-8000-000000000101";
+  const testId = "79000000-0000-4000-8000-000000000201";
+  const source = {
+    id: sourceId, title: "Volleyball", hostName: "James Woodbury",
+    eventDate: new Date(Date.now() + 86_400_000).toISOString(), eventTimeZone: "America/Los_Angeles", endDate: null,
+    rsvpDeadline: new Date(Date.now() + 3_600_000).toISOString(), locationName: "Dolores Park", locationAddress: "", eventDescription: "",
+    minimumParticipants: 2, requiredGroups: [], invitationsSent: true, invitees: ["2", "3"].map((digit) => ({
+      id: `79000000-0000-4000-8000-00000000010${digit}`, displayName: `Guest ${digit}`, phoneNumber: `+1415555010${digit}`,
+    })), createdAt: new Date().toISOString(),
+  };
+  const created = await api(miniflare, `/api/events/${sourceId}`, authorizedJsonRequest("PUT", source, sessions.get("1")));
+  assert.equal(created.status, 200, await created.clone().text());
+  const read = async (digit, id) => {
+    const response = await api(miniflare, "/api/events", { headers: { authorization: `Bearer ${sessions.get(digit)}` } });
+    return (await response.json()).events.find((e) => e.id === id);
+  };
+  const second = await read("2", sourceId);
+  assert.equal((await api(miniflare, `/api/invites/${second.inviteToken}/ballot`, authorizedJsonRequest("PUT", { response: "going", minimumParticipants: 2, requiredGroups: [] }, sessions.get("2")))).status, 200);
+  await Promise.all(sentMessages);
+  sentMessages.length = 0;
+  const op = (body) => api(miniflare, "/api/internal/sms-rsvp", authorizedJsonRequest("POST", body, operator));
+  const prepare = { action: "prepare_test", eventId: sourceId, testEventId: testId };
+  assert.equal((await op(prepare)).status, 409, "a canary requires an explicit single-number restriction");
+  await updateBindings({ HERD_SMS_RSVP_TEST_PHONE: "+14155550105" });
+  database = await miniflare.getD1Database("DB");
+  assert.equal((await op({ ...prepare, testEventId: sourceId })).status, 400);
+  const prepared = await op(prepare);
+  assert.equal(prepared.status, 200, await prepared.clone().text());
+  const preview = await prepared.json();
+  assert.equal(preview.recipientCount, 1);
+  assert.match(preview.message, /^Thanks for trying out the eng prototype test of Herd!/);
+  assert.match(preview.message, /James Woodbury’s event “Volleyball” is tomorrow,/);
+  assert.match(preview.message, /1: I’m down\n2: Can’t come$/);
+  assert.doesNotMatch(preview.message, /STOP|confirmed yes|SMS test/);
+  assert.equal((await op(prepare)).status, 200, "canary preparation is idempotent");
+  const before = await read("5", testId);
+  assert.equal(before.hasBallot, false);
+  assert.equal(before.invitees.length, 1);
+  assert.equal(before.resolution.status, "confirmed");
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM invitation_deliveries WHERE event_id = ?").bind(testId).first("n"), 0);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM resolution_notifications WHERE event_id = ?").bind(testId).first("n"), 0);
+  assert.deepEqual(sentMessages, [], "preparing or reading a canary never sends a text");
+  await updateBindings({ HERD_SMS_RSVP_ENABLED: "true" });
+  database = await miniflare.getD1Database("DB");
+  const sourceBatch = await op({ action: "send", eventId: sourceId, audience: "unanswered", batchId: "79000000-0000-4000-8000-000000000301" });
+  assert.equal((await sourceBatch.json()).total, 0, "the restriction blocks every other unanswered guest");
+  const send = { action: "send", eventId: testId, audience: "unanswered", batchId: "79000000-0000-4000-8000-000000000302", message: preview.message };
+  const result = await op(send);
+  assert.equal(result.status, 200, await result.clone().text());
+  assert.deepEqual((await result.json()).counts, { sent: 1 });
+  assert.equal((await op(send)).status, 200);
+  assert.deepEqual((await Promise.all(sentMessages)).map((fields) => ({ to: fields.get("To"), body: fields.get("Body") })), [{ to: "+14155550105", body: preview.message }]);
+  const incoming = (digit, sequence) => {
+    const params = new URLSearchParams({ AccountSid: messagingAccountSid, MessageSid: `SM${sequence.toString(16).padStart(32, "0")}`, From: `+1415555010${digit}`, To: "+14155550999", Body: "1" });
+    const canonical = "https://app.herdprivacy.com/api/webhooks/twilio/sms" + [...params.keys()].sort().map((k) => k + params.get(k)).join("");
+    const signature = createHmac("sha1", "sms-webhook-auth-token").update(canonical).digest("base64");
+    return api(miniflare, "/api/webhooks/twilio/sms", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature }, body: params.toString() });
+  };
+  assert.doesNotMatch(await (await incoming("3", 31)).text(), /<Message>/);
+  const reply = await incoming("5", 32);
+  assert.equal(reply.status, 200, await reply.clone().text());
+  assert.match(await reply.text(), /confirmed Going/);
+  const after = await read("5", testId);
+  assert.equal(after.hasBallot, true);
+  assert.equal(after.resolution.attendingMemberIds.length, 2);
+  assert.equal(await database.prepare("SELECT COUNT(*) AS n FROM resolution_notifications WHERE event_id = ?").bind(testId).first("n"), 0);
+  assert.equal(sentMessages.length, 1, "no host or guest broadcasts are produced by the canary reply");
+  assert.equal((await read("1", sourceId)).resolution.attendingMemberIds.length, 2, "the source event is unchanged");
 });

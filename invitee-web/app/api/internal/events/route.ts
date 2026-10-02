@@ -121,7 +121,7 @@ export async function GET(request: Request) {
     const hasMore = rows.results.length > PAGE_SIZE;
     const page = rows.results.slice(0, PAGE_SIZE);
     return jsonResponse({
-      releaseId: bindings.HERD_ARTIFACT_RELEASE_ID ?? "unknown",
+      releaseId: bindings.HERD_DEPLOYMENT_REVISION ?? bindings.HERD_ARTIFACT_RELEASE_ID ?? "unknown",
       events: page.map(({ attendingMemberIds, ...row }) => ({
         ...row,
         allowsAttendeesToAddGuests: Boolean(row.allowsAttendeesToAddGuests),

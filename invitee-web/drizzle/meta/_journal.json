@@ -155,6 +155,13 @@
       "when": 1787772241153,
       "tag": "0021_known_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790972680738,
+      "tag": "0022_freezing_guardsmen",
+      "breakpoints": true
     }
   ]
 }

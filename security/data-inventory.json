@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "databaseSnapshot": "invitee-web/drizzle/meta/0019_snapshot.json",
-  "reviewedAt": "2026-08-18",
+  "databaseSnapshot": "invitee-web/drizzle/meta/0022_snapshot.json",
+  "reviewedAt": "2026-10-02",
   "externalStores": {
     "transparencyAuthorityFirestore": {
       "purpose": "Independently administered monotonic authority for immutable event-policy commitments, authenticated latest-response state, response-log append order, one-time canonical evaluation consumption, and byte-identical certifications across evaluator replicas and restarts.",
@@ -14,6 +14,22 @@
     }
   },
   "tables": {
+    "sms_rsvp_prompts": {
+      "purpose": "Maps an explicitly sent confirmed-event follow-up to its invited recipient for bounded SMS reply routing. Contains no message body or ballot identifier.",
+      "ordinaryMetadata": ["id", "batch_id", "event_id", "invitee_id", "status", "created_at", "expires_at"],
+      "pseudonymousOrHashed": [],
+      "sensitivePlaintext": ["provider_message_sid"],
+      "sealed": [],
+      "retention": "Event lifetime with cascading event/invitee deletion. Routing stops at expires_at; retained delivery metadata prevents uncertain sends from being resent."
+    },
+    "sms_rsvp_receipts": {
+      "purpose": "Atomically deduplicates verified inbound SMS writes without storing sender identity, body, answer, or ballot identifier.",
+      "ordinaryMetadata": ["event_id", "created_at"],
+      "pseudonymousOrHashed": ["message_hash"],
+      "sensitivePlaintext": [],
+      "sealed": [],
+      "retention": "Event lifetime; deletion cascades with the event. Retained hashes prevent an older verified message from overwriting a newer reply."
+    },
     "account_key_epochs": {
       "purpose": "Tracks device-held account-key generations and one-way commitments.",
       "ordinaryMetadata": ["created_at", "epoch_number", "id", "superseded_at", "user_id"],
@@ -80,7 +96,7 @@
     },
     "events": {
       "purpose": "Host-created public event details and reply policy timing.",
-      "ordinaryMetadata": ["allows_attendees_to_add_guests", "created_at", "end_date", "event_date", "event_description", "host_name", "host_user_id", "id", "invitations_sent", "location_address", "location_name", "minimum_participants", "rsvp_deadline", "title", "updated_at"],
+      "ordinaryMetadata": ["allows_attendees_to_add_guests", "created_at", "end_date", "event_date", "event_description", "event_image_id", "event_time_zone", "host_name", "host_user_id", "id", "invitations_sent", "location_address", "location_name", "minimum_participants", "rsvp_deadline", "title", "updated_at"],
       "pseudonymousOrHashed": [],
       "sensitivePlaintext": [],
       "sealed": [],
