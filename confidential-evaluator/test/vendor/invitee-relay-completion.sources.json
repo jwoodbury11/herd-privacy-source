@@ -38,7 +38,7 @@
     },
     {
       "path": "../invitee-web/lib/backend/invitation-delivery.ts",
-      "sha256": "3d12e96d81d697d48e4fea3662a2ec927bbb7aedfea6ed5baff1fc70d6fa43b7"
+      "sha256": "044f6220caa7efec47fa7131b5ccb96f4e92abf613abc1087d9140f4fcfab5fe"
     },
     {
       "path": "../invitee-web/lib/backend/invite-tokens.ts",
